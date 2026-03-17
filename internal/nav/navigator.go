@@ -2,13 +2,16 @@ package nav
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // View is the interface that all navigable views must implement.
 type View interface {
 	tea.Model
-	ID() string    // unique identifier for caching, e.g. "ec2_list"
-	Title() string // human-readable title for breadcrumb display
+	ID() string          // unique identifier for caching, e.g. "ec2_list"
+	Title() string       // human-readable title for breadcrumb display
+	KeyMap() []ui.KeyHint // view-specific keybindings for status bar display
 }
 
 // Navigator manages a stack of views with caching.
