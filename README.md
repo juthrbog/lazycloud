@@ -103,9 +103,16 @@ Settings are applied in order of precedence: **config file < env vars < CLI flag
 
 Use `--config path` to specify a custom config file location.
 
-## Supported Clouds
+## Supported Services
 
 Only **AWS** is supported at this time. Other cloud providers may be added in the future.
+
+### AWS
+
+| Service | Status | Description |
+|---------|--------|-------------|
+| [S3](services/aws/s3.md) | Implemented | Browse buckets, navigate objects, preview files, presigned URLs |
+| [EC2](services/aws/ec2.md) | Mock data | Browse instances (real API integration planned) |
 
 ## Tech Stack
 
