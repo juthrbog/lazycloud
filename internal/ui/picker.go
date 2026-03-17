@@ -125,10 +125,21 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 func (p *Picker) rebuildFiltered() {
 	p.filtered = p.filtered[:0]
 	query := strings.ToLower(p.filter)
-	for i, opt := range p.options {
-		if query == "" || fuzzyMatch(strings.ToLower(opt.Label), query) || fuzzyMatch(strings.ToLower(opt.Value), query) {
+	if query == "" {
+		for i := range p.options {
 			p.filtered = append(p.filtered, i)
 		}
+	} else {
+		// Value matches first, then label-only matches
+		var labelOnly []int
+		for i, opt := range p.options {
+			if fuzzyMatch(strings.ToLower(opt.Value), query) {
+				p.filtered = append(p.filtered, i)
+			} else if fuzzyMatch(strings.ToLower(opt.Label), query) {
+				labelOnly = append(labelOnly, i)
+			}
+		}
+		p.filtered = append(p.filtered, labelOnly...)
 	}
 	if p.cursor >= len(p.filtered) {
 		p.cursor = max(0, len(p.filtered)-1)
