@@ -37,6 +37,15 @@ type EventLog struct {
 
 func (e *EventLog) ID() string    { return "eventlog" }
 func (e *EventLog) Title() string { return "Event Log" }
+func (e *EventLog) KeyMap() []ui.KeyHint {
+	return []ui.KeyHint{
+		{Key: "1-4", Desc: "severity"},
+		{Key: "tab", Desc: "cycle"},
+		{Key: "ctrl+s", Desc: "auto-scroll"},
+		{Key: "/", Desc: "filter"},
+		{Key: "r", Desc: "refresh"},
+	}
+}
 
 // NewEventLog creates the event log view.
 func NewEventLog() *EventLog {

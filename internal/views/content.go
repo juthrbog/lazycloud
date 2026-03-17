@@ -17,6 +17,16 @@ type ContentViewer struct {
 
 func (c *ContentViewer) ID() string    { return c.id }
 func (c *ContentViewer) Title() string { return c.name }
+func (c *ContentViewer) KeyMap() []ui.KeyHint {
+	return []ui.KeyHint{
+		{Key: "j/k", Desc: "move"},
+		{Key: "V", Desc: "visual"},
+		{Key: "y", Desc: "yank"},
+		{Key: "e", Desc: "editor"},
+		{Key: "n", Desc: "lines"},
+		{Key: "g/G", Desc: "top/bottom"},
+	}
+}
 
 // NewContentViewer creates a content viewer view.
 func NewContentViewer(id, title, content string, format ui.ContentFormat) *ContentViewer {
