@@ -22,6 +22,7 @@ func main() {
 	theme := flag.String("theme", "", "color theme (catppuccin, dracula, nord, tokyonight)")
 	noNerd := flag.Bool("no-nerd-fonts", false, "disable Nerd Font icons")
 	configPath := flag.String("config", "", "path to config file")
+	readWrite := flag.Bool("read-write", false, "start in ReadWrite mode (default: ReadOnly)")
 	initConfig := flag.Bool("init-config", false, "write default config file and exit")
 	flag.Parse()
 
@@ -59,6 +60,10 @@ func main() {
 
 	if !cfg.Display.NerdFonts {
 		ui.UseNerdFonts = false
+	}
+
+	if *readWrite {
+		ui.ReadOnly = false
 	}
 
 	if cfg.Log.File != "" {

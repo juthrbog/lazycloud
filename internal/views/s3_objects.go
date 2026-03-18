@@ -78,7 +78,7 @@ type s3TableEntry struct {
 
 // S3Objects displays objects and folders within an S3 bucket.
 type S3Objects struct {
-	client            *aws.Client
+	s3                aws.S3Service
 	bucket            string
 	prefix            string
 	objects           []aws.S3Object
@@ -103,20 +103,31 @@ func (s *S3Objects) ID() string {
 }
 
 func (s *S3Objects) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
+	hints := []ui.KeyHint{
 		{Key: "enter", Desc: "view"},
 		{Key: "d", Desc: "describe"},
 		{Key: "w", Desc: "download"},
-		{Key: "c", Desc: "copy"},
-		{Key: "m", Desc: "move"},
-		{Key: "v", Desc: "versions"},
-		{Key: "u", Desc: "presign"},
-		{Key: "y", Desc: "copy path"},
-		{Key: "space", Desc: "select"},
-		{Key: "x", Desc: "delete"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
 	}
+	if !ui.ReadOnly {
+		hints = append(hints,
+			ui.KeyHint{Key: "c", Desc: "copy"},
+			ui.KeyHint{Key: "m", Desc: "move"},
+		)
+	}
+	hints = append(hints,
+		ui.KeyHint{Key: "v", Desc: "versions"},
+		ui.KeyHint{Key: "u", Desc: "presign"},
+		ui.KeyHint{Key: "y", Desc: "copy path"},
+		ui.KeyHint{Key: "space", Desc: "select"},
+	)
+	if !ui.ReadOnly {
+		hints = append(hints, ui.KeyHint{Key: "x", Desc: "delete"})
+	}
+	hints = append(hints,
+		ui.KeyHint{Key: "/", Desc: "filter"},
+		ui.KeyHint{Key: "r", Desc: "refresh"},
+	)
+	return hints
 }
 
 func (s *S3Objects) Title() string {
@@ -128,7 +139,7 @@ func (s *S3Objects) Title() string {
 }
 
 // NewS3Objects creates the S3 object browser view.
-func NewS3Objects(client *aws.Client, bucket, prefix string) *S3Objects {
+func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
 	columns := []table.Column{
 		{Title: "", Width: 3},
 		{Title: "Name", Width: 40},
@@ -139,7 +150,7 @@ func NewS3Objects(client *aws.Client, bucket, prefix string) *S3Objects {
 
 	t := ui.NewTable(columns, nil)
 	return &S3Objects{
-		client:  client,
+		s3:      s3,
 		bucket:  bucket,
 		prefix:  prefix,
 		table:   t,
@@ -164,14 +175,14 @@ func (s *S3Objects) Init() tea.Cmd {
 
 // fetchPage fetches a single page and returns its results as a message.
 func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	prefix := s.prefix
 	return func() tea.Msg {
-		if client == nil {
+		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
 		}
-		page, err := aws.ListObjectsPage(context.Background(), client, bucket, prefix, token)
+		page, err := svc.ListObjectsPage(context.Background(), bucket, prefix, token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s/%s", bucket, prefix)}
 		}
@@ -189,13 +200,13 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 
 // resolveDeleteKeys expands folders into their contained object keys.
 func (s *S3Objects) resolveDeleteKeys(entries []s3TableEntry) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		var keys []string
 		for _, e := range entries {
 			if e.isFolder {
-				folderKeys, err := aws.ListAllKeys(context.Background(), client, bucket, e.fullPath)
+				folderKeys, err := svc.ListAllKeys(context.Background(), bucket, e.fullPath)
 				if err != nil {
 					return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s", e.fullPath)}
 				}
@@ -209,22 +220,22 @@ func (s *S3Objects) resolveDeleteKeys(entries []s3TableEntry) tea.Cmd {
 }
 
 func (s *S3Objects) deleteObjects(keys []string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	count := len(keys)
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Deleting %d objects in s3://%s", count, bucket)
-		err := aws.DeleteObjects(context.Background(), client, bucket, keys)
+		err := svc.DeleteObjects(context.Background(), bucket, keys)
 		return s3DeleteCompleteMsg{count: count, err: err}
 	}
 }
 
 func (s *S3Objects) previewCheck(key string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "HeadObject (preview check): s3://%s/%s", bucket, key)
-		meta, err := aws.HeadObject(context.Background(), client, bucket, key)
+		meta, err := svc.HeadObject(context.Background(), bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("head s3://%s/%s", bucket, key)}
 		}
@@ -233,11 +244,11 @@ func (s *S3Objects) previewCheck(key string) tea.Cmd {
 }
 
 func (s *S3Objects) fetchObjectContent(key string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching content: s3://%s/%s", bucket, key)
-		content, err := aws.GetObjectContent(context.Background(), client, bucket, key, 1<<20)
+		content, err := svc.GetObjectContent(context.Background(), bucket, key, 1<<20)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("reading s3://%s/%s", bucket, key)}
 		}
@@ -246,10 +257,10 @@ func (s *S3Objects) fetchObjectContent(key string) tea.Cmd {
 }
 
 func (s *S3Objects) presignObject(key string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
-		url, err := aws.PresignGetObject(context.Background(), client, bucket, key, time.Hour)
+		url, err := svc.PresignGetObject(context.Background(), bucket, key, time.Hour)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("presigning s3://%s/%s", bucket, key)}
 		}
@@ -270,32 +281,32 @@ func (s *S3Objects) refreshListing() tea.Cmd {
 }
 
 func (s *S3Objects) downloadObject(key string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	destPath := aws.DefaultDownloadPath(key)
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Downloading s3://%s/%s → %s", bucket, key, destPath)
-		err := aws.DownloadObject(context.Background(), client, bucket, key, destPath)
+		err := svc.DownloadObject(context.Background(), bucket, key, destPath)
 		return s3DownloadCompleteMsg{key: key, path: destPath, err: err}
 	}
 }
 
 func (s *S3Objects) copyObject(srcKey, dstKey string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Copying s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
-		err := aws.CopyObject(context.Background(), client, bucket, srcKey, bucket, dstKey)
+		err := svc.CopyObject(context.Background(), bucket, srcKey, bucket, dstKey)
 		return s3CopyCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
 	}
 }
 
 func (s *S3Objects) moveObject(srcKey, dstKey string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Moving s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
-		err := aws.MoveObject(context.Background(), client, bucket, srcKey, bucket, dstKey)
+		err := svc.MoveObject(context.Background(), bucket, srcKey, bucket, dstKey)
 		return s3MoveCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
 	}
 }
@@ -554,6 +565,11 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case "x", "X":
+			if ui.ReadOnly {
+				return s, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
 			entries := s.collectDeleteEntries()
 			if len(entries) == 0 {
 				return s, func() tea.Msg {
@@ -591,6 +607,11 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, s.downloadObject(entry.fullPath)
 		case "c":
+			if ui.ReadOnly {
+				return s, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil
@@ -601,6 +622,11 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.copyInput.Activate()
 			return s, nil
 		case "m":
+			if ui.ReadOnly {
+				return s, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil
@@ -741,11 +767,11 @@ func (s *S3Objects) buildTable() {
 }
 
 func (s *S3Objects) fetchMetadataAndNavigate(key string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "HeadObject: s3://%s/%s", bucket, key)
-		meta, err := aws.HeadObject(context.Background(), client, bucket, key)
+		meta, err := svc.HeadObject(context.Background(), bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("head s3://%s/%s", bucket, key)}
 		}
