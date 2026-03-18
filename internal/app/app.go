@@ -21,16 +21,25 @@ var appCommands = []ui.PickerOption{
 	{Label: "quit           Exit LazyCloud", Value: "quit"},
 	{Label: "home           Go to home screen", Value: "home"},
 	{Label: "s3             S3 buckets", Value: "s3"},
-{Label: "logs           Event log", Value: "logs"},
+	{Label: "logs           Event log", Value: "logs"},
+	{Label: "mode           Toggle ReadOnly/ReadWrite", Value: "mode"},
 	{Label: "theme          Switch theme", Value: "theme"},
 	{Label: "region         Switch region", Value: "region"},
 	{Label: "profile        Switch profile", Value: "profile"},
 }
 
+// Side panel constants.
+const (
+	panelMinWidth  = 40
+	panelMaxWidth  = 80
+	panelThreshold = 120 // minimum terminal width to show side panel
+)
+
 // Model is the root application model — message router and layout compositor.
 type Model struct {
 	config    config.Config
 	awsClient *aws.Client
+	s3        aws.S3Service
 	nav       *nav.Navigator
 	confirm   ui.Confirm
 	picker    ui.Picker
@@ -39,6 +48,11 @@ type Model struct {
 	height    int
 	err       string
 	isDark    bool
+
+	// Side detail panel
+	panel        *ui.ContentView
+	panelOpen    bool
+	panelFocused bool
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -60,6 +74,7 @@ func New(cfg config.Config) Model {
 	return Model{
 		config:    cfg,
 		awsClient: awsClient,
+		s3:        aws.NewS3Service(awsClient),
 		nav:       nav.New(home),
 		confirm:   ui.NewConfirm(),
 		picker:    ui.NewPicker(),
@@ -98,11 +113,23 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		innerMsg := tea.WindowSizeMsg{Width: msg.Width - 2, Height: msg.Height - 5}
-		cmd := m.nav.UpdateCurrent(innerMsg)
-		return m, cmd
+		if m.panelOpen && !m.canShowPanel() {
+			m.closePanel()
+		}
+		m.resizeViews()
+		return m, nil
 
 	case appmsg.NavigateMsg:
+		// Show content in side panel when space permits
+		if msg.ViewID == "content" && m.canShowPanel() {
+			format := ui.ContentFormat(msg.Params["format"])
+			m.openPanel(msg.Params["title"], msg.Params["content"], format)
+			return m, nil
+		}
+		// Non-content navigation closes the panel
+		if m.panelOpen {
+			m.closePanel()
+		}
 		view := m.resolveView(msg)
 		if view != nil {
 			eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
@@ -113,8 +140,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.NavigateBackMsg:
+		if m.panelOpen {
+			m.closePanel()
+		}
 		if m.nav.Depth() > 1 {
 			m.nav.Pop()
+			m.resizeViews()
 		}
 		return m, nil
 
@@ -159,14 +190,44 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.applyRegion(msg.Value)
 		case "profile":
 			return m.applyProfile(msg.Value)
+		case "mode":
+			return m.applyMode(msg.Value)
 		}
 		return m, nil
 
 	case tea.KeyPressMsg:
+		// Tab toggles focus between main view and panel
+		if m.panelOpen && msg.String() == "tab" {
+			m.panelFocused = !m.panelFocused
+			return m, nil
+		}
+
+		// Panel-focused key handling
+		if m.panelOpen && m.panelFocused && m.panel != nil {
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc":
+				m.closePanel()
+				return m, nil
+			case "e":
+				return m, m.panel.OpenInEditorCmd()
+			default:
+				// Forward scroll/visual/yank keys to panel
+				updated, cmd := m.panel.Update(msg)
+				m.panel = &updated
+				return m, cmd
+			}
+		}
+
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
 		case "q":
+			if m.panelOpen {
+				m.closePanel()
+				return m, nil
+			}
 			if m.nav.Depth() <= 1 {
 				return m, tea.Quit
 			}
@@ -184,6 +245,9 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "R":
 			m.showRegionPicker()
+			return m, nil
+		case "W":
+			m.showModePicker()
 			return m, nil
 		case "L":
 			eventlog.Debug(eventlog.CatUI, "Event log opened")
@@ -214,6 +278,9 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 		return m, func() tea.Msg {
 			return appmsg.NavigateMsg{ViewID: "eventlog"}
 		}
+	case "mode":
+		m.showModePicker()
+		return m, nil
 	case "theme":
 		m.showThemePicker()
 		return m, nil
@@ -253,6 +320,57 @@ func (m *Model) pushView(v nav.View) tea.Cmd {
 		return tea.Batch(initCmd, sizeCmd)
 	}
 	return initCmd
+}
+
+// --- Side panel helpers ---
+
+func (m Model) canShowPanel() bool {
+	return m.width >= panelThreshold
+}
+
+func (m Model) panelWidth() int {
+	w := m.width * 40 / 100
+	if w < panelMinWidth {
+		w = panelMinWidth
+	}
+	if w > panelMaxWidth {
+		w = panelMaxWidth
+	}
+	return w
+}
+
+func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
+	if format == "" {
+		format = ui.FormatAuto
+	}
+	cv := ui.NewContentView(title, content, format)
+	m.panel = &cv
+	m.panelOpen = true
+	m.panelFocused = true
+	m.resizeViews()
+	eventlog.Infof(eventlog.CatUI, "Panel opened: %s", title)
+}
+
+func (m *Model) closePanel() {
+	m.panel = nil
+	m.panelOpen = false
+	m.panelFocused = false
+	m.resizeViews()
+}
+
+func (m *Model) resizeViews() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	innerH := m.height - 5
+	if m.panelOpen && m.panel != nil {
+		pw := m.panelWidth()
+		mainW := m.width - pw - 3 // borders (2 each pane = 4) + gap, but JoinHorizontal handles it
+		m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: mainW, Height: innerH})
+		m.panel.SetSize(pw-2, innerH-2) // subtract border from panel dimensions
+	} else {
+		m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: m.width - 2, Height: innerH})
+	}
 }
 
 func (m *Model) showThemePicker() {
@@ -319,6 +437,7 @@ func (m *Model) showProfilePicker() {
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Profile changed → %s", profile)
+	m.closePanel()
 	m.config.AWS.Profile = profile
 
 	// Recreate AWS client with new profile
@@ -327,6 +446,7 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
 	}
 	m.awsClient = awsClient
+	m.s3 = aws.NewS3Service(awsClient)
 
 	home := views.NewHome()
 	m.nav = nav.New(home)
@@ -340,6 +460,34 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 		}
 	}
 	return m, cmd
+}
+
+func (m *Model) showModePicker() {
+	options := []ui.PickerOption{
+		{Label: "ReadOnly    Browse only, no mutations", Value: "readonly"},
+		{Label: "ReadWrite   Allow create/delete/copy/move", Value: "readwrite"},
+	}
+	currentIdx := 0
+	if !ui.ReadOnly {
+		currentIdx = 1
+	}
+	m.picker.Show("mode", "Access Mode", options, currentIdx)
+}
+
+func (m Model) applyMode(mode string) (Model, tea.Cmd) {
+	switch mode {
+	case "readonly":
+		ui.ReadOnly = true
+		eventlog.Infof(eventlog.CatApp, "Mode changed → ReadOnly")
+		_, cmd := m.toasts.Add("Mode: ReadOnly", ui.ToastInfo, 0)
+		return m, cmd
+	case "readwrite":
+		ui.ReadOnly = false
+		eventlog.Warnf(eventlog.CatApp, "Mode changed → ReadWrite")
+		_, cmd := m.toasts.Add("Mode: ReadWrite", ui.ToastSuccess, 0)
+		return m, cmd
+	}
+	return m, nil
 }
 
 func (m *Model) showRegionPicker() {
@@ -363,6 +511,7 @@ func (m *Model) showRegionPicker() {
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Region changed → %s", region)
+	m.closePanel()
 	m.config.AWS.Region = region
 
 	// Recreate AWS client with new region
@@ -371,6 +520,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
 	}
 	m.awsClient = awsClient
+	m.s3 = aws.NewS3Service(awsClient)
 
 	home := views.NewHome()
 	m.nav = nav.New(home)
@@ -388,6 +538,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatUI, "Theme changed → %s", name)
+	m.closePanel()
 	if t, ok := ui.Themes[name]; ok {
 		ui.ActiveTheme = t
 		ui.RebuildStyles()
@@ -414,9 +565,14 @@ func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 func (m Model) View() tea.View {
 	t := ui.ActiveTheme
 
+	mode := "RO"
+	if !ui.ReadOnly {
+		mode = "RW"
+	}
 	header := ui.RenderHeader(ui.HeaderData{
 		Profile:     m.config.AWS.Profile,
 		Region:      m.config.AWS.Region,
+		Mode:        mode,
 		Breadcrumbs: m.nav.Breadcrumbs(),
 		Width:       m.width,
 	})
@@ -438,13 +594,45 @@ func (m Model) View() tea.View {
 	childView := m.nav.Current().View()
 	contentStr := childView.Content
 
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Secondary).
-		Width(m.width - 2).
-		Height(contentHeight - 2)
+	var rendered string
+	if m.panelOpen && m.panel != nil {
+		pw := m.panelWidth()
+		mainW := m.width - pw - 1 // 1 char gap between borders
 
-	contentStr = borderStyle.Render(contentStr)
+		mainBorderColor := t.Secondary
+		panelBorderColor := t.Secondary
+		if m.panelFocused {
+			panelBorderColor = t.Accent
+		} else {
+			mainBorderColor = t.Accent
+		}
+
+		mainBorder := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(mainBorderColor).
+			Width(mainW - 2).
+			Height(contentHeight - 2)
+
+		panelBorder := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(panelBorderColor).
+			Width(pw - 2).
+			Height(contentHeight - 2)
+
+		rendered = lipgloss.JoinHorizontal(lipgloss.Top,
+			mainBorder.Render(contentStr),
+			panelBorder.Render(m.panel.View()),
+		)
+	} else {
+		borderStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Secondary).
+			Width(m.width - 2).
+			Height(contentHeight - 2)
+
+		rendered = borderStyle.Render(contentStr)
+	}
+	contentStr = rendered
 
 	body := lipgloss.JoinVertical(lipgloss.Left, header, contentStr, statusBar)
 
@@ -515,11 +703,11 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		}
 		return views.NewServiceMenu(name, features)
 	case "s3_list":
-		return views.NewS3List(m.awsClient)
+		return views.NewS3List(m.s3, m.config.AWS.Region)
 	case "s3_objects":
-		return views.NewS3Objects(m.awsClient, n.Params["bucket"], n.Params["prefix"])
+		return views.NewS3Objects(m.s3, n.Params["bucket"], n.Params["prefix"])
 	case "s3_versions":
-		return views.NewS3Versions(m.awsClient, n.Params["bucket"], n.Params["key"])
+		return views.NewS3Versions(m.s3, n.Params["bucket"], n.Params["key"])
 	case "eventlog":
 		return views.NewEventLog()
 	case "content":
@@ -538,14 +726,31 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 }
 
 func (m Model) currentKeyHints() []ui.KeyHint {
+	if m.panelOpen && m.panelFocused {
+		return []ui.KeyHint{
+			{Key: "j/k", Desc: "scroll"},
+			{Key: "g/G", Desc: "top/bottom"},
+			{Key: "V", Desc: "visual"},
+			{Key: "y", Desc: "yank"},
+			{Key: "e", Desc: "editor"},
+			{Key: "tab", Desc: "focus main"},
+			{Key: "esc", Desc: "close panel"},
+		}
+	}
+
 	// View-specific hints first
 	hints := m.nav.Current().KeyMap()
+
+	if m.panelOpen {
+		hints = append(hints, ui.KeyHint{Key: "tab", Desc: "focus panel"})
+	}
 
 	// Global hints
 	if m.nav.Depth() > 1 {
 		hints = append(hints, ui.KeyHint{Key: "esc", Desc: "back"})
 	}
 	hints = append(hints,
+		ui.KeyHint{Key: "W", Desc: "mode"},
 		ui.KeyHint{Key: "L", Desc: "logs"},
 		ui.KeyHint{Key: "P", Desc: "profile"},
 		ui.KeyHint{Key: "R", Desc: "region"},

@@ -21,7 +21,7 @@ type s3VersionsLoadedMsg struct {
 
 // S3Versions displays all versions of a specific S3 object.
 type S3Versions struct {
-	client   *aws.Client
+	s3       aws.S3Service
 	bucket   string
 	key      string
 	versions []aws.ObjectVersion
@@ -50,7 +50,7 @@ func (s *S3Versions) KeyMap() []ui.KeyHint {
 }
 
 // NewS3Versions creates the version list view for an S3 object.
-func NewS3Versions(client *aws.Client, bucket, key string) *S3Versions {
+func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
 	columns := []table.Column{
 		{Title: "Version ID", Width: 36},
 		{Title: "Size", Width: 10},
@@ -61,7 +61,7 @@ func NewS3Versions(client *aws.Client, bucket, key string) *S3Versions {
 
 	t := ui.NewTable(columns, nil)
 	return &S3Versions{
-		client:  client,
+		s3:      s3,
 		bucket:  bucket,
 		key:     key,
 		table:   t,
@@ -78,11 +78,11 @@ func (s *S3Versions) Init() tea.Cmd {
 }
 
 func (s *S3Versions) fetchVersions() tea.Cmd {
-	client := s.client
+	svc := s.s3
 	bucket := s.bucket
 	key := s.key
 	return func() tea.Msg {
-		versions, err := aws.ListObjectVersions(context.Background(), client, bucket, key)
+		versions, err := svc.ListObjectVersions(context.Background(), bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing versions of %s", key)}
 		}
