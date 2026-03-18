@@ -35,10 +35,10 @@ type Model struct {
 	nav       *nav.Navigator
 	confirm   ui.Confirm
 	picker    ui.Picker
+	toasts    ui.ToastManager
 	width     int
 	height    int
 	err       string
-	info      string
 	isDark    bool
 }
 
@@ -64,6 +64,7 @@ func New(cfg config.Config) Model {
 		nav:       nav.New(home),
 		confirm:   ui.NewConfirm(),
 		picker:    ui.NewPicker(),
+		toasts:    ui.NewToastManager(),
 		isDark:    true,
 	}
 }
@@ -120,14 +121,31 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.ErrorMsg:
 		m.err = msg.Context + ": " + msg.Err.Error()
-		m.info = ""
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", msg.Context, msg.Err)
 		return m, nil
 
 	case appmsg.StatusMsg:
-		m.info = msg.Text
+		// Legacy — convert to toast
+		_, cmd := m.toasts.Add(msg.Text, ui.ToastInfo, 0)
 		m.err = ""
+		return m, cmd
+
+	case appmsg.ToastMsg:
+		_, cmd := m.toasts.Add(msg.Text, ui.ToastLevel(msg.Level), 0)
+		return m, cmd
+
+	case ui.ToastDismissMsg:
+		m.toasts.Dismiss(msg.ID)
 		return m, nil
+
+	case appmsg.RequestConfirmMsg:
+		m.confirm.Show(msg.Message, msg.Action)
+		return m, nil
+
+	case ui.ConfirmResultMsg:
+		// Route to current view
+		cmd := m.nav.UpdateCurrent(msg)
+		return m, cmd
 
 	case ui.PickerResultMsg:
 		if msg.Selected < 0 {
@@ -192,7 +210,6 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 		home := views.NewHome()
 		m.nav = nav.New(home)
 		m.err = ""
-		m.info = ""
 		return m, m.resizeCmd()
 	case "logs", "log", "events":
 		return m, func() tea.Msg {
@@ -216,8 +233,8 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 			return appmsg.NavigateMsg{ViewID: "s3_list"}
 		}
 	default:
-		m.info = "Unknown command: " + cmd
-		return m, nil
+		_, toastCmd := m.toasts.Add("Unknown command: "+cmd, ui.ToastError, 0)
+		return m, toastCmd
 	}
 }
 
@@ -287,7 +304,7 @@ var awsRegions = []string{
 func (m *Model) showProfilePicker() {
 	profiles := aws.ListProfiles()
 	if len(profiles) == 0 {
-		m.info = "No profiles found in ~/.aws/config"
+		m.toasts.Add("No profiles found in ~/.aws/config", ui.ToastError, 0)
 		return
 	}
 
@@ -319,7 +336,7 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	home := views.NewHome()
 	m.nav = nav.New(home)
 	m.err = ""
-	m.info = "Profile: " + profile
+	m.toasts.Add("Profile: "+profile, ui.ToastSuccess, 0)
 
 	var cmd tea.Cmd
 	if m.width > 0 && m.height > 0 {
@@ -363,7 +380,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	home := views.NewHome()
 	m.nav = nav.New(home)
 	m.err = ""
-	m.info = "Region: " + region
+	m.toasts.Add("Region: "+region, ui.ToastSuccess, 0)
 
 	var cmd tea.Cmd
 	if m.width > 0 && m.height > 0 {
@@ -387,7 +404,7 @@ func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
 	m.err = ""
-	m.info = "Theme: " + ui.ActiveTheme.Name
+	m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
 
 	// Re-send window size so the new home view sizes correctly
 	var cmd tea.Cmd
@@ -413,7 +430,6 @@ func (m Model) View() tea.View {
 	statusBar := ui.RenderStatusBar(ui.StatusBarData{
 		Keys:  keys,
 		Error: m.err,
-		Info:  m.info,
 		Width: m.width,
 	})
 
@@ -446,6 +462,26 @@ func (m Model) View() tea.View {
 			dialog = m.confirm.View()
 		}
 		body = composeOverlay(body, dialog, m.width, m.height)
+	}
+
+	// Overlay toasts in bottom-right
+	if m.toasts.HasActive() {
+		toastView := m.toasts.View(m.width)
+		toastW := lipgloss.Width(toastView)
+		toastH := lipgloss.Height(toastView)
+		x := m.width - toastW - 2
+		y := m.height - toastH - 2
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+		comp := lipgloss.NewCompositor(
+			lipgloss.NewLayer(body).Z(0),
+			lipgloss.NewLayer(toastView).X(x).Y(y).Z(1),
+		)
+		body = comp.Render()
 	}
 
 	v := tea.NewView(body)
@@ -482,6 +518,8 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		return views.NewS3List(m.awsClient)
 	case "s3_objects":
 		return views.NewS3Objects(m.awsClient, n.Params["bucket"], n.Params["prefix"])
+	case "s3_versions":
+		return views.NewS3Versions(m.awsClient, n.Params["bucket"], n.Params["key"])
 	case "eventlog":
 		return views.NewEventLog()
 	case "content":

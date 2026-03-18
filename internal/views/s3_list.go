@@ -18,17 +18,35 @@ type s3BucketsLoadedMsg struct {
 	buckets []aws.Bucket
 }
 
+type s3BucketDeletedMsg struct {
+	bucket string
+	err    error
+}
+
+type s3BucketCreatedMsg struct {
+	name string
+	err  error
+}
+
+type s3BucketPropsMsg struct {
+	props *aws.BucketProperties
+	err   error
+}
+
 // S3List displays all S3 buckets.
 type S3List struct {
-	client  *aws.Client
-	table   ui.Table
-	buckets []aws.Bucket
-	filter  ui.Filter
-	spinner ui.Spinner
-	loading bool
-	err     error
-	width   int
-	height  int
+	client              *aws.Client
+	table               ui.Table
+	buckets             []aws.Bucket
+	filter              ui.Filter
+	createInput         ui.Filter // reuse as text input for new bucket name
+	creating            bool
+	spinner             ui.Spinner
+	loading             bool
+	pendingDeleteBucket string
+	err                 error
+	width               int
+	height              int
 }
 
 func (s *S3List) ID() string    { return "s3_list" }
@@ -36,7 +54,9 @@ func (s *S3List) Title() string { return "S3 Buckets" }
 func (s *S3List) KeyMap() []ui.KeyHint {
 	return []ui.KeyHint{
 		{Key: "enter", Desc: "browse"},
-		{Key: "d", Desc: "describe"},
+		{Key: "d", Desc: "properties"},
+		{Key: "n", Desc: "new bucket"},
+		{Key: "x", Desc: "delete bucket"},
 		{Key: "/", Desc: "filter"},
 		{Key: "r", Desc: "refresh"},
 	}
@@ -80,6 +100,59 @@ func (s *S3List) fetchBuckets() tea.Cmd {
 
 func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
+	case ui.ConfirmResultMsg:
+		if m.Confirmed && m.Action == "delete_bucket" && s.pendingDeleteBucket != "" {
+			bucket := s.pendingDeleteBucket
+			s.pendingDeleteBucket = ""
+			return s, s.deleteBucket(bucket)
+		}
+		s.pendingDeleteBucket = ""
+		return s, nil
+
+	case s3BucketDeletedMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		eventlog.Infof(eventlog.CatAWS, "Deleted bucket: %s", m.bucket)
+		s.loading = true
+		s.spinner.Show("Loading S3 buckets...")
+		bucket := m.bucket
+		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg {
+			return msg.ToastSuccess("Bucket deleted: " + bucket)
+		})
+
+	case s3BucketCreatedMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		eventlog.Infof(eventlog.CatAWS, "Created bucket: %s", m.name)
+		s.table.Filter("") // clear any filter from the create input
+		s.loading = true
+		s.spinner.Show("Loading S3 buckets...")
+		name := m.name
+		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg {
+			return msg.ToastSuccess("Bucket created: " + name)
+		})
+
+	case s3BucketPropsMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		jsonBytes, _ := json.MarshalIndent(m.props, "", "  ")
+		return s, func() tea.Msg {
+			return msg.NavigateMsg{
+				ViewID: "content",
+				Params: map[string]string{
+					"title":   m.props.Name + " (properties)",
+					"content": string(jsonBytes),
+					"format":  "json",
+				},
+			}
+		}
+
 	case s3BucketsLoadedMsg:
 		s.loading = false
 		s.spinner.Hide()
@@ -108,7 +181,10 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case ui.FilterChangedMsg:
-		s.table.Filter(m.Text)
+		// Ignore filter messages from the create input
+		if !s.creating {
+			s.table.Filter(m.Text)
+		}
 		return s, nil
 
 	case tea.KeyPressMsg:
@@ -116,6 +192,28 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			s.filter, cmd = s.filter.Update(m)
 			return s, cmd
+		}
+
+		// Create bucket input
+		if s.creating && s.createInput.Active() {
+			switch m.String() {
+			case "enter":
+				name := s.createInput.Value()
+				s.createInput.Deactivate()
+				s.creating = false
+				if name != "" {
+					return s, s.createBucket(name)
+				}
+				return s, nil
+			case "esc":
+				s.createInput.Deactivate()
+				s.creating = false
+				return s, nil
+			default:
+				var cmd tea.Cmd
+				s.createInput, cmd = s.createInput.Update(m)
+				return s, cmd
+			}
 		}
 
 		switch m.String() {
@@ -145,19 +243,24 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if selected == nil {
 				return s, nil
 			}
-			for _, b := range s.buckets {
-				if b.Name == selected[0] {
-					jsonBytes, _ := json.MarshalIndent(b, "", "  ")
-					return s, func() tea.Msg {
-						return msg.NavigateMsg{
-							ViewID: "content",
-							Params: map[string]string{
-								"title":   b.Name,
-								"content": string(jsonBytes),
-								"format":  "json",
-							},
-						}
-					}
+			bucket := selected[0]
+			return s, s.fetchBucketProperties(bucket)
+		case "n":
+			s.creating = true
+			s.createInput = ui.NewFilter()
+			s.createInput.Activate()
+			return s, nil
+		case "x":
+			selected := s.table.SelectedRow()
+			if selected == nil {
+				return s, nil
+			}
+			s.pendingDeleteBucket = selected[0]
+			bucket := selected[0]
+			return s, func() tea.Msg {
+				return msg.RequestConfirmMsg{
+					Message: fmt.Sprintf("Delete bucket '%s'?\nThis will delete all objects first.", bucket),
+					Action:  "delete_bucket",
 				}
 			}
 		}
@@ -174,6 +277,37 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	return s, cmd
 }
 
+func (s *S3List) fetchBucketProperties(bucket string) tea.Cmd {
+	client := s.client
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Fetching properties for bucket: %s", bucket)
+		props, err := aws.GetBucketProperties(context.Background(), client, bucket)
+		return s3BucketPropsMsg{props: props, err: err}
+	}
+}
+
+func (s *S3List) createBucket(name string) tea.Cmd {
+	client := s.client
+	region := client.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Creating bucket: %s in %s", name, region)
+		err := aws.CreateBucket(context.Background(), client, name, region)
+		return s3BucketCreatedMsg{name: name, err: err}
+	}
+}
+
+func (s *S3List) deleteBucket(bucket string) tea.Cmd {
+	client := s.client
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
+		err := aws.EmptyAndDeleteBucket(context.Background(), client, bucket)
+		return s3BucketDeletedMsg{bucket: bucket, err: err}
+	}
+}
+
 func (s *S3List) View() tea.View {
 	var content string
 	if s.loading {
@@ -188,5 +322,10 @@ func (s *S3List) View() tea.View {
 		filtered, total := s.table.RowCount()
 		content += fmt.Sprintf("\n %d/%d buckets", filtered, total)
 	}
+
+	if s.creating && s.createInput.Active() {
+		content += "\n New bucket name: " + s.createInput.View()
+	}
+
 	return tea.NewView(content)
 }
