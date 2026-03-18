@@ -102,8 +102,7 @@ tasks:
   localstack:wipe:
     desc: Wipe all LocalStack data without stopping it
     cmds:
-      - curl -s -X POST http://localhost:4566/_localstack/state/reset
-      - echo "LocalStack state wiped."
+      - bash scripts/localstack-wipe.sh
     env: *localstack-env
 
   localstack:reset:
