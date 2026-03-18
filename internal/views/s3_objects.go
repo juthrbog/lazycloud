@@ -20,6 +20,8 @@ import (
 
 // s3PageLoadedMsg delivers one page of results for progressive loading.
 type s3PageLoadedMsg struct {
+	bucket       string // identifies the target view
+	prefix       string // identifies the target view
 	objects      []aws.S3Object
 	prefixes     []string
 	hasMorePages bool
@@ -144,6 +146,15 @@ func NewS3Objects(client *aws.Client, bucket, prefix string) *S3Objects {
 }
 
 func (s *S3Objects) Init() tea.Cmd {
+	// Already loaded — nothing to do (idempotent for navigator cache reuse).
+	if !s.loading {
+		return nil
+	}
+	// If re-entered from the navigator cache while still loading
+	// (e.g. user went back before the fetch completed), restart cleanly.
+	if s.pageNum > 0 {
+		return s.refreshListing()
+	}
 	return tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
 }
 
@@ -161,6 +172,8 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s/%s", bucket, prefix)}
 		}
 		return s3PageLoadedMsg{
+			bucket:       bucket,
+			prefix:       prefix,
 			objects:      page.Objects,
 			prefixes:     page.Prefixes,
 			hasMorePages: page.HasMorePages,
@@ -323,6 +336,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case s3PageLoadedMsg:
+		// Discard messages from a different S3Objects view (e.g. user navigated back
+		// before loading finished, and the message was routed to the wrong view).
+		if m.bucket != s.bucket || m.prefix != s.prefix {
+			return s, nil
+		}
+
 		s.pageNum = m.pageNum
 
 		// Append new data (prefixes only come on first page typically, but handle any)

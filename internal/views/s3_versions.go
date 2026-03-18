@@ -71,6 +71,9 @@ func NewS3Versions(client *aws.Client, bucket, key string) *S3Versions {
 }
 
 func (s *S3Versions) Init() tea.Cmd {
+	if !s.loading {
+		return nil
+	}
 	return tea.Batch(s.spinner.Tick(), s.fetchVersions())
 }
 
