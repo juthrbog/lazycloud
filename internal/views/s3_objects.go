@@ -41,6 +41,29 @@ type s3PresignedURLMsg struct {
 	key string
 }
 
+type s3DeleteCompleteMsg struct {
+	count int
+	err   error
+}
+
+type s3DownloadCompleteMsg struct {
+	key  string
+	path string
+	err  error
+}
+
+type s3CopyCompleteMsg struct {
+	srcKey string
+	dstKey string
+	err    error
+}
+
+type s3MoveCompleteMsg struct {
+	srcKey string
+	dstKey string
+	err    error
+}
+
 // s3TableEntry tracks whether a table row is a folder or object.
 type s3TableEntry struct {
 	isFolder bool
@@ -49,20 +72,24 @@ type s3TableEntry struct {
 
 // S3Objects displays objects and folders within an S3 bucket.
 type S3Objects struct {
-	client   *aws.Client
-	bucket   string
-	prefix   string
-	objects  []aws.S3Object
-	prefixes []string
-	entries  []s3TableEntry
-	table    ui.Table
-	filter   ui.Filter
-	spinner  ui.Spinner
-	loading  bool // true while any pages remain
-	pageNum  int  // pages loaded so far
-	err      error
-	width    int
-	height   int
+	client            *aws.Client
+	bucket            string
+	prefix            string
+	objects           []aws.S3Object
+	prefixes          []string
+	entries           []s3TableEntry
+	table             ui.Table
+	filter            ui.Filter
+	spinner           ui.Spinner
+	copyInput         ui.Filter // reuse Filter as a text input for copy/move dest
+	copyMode          string    // "copy" or "move", empty when inactive
+	copySrcKey        string    // source key for copy/move
+	loading           bool
+	pageNum           int
+	pendingDeleteKeys []string
+	err               error
+	width             int
+	height            int
 }
 
 func (s *S3Objects) ID() string {
@@ -73,8 +100,14 @@ func (s *S3Objects) KeyMap() []ui.KeyHint {
 	return []ui.KeyHint{
 		{Key: "enter", Desc: "view"},
 		{Key: "d", Desc: "describe"},
-		{Key: "u", Desc: "presign URL"},
+		{Key: "w", Desc: "download"},
+		{Key: "c", Desc: "copy"},
+		{Key: "m", Desc: "move"},
+		{Key: "v", Desc: "versions"},
+		{Key: "u", Desc: "presign"},
 		{Key: "y", Desc: "copy path"},
+		{Key: "space", Desc: "select"},
+		{Key: "x", Desc: "delete"},
 		{Key: "/", Desc: "filter"},
 		{Key: "r", Desc: "refresh"},
 	}
@@ -137,6 +170,17 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 	}
 }
 
+func (s *S3Objects) deleteObjects(keys []string) tea.Cmd {
+	client := s.client
+	bucket := s.bucket
+	count := len(keys)
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Deleting %d objects in s3://%s", count, bucket)
+		err := aws.DeleteObjects(context.Background(), client, bucket, keys)
+		return s3DeleteCompleteMsg{count: count, err: err}
+	}
+}
+
 func (s *S3Objects) previewCheck(key string) tea.Cmd {
 	client := s.client
 	bucket := s.bucket
@@ -176,8 +220,108 @@ func (s *S3Objects) presignObject(key string) tea.Cmd {
 	}
 }
 
+func (s *S3Objects) refreshListing() tea.Cmd {
+	s.objects = nil
+	s.prefixes = nil
+	s.entries = nil
+	s.pageNum = 0
+	s.loading = true
+	s.spinner.Show("Refreshing...")
+	s.table.SetRows(nil)
+	return tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
+}
+
+func (s *S3Objects) downloadObject(key string) tea.Cmd {
+	client := s.client
+	bucket := s.bucket
+	destPath := aws.DefaultDownloadPath(key)
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Downloading s3://%s/%s → %s", bucket, key, destPath)
+		err := aws.DownloadObject(context.Background(), client, bucket, key, destPath)
+		return s3DownloadCompleteMsg{key: key, path: destPath, err: err}
+	}
+}
+
+func (s *S3Objects) copyObject(srcKey, dstKey string) tea.Cmd {
+	client := s.client
+	bucket := s.bucket
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Copying s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
+		err := aws.CopyObject(context.Background(), client, bucket, srcKey, bucket, dstKey)
+		return s3CopyCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
+	}
+}
+
+func (s *S3Objects) moveObject(srcKey, dstKey string) tea.Cmd {
+	client := s.client
+	bucket := s.bucket
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Moving s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
+		err := aws.MoveObject(context.Background(), client, bucket, srcKey, bucket, dstKey)
+		return s3MoveCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
+	}
+}
+
 func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
+	case ui.ConfirmResultMsg:
+		if m.Confirmed && m.Action == "delete_objects" && len(s.pendingDeleteKeys) > 0 {
+			keys := s.pendingDeleteKeys
+			s.pendingDeleteKeys = nil
+			return s, s.deleteObjects(keys)
+		}
+		s.pendingDeleteKeys = nil
+		return s, nil
+
+	case s3DeleteCompleteMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		eventlog.Infof(eventlog.CatAWS, "Deleted %d objects in s3://%s/%s", m.count, s.bucket, s.prefix)
+		s.objects = nil
+		s.prefixes = nil
+		s.entries = nil
+		s.pageNum = 0
+		s.loading = true
+		s.spinner.Show("Refreshing...")
+		s.table.SetRows(nil)
+		count := m.count
+		return s, tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1), func() tea.Msg {
+			return msg.ToastSuccess(fmt.Sprintf("Deleted %d object(s)", count))
+		})
+
+	case s3DownloadCompleteMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		return s, func() tea.Msg {
+			return msg.ToastSuccess(fmt.Sprintf("Downloaded → %s", m.path))
+		}
+
+	case s3CopyCompleteMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		eventlog.Infof(eventlog.CatAWS, "Copied %s → %s", m.srcKey, m.dstKey)
+		dstKey := m.dstKey
+		return s, tea.Batch(s.refreshListing(), func() tea.Msg {
+			return msg.ToastSuccess("Copied → " + path.Base(dstKey))
+		})
+
+	case s3MoveCompleteMsg:
+		if m.err != nil {
+			s.err = m.err
+			return s, nil
+		}
+		eventlog.Infof(eventlog.CatAWS, "Moved %s → %s", m.srcKey, m.dstKey)
+		dstKey := m.dstKey
+		return s, tea.Batch(s.refreshListing(), func() tea.Msg {
+			return msg.ToastSuccess("Moved → " + path.Base(dstKey))
+		})
+
 	case s3PageLoadedMsg:
 		s.pageNum = m.pageNum
 
@@ -234,7 +378,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case s3PresignedURLMsg:
 		_ = clipboard.WriteAll(m.url)
 		return s, func() tea.Msg {
-			return msg.StatusMsg{Text: "Presigned URL copied: " + path.Base(m.key)}
+			return msg.ToastSuccess("Presigned URL copied: " + path.Base(m.key))
 		}
 
 	case msg.ErrorMsg:
@@ -251,7 +395,10 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case ui.FilterChangedMsg:
-		s.table.Filter(m.Text)
+		// Ignore filter messages from the copy/move input
+		if s.copyMode == "" {
+			s.table.Filter(m.Text)
+		}
 		return s, nil
 
 	case tea.KeyPressMsg:
@@ -259,6 +406,35 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			s.filter, cmd = s.filter.Update(m)
 			return s, cmd
+		}
+
+		// Copy/move destination input
+		if s.copyInput.Active() {
+			switch m.String() {
+			case "enter":
+				dest := s.copyInput.Value()
+				if dest == "" {
+					dest = s.copySrcKey + "_copy"
+				}
+				src := s.copySrcKey
+				mode := s.copyMode
+				s.copyInput.Deactivate()
+				s.copyMode = ""
+				s.copySrcKey = ""
+				if mode == "move" {
+					return s, s.moveObject(src, dest)
+				}
+				return s, s.copyObject(src, dest)
+			case "esc":
+				s.copyInput.Deactivate()
+				s.copyMode = ""
+				s.copySrcKey = ""
+				return s, nil
+			default:
+				var cmd tea.Cmd
+				s.copyInput, cmd = s.copyInput.Update(m)
+				return s, cmd
+			}
 		}
 
 		switch m.String() {
@@ -318,7 +494,65 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			arn := fmt.Sprintf("s3://%s/%s", s.bucket, entry.fullPath)
 			_ = clipboard.WriteAll(arn)
 			return s, func() tea.Msg {
-				return msg.StatusMsg{Text: "Copied: " + arn}
+				return msg.ToastSuccess("Copied: " + arn)
+			}
+		case "space", " ":
+			s.table.ToggleSelect()
+			return s, nil
+		case "x", "X":
+			keys := s.collectDeleteKeys(false)
+			if len(keys) == 0 {
+				return s, func() tea.Msg {
+					return msg.ToastError("No objects to delete (select with space first)")
+				}
+			}
+			s.pendingDeleteKeys = keys
+			count := len(keys)
+			return s, func() tea.Msg {
+				return msg.RequestConfirmMsg{
+					Message: fmt.Sprintf("Delete %d object(s)?", count),
+					Action:  "delete_objects",
+				}
+			}
+		case "w":
+			entry := s.selectedEntry()
+			if entry == nil || entry.isFolder {
+				return s, nil
+			}
+			return s, s.downloadObject(entry.fullPath)
+		case "c":
+			entry := s.selectedEntry()
+			if entry == nil || entry.isFolder {
+				return s, nil
+			}
+			s.copySrcKey = entry.fullPath
+			s.copyMode = "copy"
+			s.copyInput = ui.NewFilter()
+			s.copyInput.Activate()
+			return s, nil
+		case "m":
+			entry := s.selectedEntry()
+			if entry == nil || entry.isFolder {
+				return s, nil
+			}
+			s.copySrcKey = entry.fullPath
+			s.copyMode = "move"
+			s.copyInput = ui.NewFilter()
+			s.copyInput.Activate()
+			return s, nil
+		case "v":
+			entry := s.selectedEntry()
+			if entry == nil || entry.isFolder {
+				return s, nil
+			}
+			return s, func() tea.Msg {
+				return msg.NavigateMsg{
+					ViewID: "s3_versions",
+					Params: map[string]string{
+						"bucket": s.bucket,
+						"key":    entry.fullPath,
+					},
+				}
 			}
 		}
 	}
@@ -352,17 +586,58 @@ func (s *S3Objects) View() tea.View {
 		if s.loading {
 			status += fmt.Sprintf("  (loading... %d items so far)", total)
 		}
+		if sel := s.table.SelectionCount(); sel > 0 {
+			status += fmt.Sprintf("  (%d selected)", sel)
+		}
 		content += status
 	}
+
+	// Copy/move destination input
+	if s.copyInput.Active() {
+		label := "Copy to"
+		if s.copyMode == "move" {
+			label = "Move to"
+		}
+		content += fmt.Sprintf("\n %s: %s", label, s.copyInput.View())
+	}
+
 	return tea.NewView(content)
 }
 
+// collectDeleteKeys gathers object keys for deletion.
+// If items are selected, only deletes selected items that are currently visible.
+// If nothing is selected, deletes the item under the cursor.
+func (s *S3Objects) collectDeleteKeys(_ bool) []string {
+	var keys []string
+
+	// Build a set of currently visible allRows indices
+	visibleSet := make(map[int]bool)
+	for _, allIdx := range s.table.FilteredIndices() {
+		visibleSet[allIdx] = true
+	}
+
+	if s.table.SelectionCount() > 0 {
+		// Only delete selected items that are currently visible
+		for _, allIdx := range s.table.SelectedIndices() {
+			if visibleSet[allIdx] && allIdx < len(s.entries) && !s.entries[allIdx].isFolder {
+				keys = append(keys, s.entries[allIdx].fullPath)
+			}
+		}
+	} else {
+		entry := s.selectedEntry()
+		if entry != nil && !entry.isFolder {
+			keys = append(keys, entry.fullPath)
+		}
+	}
+	return keys
+}
+
 func (s *S3Objects) selectedEntry() *s3TableEntry {
-	idx := s.table.SelectedIndex()
-	if idx < 0 || idx >= len(s.entries) {
+	allIdx := s.table.SelectedAllRowIndex()
+	if allIdx < 0 || allIdx >= len(s.entries) {
 		return nil
 	}
-	return &s.entries[idx]
+	return &s.entries[allIdx]
 }
 
 func (s *S3Objects) buildTable() {

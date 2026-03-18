@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"strings"
+
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 )
@@ -11,28 +14,38 @@ type ConfirmResultMsg struct {
 	Action    string
 }
 
-// Confirm is a yes/no confirmation dialog overlay.
+// Confirm is a type-to-confirm dialog for destructive actions.
+// The user must type "confirm" and press enter to proceed.
 type Confirm struct {
 	message string
 	action  string
+	input   textinput.Model
 	visible bool
+	err     string // shown when user types wrong text
 }
 
 // NewConfirm creates a hidden confirmation dialog.
 func NewConfirm() Confirm {
-	return Confirm{}
+	ti := textinput.New()
+	ti.Prompt = "> "
+	ti.Placeholder = "type 'confirm' to proceed"
+	return Confirm{input: ti}
 }
 
 // Show displays the confirmation dialog with the given message and action ID.
 func (c *Confirm) Show(message, action string) {
 	c.message = message
 	c.action = action
+	c.err = ""
 	c.visible = true
+	c.input.SetValue("")
+	c.input.Focus()
 }
 
 // Hide dismisses the dialog.
 func (c *Confirm) Hide() {
 	c.visible = false
+	c.input.Blur()
 }
 
 // Visible returns whether the dialog is showing.
@@ -40,7 +53,7 @@ func (c Confirm) Visible() bool {
 	return c.visible
 }
 
-// Update handles y/n/enter/esc input when the dialog is visible.
+// Update handles text input and confirmation logic.
 func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	if !c.visible {
 		return c, nil
@@ -49,21 +62,32 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		switch msg.String() {
-		case "y", "enter":
-			c.visible = false
-			action := c.action
-			return c, func() tea.Msg {
-				return ConfirmResultMsg{Confirmed: true, Action: action}
+		case "enter":
+			if strings.EqualFold(strings.TrimSpace(c.input.Value()), "confirm") {
+				c.visible = false
+				c.input.Blur()
+				action := c.action
+				return c, func() tea.Msg {
+					return ConfirmResultMsg{Confirmed: true, Action: action}
+				}
 			}
-		case "n", "esc":
+			c.err = "Type 'confirm' to proceed"
+			return c, nil
+		case "esc":
 			c.visible = false
+			c.input.Blur()
 			action := c.action
 			return c, func() tea.Msg {
 				return ConfirmResultMsg{Confirmed: false, Action: action}
 			}
+		default:
+			c.err = "" // clear error on new input
 		}
 	}
-	return c, nil
+
+	var cmd tea.Cmd
+	c.input, cmd = c.input.Update(msg)
+	return c, cmd
 }
 
 // View renders the confirmation dialog box.
@@ -73,15 +97,29 @@ func (c Confirm) View() string {
 	}
 	t := ActiveTheme
 
-	style := lipgloss.NewStyle().
+	msgStyle := lipgloss.NewStyle().
+		Foreground(t.Warning).
+		Bold(true)
+
+	hintStyle := lipgloss.NewStyle().
+		Foreground(t.Muted)
+
+	errStyle := lipgloss.NewStyle().
+		Foreground(t.Error)
+
+	content := msgStyle.Render(c.message) + "\n\n"
+	content += c.input.View() + "\n"
+
+	if c.err != "" {
+		content += errStyle.Render(c.err) + "\n"
+	}
+
+	content += "\n" + hintStyle.Render("type 'confirm' + enter to proceed  esc cancel")
+
+	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Warning).
-		Padding(1, 3).
-		Align(lipgloss.Center)
+		BorderForeground(t.Error).
+		Padding(1, 3)
 
-	hint := lipgloss.NewStyle().
-		Foreground(t.Muted).
-		Render("[y]es / [n]o")
-
-	return style.Render(c.message + "\n\n" + hint)
+	return box.Render(content)
 }
