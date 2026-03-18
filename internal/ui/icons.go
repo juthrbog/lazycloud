@@ -22,31 +22,14 @@ var UseNerdFonts = true
 
 // Service icons
 var (
-	IconEC2        = ServiceIcon{Nerd: "\U000f035b", Fallback: "◆"} // nf-md-server
-	IconS3         = ServiceIcon{Nerd: "\U000f01bc", Fallback: "◇"} // nf-md-bucket
-	IconECS        = ServiceIcon{Nerd: "\U000f0868", Fallback: "▣"} // nf-md-docker
-	IconLambda     = ServiceIcon{Nerd: "\U000f0627", Fallback: "λ"} // nf-md-lambda
-	IconIAM        = ServiceIcon{Nerd: "\U000f0f17", Fallback: "⊕"} // nf-md-shield_account
-	IconRDS        = ServiceIcon{Nerd: "\U000f01bc", Fallback: "⊞"} // nf-md-database
-	IconCloudWatch = ServiceIcon{Nerd: "\U000f0209", Fallback: "◈"} // nf-md-chart_line
-	IconCloud      = ServiceIcon{Nerd: "\U000f015f", Fallback: "☁"} // nf-md-cloud
+	IconS3    = ServiceIcon{Nerd: "\U000f01bc", Fallback: "◇"} // nf-md-bucket
+	IconCloud = ServiceIcon{Nerd: "\U000f015f", Fallback: "☁"} // nf-md-cloud
 
 	// State indicators
 	IconRunning = ServiceIcon{Nerd: "\U000f012c", Fallback: "●"} // nf-md-check_circle
 	IconStopped = ServiceIcon{Nerd: "\U000f0156", Fallback: "○"} // nf-md-close_circle
 	IconPending = ServiceIcon{Nerd: "\U000f0e4e", Fallback: "◌"} // nf-md-clock
 )
-
-// ServiceIcons maps service view IDs to their icons.
-var ServiceIcons = map[string]ServiceIcon{
-	"ec2_list":       IconEC2,
-	"s3_list":        IconS3,
-	"ecs_clusters":   IconECS,
-	"lambda_list":    IconLambda,
-	"iam_roles":      IconIAM,
-	"rds_list":       IconRDS,
-	"cloudwatch_logs": IconCloudWatch,
-}
 
 // StateColor returns a styled state string with the appropriate color and icon.
 func StateColor(state string) string {
