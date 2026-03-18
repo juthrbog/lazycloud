@@ -12,7 +12,9 @@ A terminal user interface (TUI) for browsing, managing, and interacting with AWS
 ## Features
 
 - Browse and manage AWS resources from your terminal
+- **ReadOnly/ReadWrite mode** — defaults to ReadOnly, blocking all mutations regardless of IAM permissions
 - Stack-based navigation with drill-down into resource details
+- **Side detail panel** — metadata and content preview opens alongside the main view on wide terminals (≥120 cols)
 - Filterable, sortable tables with vim-style keybindings
 - Syntax-highlighted content viewer with visual line selection and yank to clipboard
 - In-app event log for troubleshooting without leaving the TUI
@@ -60,25 +62,28 @@ task dev               # run against LocalStack
 | `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs                 |
 | `--config`        | Path to config file (default: `~/.config/lazycloud/config.toml`)    |
 | `--log`           | Path to debug log file                                              |
+| `--read-write`    | Start in ReadWrite mode (default: ReadOnly)                         |
 | `--init-config`   | Write default config file and exit                                  |
 
 ### Keybindings
 
 **Global**
 
-| Key               | Action              |
-| ----------------- | ------------------- |
-| `j`/`k` or arrows | Navigate up/down    |
-| `enter`           | Drill into resource |
-| `esc`             | Go back             |
-| `/`               | Filter/search       |
-| `r`               | Refresh             |
-| `L`               | Event log           |
-| `P`               | Switch AWS profile  |
-| `R`               | Switch AWS region   |
-| `T`               | Switch theme        |
-| `:`               | Command palette     |
-| `q`               | Quit                |
+| Key               | Action                    |
+| ----------------- | ------------------------- |
+| `j`/`k` or arrows | Navigate up/down          |
+| `enter`           | Drill into resource       |
+| `esc`             | Go back / close panel     |
+| `/`               | Filter/search             |
+| `r`               | Refresh                   |
+| `W`               | Toggle ReadOnly/ReadWrite |
+| `tab`             | Toggle panel focus        |
+| `L`               | Event log                 |
+| `P`               | Switch AWS profile        |
+| `R`               | Switch AWS region         |
+| `T`               | Switch theme              |
+| `:`               | Command palette           |
+| `q`               | Quit                      |
 
 **Content Viewer**
 
@@ -140,8 +145,18 @@ Only **AWS** is supported at this time. Other cloud providers may be added in th
 - **Syntax Highlighting:** [Chroma](https://github.com/alecthomas/chroma)
 - **Config:** [TOML](https://github.com/pelletier/go-toml)
 - **AWS SDK:** [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2)
+- **Testing:** [testify](https://github.com/stretchr/testify) + [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest)
 - **Task Runner:** [Taskfile](https://taskfile.dev)
 - **Local AWS:** [LocalStack](https://github.com/localstack/localstack)
+
+## Testing
+
+```bash
+task test              # run all unit + integration tests
+task test:integration  # run integration tests against LocalStack
+```
+
+Tests use [testify](https://github.com/stretchr/testify) for assertions and mocking, and [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest) for interaction-level tests that exercise the full BubbleTea program lifecycle. A shared `MockS3Service` in `internal/aws/awstest/` enables testing views without AWS credentials.
 
 ## Architecture & Patterns
 
@@ -150,14 +165,15 @@ LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture
 ### Layer Separation
 
 ```
-internal/aws/       Pure AWS SDK calls. No UI imports. Returns plain Go structs.
-internal/views/     Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
-internal/ui/        Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
-internal/app/       Root model — message router, layout compositor, view factory.
-internal/nav/       Stack-based navigator with view caching.
-internal/msg/       Shared message types for the event loop.
-internal/config/    TOML config with layered precedence (file < env < flags).
-internal/eventlog/  Thread-safe ring buffer for in-app event logging.
+internal/aws/           S3Service interface + SDK implementation. No UI imports.
+internal/aws/awstest/   Shared testify mock for S3Service (used by view and app tests).
+internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
+internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
+internal/app/           Root model — message router, layout compositor, view factory, side panel.
+internal/nav/           Stack-based navigator with view caching.
+internal/msg/           Shared message types for the event loop.
+internal/config/        TOML config with layered precedence (file < env < flags).
+internal/eventlog/      Thread-safe ring buffer for in-app event logging.
 ```
 
 ### Navigator (View Stack)
@@ -184,12 +200,20 @@ Each view declares its own `KeyMap()`. The status bar merges view-specific hints
 
 Transient feedback (copy, download, delete) uses auto-dismissing toasts rendered in the bottom-right via Compositor overlay. Each toast gets a `time.Sleep` goroutine that sends a dismiss message after 4 seconds.
 
+### Access Mode
+
+LazyCloud starts in **ReadOnly** mode by default. All mutating operations (create, delete, copy, move) are blocked at the UI level regardless of your AWS IAM permissions. Press `W` to switch to ReadWrite mode, which then falls back to normal IAM permission checks. The current mode is shown as an `RO`/`RW` badge in the header.
+
+### Side Detail Panel
+
+When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) on an S3 object opens a side panel alongside the main view instead of replacing it. Press `tab` to toggle focus between the main view and panel. The focused pane is indicated by an accent-colored border. On narrow terminals, content opens full-screen as before.
+
 ### Adding a New AWS Service
 
-To add a new service (e.g., Lambda), create three files:
+To add a new service (e.g., Lambda):
 
-1. `internal/aws/lambda.go` — SDK calls returning plain structs
-2. `internal/views/lambda_list.go` — view implementing `nav.View`
+1. `internal/aws/lambda.go` — define a service interface and SDK-backed implementation (follow the `S3Service` pattern)
+2. `internal/views/lambda_list.go` — view implementing `nav.View`, accepting the service interface
 3. Register the view ID in `app.go`'s `resolveView()` and add it to the home view's service list
 
 ## Contributing
