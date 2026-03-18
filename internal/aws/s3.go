@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // S3Client returns an S3 service client configured for the current profile/region/endpoint.
@@ -237,6 +240,291 @@ func PresignGetObject(ctx context.Context, client *Client, bucket, key string, e
 		return "", err
 	}
 	return req.URL, nil
+}
+
+// DeleteObject deletes a single S3 object.
+func DeleteObject(ctx context.Context, client *Client, bucket, key string) error {
+	svc, err := s3ClientForBucket(ctx, client, bucket)
+	if err != nil {
+		return err
+	}
+	_, err = svc.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	return err
+}
+
+// DeleteObjects deletes multiple S3 objects in batches of up to 1000.
+func DeleteObjects(ctx context.Context, client *Client, bucket string, keys []string) error {
+	svc, err := s3ClientForBucket(ctx, client, bucket)
+	if err != nil {
+		return err
+	}
+
+	const batchSize = 1000
+	for i := 0; i < len(keys); i += batchSize {
+		end := i + batchSize
+		if end > len(keys) {
+			end = len(keys)
+		}
+		batch := keys[i:end]
+
+		objects := make([]s3types.ObjectIdentifier, len(batch))
+		for j, key := range batch {
+			objects[j] = s3types.ObjectIdentifier{Key: aws.String(key)}
+		}
+
+		_, err := svc.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &s3types.Delete{
+				Objects: objects,
+				Quiet:   aws.Bool(true),
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteBucket deletes an S3 bucket. The bucket must be empty.
+func DeleteBucket(ctx context.Context, client *Client, bucket string) error {
+	svc, err := s3ClientForBucket(ctx, client, bucket)
+	if err != nil {
+		return err
+	}
+	_, err = svc.DeleteBucket(ctx, &s3.DeleteBucketInput{
+		Bucket: aws.String(bucket),
+	})
+	return err
+}
+
+// EmptyAndDeleteBucket deletes all objects in a bucket, then deletes the bucket itself.
+func EmptyAndDeleteBucket(ctx context.Context, client *Client, bucket string) error {
+	// List and delete all objects
+	for {
+		page, err := ListObjectsPage(ctx, client, bucket, "", nil)
+		if err != nil {
+			return fmt.Errorf("listing objects: %w", err)
+		}
+		if len(page.Objects) == 0 {
+			break
+		}
+		keys := make([]string, len(page.Objects))
+		for i, obj := range page.Objects {
+			keys[i] = obj.Key
+		}
+		if err := DeleteObjects(ctx, client, bucket, keys); err != nil {
+			return fmt.Errorf("deleting objects: %w", err)
+		}
+	}
+	return DeleteBucket(ctx, client, bucket)
+}
+
+// DownloadObject downloads an S3 object to a local file.
+func DownloadObject(ctx context.Context, client *Client, bucket, key, destPath string) error {
+	svc, err := s3ClientForBucket(ctx, client, bucket)
+	if err != nil {
+		return err
+	}
+
+	output, err := svc.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return err
+	}
+	defer output.Body.Close()
+
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return fmt.Errorf("creating directory: %w", err)
+	}
+
+	f, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("creating file: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, output.Body); err != nil {
+		return fmt.Errorf("writing file: %w", err)
+	}
+	return nil
+}
+
+// DefaultDownloadPath returns ~/Downloads/<filename> for an S3 key.
+func DefaultDownloadPath(key string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "."
+	}
+	return filepath.Join(home, "Downloads", filepath.Base(key))
+}
+
+// CopyObject copies an S3 object to a new location.
+func CopyObject(ctx context.Context, client *Client, srcBucket, srcKey, dstBucket, dstKey string) error {
+	svc, err := s3ClientForBucket(ctx, client, dstBucket)
+	if err != nil {
+		return err
+	}
+
+	copySource := srcBucket + "/" + srcKey
+	_, err = svc.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(dstBucket),
+		Key:        aws.String(dstKey),
+		CopySource: aws.String(copySource),
+	})
+	return err
+}
+
+// MoveObject copies an object to a new location then deletes the source.
+func MoveObject(ctx context.Context, client *Client, srcBucket, srcKey, dstBucket, dstKey string) error {
+	if err := CopyObject(ctx, client, srcBucket, srcKey, dstBucket, dstKey); err != nil {
+		return fmt.Errorf("copy: %w", err)
+	}
+	if err := DeleteObject(ctx, client, srcBucket, srcKey); err != nil {
+		return fmt.Errorf("delete source: %w", err)
+	}
+	return nil
+}
+
+// ObjectVersion represents a version of an S3 object.
+type ObjectVersion struct {
+	Key            string
+	VersionID      string
+	Size           int64
+	LastModified   time.Time
+	IsLatest       bool
+	IsDeleteMarker bool
+}
+
+// ListObjectVersions returns all versions of a specific object.
+func ListObjectVersions(ctx context.Context, client *Client, bucket, key string) ([]ObjectVersion, error) {
+	svc, err := s3ClientForBucket(ctx, client, bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := svc.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+		Bucket: aws.String(bucket),
+		Prefix: aws.String(key),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var versions []ObjectVersion
+	for _, v := range output.Versions {
+		if aws.ToString(v.Key) != key {
+			continue
+		}
+		ov := ObjectVersion{
+			Key:       aws.ToString(v.Key),
+			VersionID: aws.ToString(v.VersionId),
+			Size:      aws.ToInt64(v.Size),
+			IsLatest:  aws.ToBool(v.IsLatest),
+		}
+		if v.LastModified != nil {
+			ov.LastModified = *v.LastModified
+		}
+		versions = append(versions, ov)
+	}
+
+	for _, dm := range output.DeleteMarkers {
+		if aws.ToString(dm.Key) != key {
+			continue
+		}
+		ov := ObjectVersion{
+			Key:            aws.ToString(dm.Key),
+			VersionID:      aws.ToString(dm.VersionId),
+			IsLatest:       aws.ToBool(dm.IsLatest),
+			IsDeleteMarker: true,
+		}
+		if dm.LastModified != nil {
+			ov.LastModified = *dm.LastModified
+		}
+		versions = append(versions, ov)
+	}
+
+	return versions, nil
+}
+
+// BucketProperties holds aggregated bucket configuration.
+type BucketProperties struct {
+	Name         string
+	Region       string
+	Versioning   string // "Enabled", "Suspended", or ""
+	Encryption   string // "AES256", "aws:kms", or ""
+	PublicAccess bool   // true if all public access is blocked
+}
+
+// GetBucketProperties aggregates bucket configuration from multiple API calls.
+// Individual call failures are non-fatal (permissions may vary).
+func GetBucketProperties(ctx context.Context, client *Client, bucket string) (*BucketProperties, error) {
+	region, err := GetBucketRegion(ctx, client, bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	svc := client.S3ClientForRegion(region)
+	props := &BucketProperties{
+		Name:   bucket,
+		Region: region,
+	}
+
+	// Versioning
+	if vOut, err := svc.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
+		Bucket: aws.String(bucket),
+	}); err == nil {
+		props.Versioning = string(vOut.Status)
+	}
+
+	// Encryption
+	if eOut, err := svc.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{
+		Bucket: aws.String(bucket),
+	}); err == nil && eOut.ServerSideEncryptionConfiguration != nil {
+		for _, rule := range eOut.ServerSideEncryptionConfiguration.Rules {
+			if rule.ApplyServerSideEncryptionByDefault != nil {
+				props.Encryption = string(rule.ApplyServerSideEncryptionByDefault.SSEAlgorithm)
+				break
+			}
+		}
+	}
+
+	// Public access block
+	if pOut, err := svc.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
+		Bucket: aws.String(bucket),
+	}); err == nil && pOut.PublicAccessBlockConfiguration != nil {
+		cfg := pOut.PublicAccessBlockConfiguration
+		props.PublicAccess = aws.ToBool(cfg.BlockPublicAcls) &&
+			aws.ToBool(cfg.BlockPublicPolicy) &&
+			aws.ToBool(cfg.IgnorePublicAcls) &&
+			aws.ToBool(cfg.RestrictPublicBuckets)
+	}
+
+	return props, nil
+}
+
+// CreateBucket creates a new S3 bucket in the specified region.
+func CreateBucket(ctx context.Context, client *Client, name, region string) error {
+	svc := client.S3ClientForRegion(region)
+
+	input := &s3.CreateBucketInput{
+		Bucket: aws.String(name),
+	}
+
+	// us-east-1 doesn't use LocationConstraint (legacy behavior)
+	if region != "us-east-1" {
+		input.CreateBucketConfiguration = &s3types.CreateBucketConfiguration{
+			LocationConstraint: s3types.BucketLocationConstraint(region),
+		}
+	}
+
+	_, err := svc.CreateBucket(ctx, input)
+	return err
 }
 
 // FormatBytes returns a human-readable byte size string.
