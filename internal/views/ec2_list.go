@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
@@ -36,6 +37,7 @@ type ec2LoadedMsg struct {
 
 // EC2List displays EC2 instances with mock data.
 type EC2List struct {
+	client  *aws.Client
 	table   ui.Table
 	filter  ui.Filter
 	spinner ui.Spinner
@@ -47,9 +49,17 @@ type EC2List struct {
 
 func (e *EC2List) ID() string    { return "ec2_list" }
 func (e *EC2List) Title() string { return "EC2 Instances" }
+func (e *EC2List) KeyMap() []ui.KeyHint {
+	return []ui.KeyHint{
+		{Key: "enter", Desc: "view"},
+		{Key: "d", Desc: "describe"},
+		{Key: "/", Desc: "filter"},
+		{Key: "r", Desc: "refresh"},
+	}
+}
 
 // NewEC2List creates an EC2 list view with mock data.
-func NewEC2List() *EC2List {
+func NewEC2List(client *aws.Client) *EC2List {
 	columns := []table.Column{
 		{Title: "ID", Width: 18},
 		{Title: "Name", Width: 16},
@@ -62,6 +72,7 @@ func NewEC2List() *EC2List {
 
 	t := ui.NewTable(columns, nil)
 	return &EC2List{
+		client:  client,
 		table:   t,
 		filter:  ui.NewFilter(),
 		spinner: ui.NewSpinner("Loading EC2 instances..."),

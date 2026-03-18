@@ -17,16 +17,18 @@ const (
 	SortDesc
 )
 
-// Table wraps bubbles/table with sort and filter support.
+// Table wraps bubbles/table with sort, filter, and multi-select support.
 type Table struct {
-	inner      table.Model
-	allRows    []table.Row
-	columns    []table.Column
-	sortCol    int
-	sortDir    SortDirection
-	filterText string
-	width      int
-	height     int
+	inner        table.Model
+	allRows      []table.Row
+	columns      []table.Column
+	sortCol      int
+	sortDir      SortDirection
+	filterText   string
+	selected     map[int]bool // indices into allRows
+	filteredMap  []int        // maps filtered row index → allRows index
+	width        int
+	height       int
 }
 
 // NewTable creates a Table with the given columns and rows.
@@ -51,12 +53,15 @@ func NewTable(columns []table.Column, rows []table.Row) Table {
 		Bold(false)
 	t.SetStyles(st)
 
-	return Table{
-		inner:   t,
-		allRows: rows,
-		columns: columns,
-		sortCol: -1,
+	tbl := Table{
+		inner:    t,
+		allRows:  rows,
+		columns:  columns,
+		sortCol:  -1,
+		selected: make(map[int]bool),
 	}
+	tbl.buildFilteredMap()
+	return tbl
 }
 
 // SetSize sets the table dimensions.
@@ -67,20 +72,95 @@ func (t *Table) SetSize(w, h int) {
 	t.inner.SetHeight(h)
 }
 
-// SetRows replaces the table data and reapplies sort/filter.
+// SetRows replaces the table data and reapplies sort/filter. Clears selection.
 func (t *Table) SetRows(rows []table.Row) {
 	t.allRows = rows
+	t.selected = make(map[int]bool)
 	t.applyFilterAndSort()
 }
 
-// SelectedRow returns the currently selected row.
+// SelectedRow returns the currently highlighted row.
 func (t Table) SelectedRow() table.Row {
 	return t.inner.SelectedRow()
 }
 
-// SelectedIndex returns the cursor position.
+// SelectedIndex returns the cursor position in the filtered view.
 func (t Table) SelectedIndex() int {
 	return t.inner.Cursor()
+}
+
+// SelectedAllRowIndex returns the allRows index for the current cursor position.
+// Returns -1 if no valid mapping exists.
+func (t Table) SelectedAllRowIndex() int {
+	idx := t.inner.Cursor()
+	if idx < 0 || idx >= len(t.filteredMap) {
+		return -1
+	}
+	return t.filteredMap[idx]
+}
+
+// ToggleSelect toggles selection on the current row and re-renders markers.
+func (t *Table) ToggleSelect() {
+	idx := t.SelectedAllRowIndex()
+	if idx < 0 {
+		return
+	}
+	if t.selected[idx] {
+		delete(t.selected, idx)
+	} else {
+		t.selected[idx] = true
+	}
+	t.applyFilterAndSort()
+}
+
+// SelectAll selects all currently visible (filtered) rows.
+func (t *Table) SelectAll() {
+	for _, allIdx := range t.filteredMap {
+		t.selected[allIdx] = true
+	}
+	t.applyFilterAndSort()
+}
+
+// DeselectAll clears all selections.
+func (t *Table) DeselectAll() {
+	t.selected = make(map[int]bool)
+	t.applyFilterAndSort()
+}
+
+// ToggleSelectAll selects all if none are selected, otherwise deselects all.
+func (t *Table) ToggleSelectAll() {
+	if len(t.selected) > 0 {
+		t.DeselectAll()
+	} else {
+		t.SelectAll()
+	}
+}
+
+// SelectionCount returns the number of selected rows.
+func (t Table) SelectionCount() int {
+	return len(t.selected)
+}
+
+// SelectedIndices returns the allRows indices of all selected rows.
+func (t Table) SelectedIndices() []int {
+	indices := make([]int, 0, len(t.selected))
+	for idx := range t.selected {
+		indices = append(indices, idx)
+	}
+	sort.Ints(indices)
+	return indices
+}
+
+// FilteredIndices returns the allRows indices of all currently visible (filtered) rows.
+func (t Table) FilteredIndices() []int {
+	out := make([]int, len(t.filteredMap))
+	copy(out, t.filteredMap)
+	return out
+}
+
+// IsSelected returns whether the given allRows index is selected.
+func (t Table) IsSelected(allRowIdx int) bool {
+	return t.selected[allRowIdx]
 }
 
 // Sort sorts the table by the given column index.
@@ -122,21 +202,25 @@ func (t Table) View() string {
 }
 
 func (t *Table) applyFilterAndSort() {
+	t.filteredMap = nil
 	rows := t.allRows
 
 	// Filter
 	if t.filterText != "" {
 		lower := strings.ToLower(t.filterText)
 		var filtered []table.Row
-		for _, row := range rows {
+		for i, row := range rows {
 			for _, cell := range row {
 				if strings.Contains(strings.ToLower(cell), lower) {
 					filtered = append(filtered, row)
+					t.filteredMap = append(t.filteredMap, i)
 					break
 				}
 			}
 		}
 		rows = filtered
+	} else {
+		t.buildFilteredMap()
 	}
 
 	// Sort
@@ -151,5 +235,30 @@ func (t *Table) applyFilterAndSort() {
 		})
 	}
 
+	// Apply selection markers to display rows
+	if len(t.selected) > 0 {
+		marked := make([]table.Row, len(rows))
+		for i, row := range rows {
+			allIdx := t.filteredMap[i]
+			if t.selected[allIdx] {
+				// Clone the row and prepend checkmark to first cell
+				newRow := make(table.Row, len(row))
+				copy(newRow, row)
+				newRow[0] = "✓ " + newRow[0]
+				marked[i] = newRow
+			} else {
+				marked[i] = row
+			}
+		}
+		rows = marked
+	}
+
 	t.inner.SetRows(rows)
+}
+
+func (t *Table) buildFilteredMap() {
+	t.filteredMap = make([]int, len(t.allRows))
+	for i := range t.allRows {
+		t.filteredMap[i] = i
+	}
 }
