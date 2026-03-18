@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -15,17 +17,29 @@ import (
 	"github.com/juthrbog/lazycloud/internal/views"
 )
 
+var appCommands = []ui.PickerOption{
+	{Label: "quit           Exit LazyCloud", Value: "quit"},
+	{Label: "home           Go to home screen", Value: "home"},
+	{Label: "s3             S3 buckets", Value: "s3"},
+	{Label: "ec2            EC2 instances", Value: "ec2"},
+	{Label: "logs           Event log", Value: "logs"},
+	{Label: "theme          Switch theme", Value: "theme"},
+	{Label: "region         Switch region", Value: "region"},
+	{Label: "profile        Switch profile", Value: "profile"},
+}
+
 // Model is the root application model — message router and layout compositor.
 type Model struct {
-	config  config.Config
-	nav     *nav.Navigator
-	confirm ui.Confirm
-	picker  ui.Picker
-	width   int
-	height  int
-	err     string
-	info    string
-	isDark  bool
+	config    config.Config
+	awsClient *aws.Client
+	nav       *nav.Navigator
+	confirm   ui.Confirm
+	picker    ui.Picker
+	toasts    ui.ToastManager
+	width     int
+	height    int
+	err       string
+	isDark    bool
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -38,12 +52,20 @@ func New(cfg config.Config) Model {
 	if cfg.AWS.Endpoint != "" {
 		eventlog.Infof(eventlog.CatConfig, "Endpoint override: %s (LocalStack)", cfg.AWS.Endpoint)
 	}
+
+	awsClient, err := aws.NewClient(cfg.AWS.Profile, cfg.AWS.Region, cfg.AWS.Endpoint)
+	if err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
+	}
+
 	return Model{
-		config:  cfg,
-		nav:     nav.New(home),
-		confirm: ui.NewConfirm(),
-		picker:  ui.NewPicker(),
-		isDark:  true,
+		config:    cfg,
+		awsClient: awsClient,
+		nav:       nav.New(home),
+		confirm:   ui.NewConfirm(),
+		picker:    ui.NewPicker(),
+		toasts:    ui.NewToastManager(),
+		isDark:    true,
 	}
 }
 
@@ -99,20 +121,39 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.ErrorMsg:
 		m.err = msg.Context + ": " + msg.Err.Error()
-		m.info = ""
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", msg.Context, msg.Err)
 		return m, nil
 
 	case appmsg.StatusMsg:
-		m.info = msg.Text
+		// Legacy — convert to toast
+		_, cmd := m.toasts.Add(msg.Text, ui.ToastInfo, 0)
 		m.err = ""
+		return m, cmd
+
+	case appmsg.ToastMsg:
+		_, cmd := m.toasts.Add(msg.Text, ui.ToastLevel(msg.Level), 0)
+		return m, cmd
+
+	case ui.ToastDismissMsg:
+		m.toasts.Dismiss(msg.ID)
 		return m, nil
+
+	case appmsg.RequestConfirmMsg:
+		m.confirm.Show(msg.Message, msg.Action)
+		return m, nil
+
+	case ui.ConfirmResultMsg:
+		// Route to current view
+		cmd := m.nav.UpdateCurrent(msg)
+		return m, cmd
 
 	case ui.PickerResultMsg:
 		if msg.Selected < 0 {
 			return m, nil
 		}
 		switch msg.ID {
+		case "command":
+			return m.executeCommand(msg.Value)
 		case "theme":
 			return m.applyTheme(msg.Value)
 		case "region":
@@ -149,11 +190,61 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			eventlog.Debug(eventlog.CatUI, "Event log opened")
 			cmd := m.pushView(views.NewEventLog())
 			return m, cmd
+		case ":":
+			m.picker.Show("command", "Command", appCommands, 0)
+			return m, nil
 		}
 	}
 
 	cmd := m.nav.UpdateCurrent(teaMsg)
 	return m, cmd
+}
+
+func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
+	switch cmd {
+	case "q", "quit":
+		return m, tea.Quit
+	case "qa", "qall":
+		return m, tea.Quit
+	case "home":
+		home := views.NewHome()
+		m.nav = nav.New(home)
+		m.err = ""
+		return m, m.resizeCmd()
+	case "logs", "log", "events":
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "eventlog"}
+		}
+	case "theme":
+		m.showThemePicker()
+		return m, nil
+	case "region":
+		m.showRegionPicker()
+		return m, nil
+	case "profile":
+		m.showProfilePicker()
+		return m, nil
+	case "ec2":
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "ec2_list"}
+		}
+	case "s3":
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "s3_list"}
+		}
+	default:
+		_, toastCmd := m.toasts.Add("Unknown command: "+cmd, ui.ToastError, 0)
+		return m, toastCmd
+	}
+}
+
+func (m Model) resizeCmd() tea.Cmd {
+	if m.width > 0 && m.height > 0 {
+		return func() tea.Msg {
+			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+		}
+	}
+	return nil
 }
 
 // pushView pushes a view onto the navigator and sends it the current window size.
@@ -213,7 +304,7 @@ var awsRegions = []string{
 func (m *Model) showProfilePicker() {
 	profiles := aws.ListProfiles()
 	if len(profiles) == 0 {
-		m.info = "No profiles found in ~/.aws/config"
+		m.toasts.Add("No profiles found in ~/.aws/config", ui.ToastError, 0)
 		return
 	}
 
@@ -235,10 +326,17 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Profile changed → %s", profile)
 	m.config.AWS.Profile = profile
 
+	// Recreate AWS client with new profile
+	awsClient, err := aws.NewClient(profile, m.config.AWS.Region, m.config.AWS.Endpoint)
+	if err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
+	}
+	m.awsClient = awsClient
+
 	home := views.NewHome()
 	m.nav = nav.New(home)
 	m.err = ""
-	m.info = "Profile: " + profile
+	m.toasts.Add("Profile: "+profile, ui.ToastSuccess, 0)
 
 	var cmd tea.Cmd
 	if m.width > 0 && m.height > 0 {
@@ -272,10 +370,17 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Region changed → %s", region)
 	m.config.AWS.Region = region
 
+	// Recreate AWS client with new region
+	awsClient, err := aws.NewClient(m.config.AWS.Profile, region, m.config.AWS.Endpoint)
+	if err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
+	}
+	m.awsClient = awsClient
+
 	home := views.NewHome()
 	m.nav = nav.New(home)
 	m.err = ""
-	m.info = "Region: " + region
+	m.toasts.Add("Region: "+region, ui.ToastSuccess, 0)
 
 	var cmd tea.Cmd
 	if m.width > 0 && m.height > 0 {
@@ -299,7 +404,7 @@ func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
 	m.err = ""
-	m.info = "Theme: " + ui.ActiveTheme.Name
+	m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
 
 	// Re-send window size so the new home view sizes correctly
 	var cmd tea.Cmd
@@ -325,7 +430,6 @@ func (m Model) View() tea.View {
 	statusBar := ui.RenderStatusBar(ui.StatusBarData{
 		Keys:  keys,
 		Error: m.err,
-		Info:  m.info,
 		Width: m.width,
 	})
 
@@ -349,13 +453,35 @@ func (m Model) View() tea.View {
 
 	body := lipgloss.JoinVertical(lipgloss.Left, header, contentStr, statusBar)
 
-	// Overlay picker or confirm dialog
-	if m.picker.Visible() {
-		dialog := m.picker.View()
-		body = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
-	} else if m.confirm.Visible() {
-		dialog := m.confirm.View()
-		body = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, dialog)
+	// Overlay popup centered on the full screen
+	if m.picker.Visible() || m.confirm.Visible() {
+		var dialog string
+		if m.picker.Visible() {
+			dialog = m.picker.View()
+		} else {
+			dialog = m.confirm.View()
+		}
+		body = composeOverlay(body, dialog, m.width, m.height)
+	}
+
+	// Overlay toasts in bottom-right
+	if m.toasts.HasActive() {
+		toastView := m.toasts.View(m.width)
+		toastW := lipgloss.Width(toastView)
+		toastH := lipgloss.Height(toastView)
+		x := m.width - toastW - 2
+		y := m.height - toastH - 2
+		if x < 0 {
+			x = 0
+		}
+		if y < 0 {
+			y = 0
+		}
+		comp := lipgloss.NewCompositor(
+			lipgloss.NewLayer(body).Z(0),
+			lipgloss.NewLayer(toastView).X(x).Y(y).Z(1),
+		)
+		body = comp.Render()
 	}
 
 	v := tea.NewView(body)
@@ -363,10 +489,37 @@ func (m Model) View() tea.View {
 	return v
 }
 
+// composeOverlay renders a dialog centered on top of a background using
+// lipgloss Compositor for proper layer compositing.
+func composeOverlay(bg, dialog string, bgWidth, bgHeight int) string {
+	dlgW := lipgloss.Width(dialog)
+	dlgH := lipgloss.Height(dialog)
+	x := (bgWidth - dlgW) / 2
+	y := (bgHeight - dlgH) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+
+	comp := lipgloss.NewCompositor(
+		lipgloss.NewLayer(bg).Z(0),
+		lipgloss.NewLayer(dialog).X(x).Y(y).Z(1),
+	)
+	return comp.Render()
+}
+
 func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 	switch n.ViewID {
 	case "ec2_list":
-		return views.NewEC2List()
+		return views.NewEC2List(m.awsClient)
+	case "s3_list":
+		return views.NewS3List(m.awsClient)
+	case "s3_objects":
+		return views.NewS3Objects(m.awsClient, n.Params["bucket"], n.Params["prefix"])
+	case "s3_versions":
+		return views.NewS3Versions(m.awsClient, n.Params["bucket"], n.Params["key"])
 	case "eventlog":
 		return views.NewEventLog()
 	case "content":
@@ -376,25 +529,29 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		if format == "" {
 			format = ui.FormatAuto
 		}
-		return views.NewContentViewer("content:"+title, title, content, format)
+		// Use a unique ID so content viewers are never cached
+		id := fmt.Sprintf("content:%s:%d", title, time.Now().UnixNano())
+		return views.NewContentViewer(id, title, content, format)
 	default:
 		return nil
 	}
 }
 
 func (m Model) currentKeyHints() []ui.KeyHint {
-	hints := []ui.KeyHint{
-		{Key: "enter", Desc: "select"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
-	}
+	// View-specific hints first
+	hints := m.nav.Current().KeyMap()
+
+	// Global hints
 	if m.nav.Depth() > 1 {
 		hints = append(hints, ui.KeyHint{Key: "esc", Desc: "back"})
 	}
-	hints = append(hints, ui.KeyHint{Key: "L", Desc: "logs"})
-	hints = append(hints, ui.KeyHint{Key: "P", Desc: "profile"})
-	hints = append(hints, ui.KeyHint{Key: "R", Desc: "region"})
-	hints = append(hints, ui.KeyHint{Key: "T", Desc: "theme"})
-	hints = append(hints, ui.KeyHint{Key: "q", Desc: "quit"})
+	hints = append(hints,
+		ui.KeyHint{Key: "L", Desc: "logs"},
+		ui.KeyHint{Key: "P", Desc: "profile"},
+		ui.KeyHint{Key: "R", Desc: "region"},
+		ui.KeyHint{Key: "T", Desc: "theme"},
+		ui.KeyHint{Key: ":", Desc: "command"},
+		ui.KeyHint{Key: "q", Desc: "quit"},
+	)
 	return hints
 }

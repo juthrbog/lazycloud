@@ -34,6 +34,12 @@ type Home struct {
 
 func (h *Home) ID() string    { return "home" }
 func (h *Home) Title() string { return "Services" }
+func (h *Home) KeyMap() []ui.KeyHint {
+	return []ui.KeyHint{
+		{Key: "enter", Desc: "select"},
+		{Key: "/", Desc: "filter"},
+	}
+}
 
 // NewHome creates the home service selector view.
 func NewHome() *Home {
