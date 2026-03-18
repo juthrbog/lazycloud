@@ -11,27 +11,19 @@ Set Framerate 30
 
 # Setup (hidden from recording)
 Hide
-Type "export PATH=$HOME/.local/share/mise/shims:$PATH"
-Enter
-Sleep 500ms
-Type "task localstack:up > /dev/null 2>&1 && task localstack:wipe > /dev/null 2>&1 && task localstack:seed > /dev/null 2>&1"
-Enter
-Sleep 15s
-Type "clear"
-Enter
-Sleep 500ms
-Type "./lazycloud --endpoint http://localhost:4566 --no-nerd-fonts"
+Type "task dev"
 Sleep 5s
 Show
 
 # Select S3 (only service listed)
+Down
 Enter
 
 # S3 bucket list loaded — show 3 buckets: logs-bucket, test-bucket-1, test-bucket-2
 Sleep 2s
 
 # Navigate to test-bucket-1 (cursor starts on logs-bucket)
-Down
+Down 2
 Sleep 300ms
 Enter
 
@@ -76,6 +68,32 @@ Sleep 2s
 Escape
 Sleep 500ms
 
+# Show filtering
+Type "/"
+Type "test-file"
+Sleep 2s
+Escape
+
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Space
+Sleep 200ms
+Down
+Sleep 200ms
+Space
+Sleep 200ms
+Down
+Sleep 200ms
+Space
+Sleep 200ms
+Type "x"
+Sleep 300ms
+Type "confirm"
+Enter
+Sleep 2s
+
 # Open command palette
 Type ":"
 Sleep 2s
@@ -84,6 +102,16 @@ Sleep 2s
 Type "h"
 Sleep 300ms
 Enter
+
+# Back into S3
+Sleep 1s
+Enter
+
+Type "n"
+Sleep 300ms
+Type "me-make-new-bucket"
+Enter
+Sleep 2s
 
 # Open event log
 Shift+L

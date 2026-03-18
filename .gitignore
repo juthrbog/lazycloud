@@ -42,3 +42,6 @@ lazycloud
 
 # LocalStack
 localstack-data/
+
+# VHS
+demo/
