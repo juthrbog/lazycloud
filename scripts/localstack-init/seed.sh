@@ -11,87 +11,81 @@ aws() {
     command aws --endpoint-url "$ENDPOINT" --region us-east-1 "$@"
 }
 
-# Track results for summary table
-RESULTS=()
-
-record() {
-    RESULTS+=("$1|$2|$3")
-}
-
 ensure_s3_bucket() {
-    if aws s3api head-bucket --bucket "$1" &>/dev/null; then
-        record "S3 Bucket" "$1" "exists"
-    else
-        aws s3 mb "s3://$1" >/dev/null
-        record "S3 Bucket" "$1" "created"
-    fi
+    aws s3api head-bucket --bucket "$1" &>/dev/null || aws s3 mb "s3://$1" >/dev/null
 }
 
 ensure_iam_role() {
-    local name="$1"
-    local policy="$2"
-    if aws iam get-role --role-name "$name" &>/dev/null; then
-        record "IAM Role" "$name" "exists"
-    else
-        aws iam create-role --role-name "$name" --assume-role-policy-document "$policy" >/dev/null
-        record "IAM Role" "$name" "created"
-    fi
+    aws iam get-role --role-name "$1" &>/dev/null || \
+        aws iam create-role --role-name "$1" --assume-role-policy-document "$2" >/dev/null
 }
 
 ensure_dynamodb_table() {
-    if aws dynamodb describe-table --table-name "$1" &>/dev/null; then
-        record "DynamoDB Table" "$1" "exists"
-    else
+    aws dynamodb describe-table --table-name "$1" &>/dev/null || \
         aws dynamodb create-table \
             --table-name "$1" \
             --key-schema AttributeName=id,KeyType=HASH \
             --attribute-definitions AttributeName=id,AttributeType=S \
             --billing-mode PAY_PER_REQUEST >/dev/null
-        record "DynamoDB Table" "$1" "created"
-    fi
 }
 
 ensure_s3_object() {
-    local bucket="$1"
-    local key="$2"
-    local content="$3"
-    echo "$content" | aws s3 cp - "s3://$bucket/$key" >/dev/null
-    record "S3 Object" "s3://$bucket/$key" "uploaded"
-}
-
-print_summary() {
-    local type_w=16 name_w=34 status_w=10
-    local total_w=$((type_w + name_w + status_w + 4))
-    local line
-    line=$(printf '─%.0s' $(seq 1 "$total_w"))
-
-    printf "\n%s\n" "$line"
-    printf "%-${type_w}s  %-${name_w}s  %-${status_w}s\n" "TYPE" "NAME" "STATUS"
-    printf "%s\n" "$line"
-    for entry in "${RESULTS[@]}"; do
-        IFS='|' read -r type name status <<< "$entry"
-        printf "%-${type_w}s  %-${name_w}s  %-${status_w}s\n" "$type" "$name" "$status"
-    done
-    printf "%s\n" "$line"
-    printf "%d resources ready.\n\n" "${#RESULTS[@]}"
+    echo -e "$3" | aws s3 cp - "s3://$1/$2" >/dev/null
 }
 
 echo "Seeding LocalStack at $ENDPOINT..."
 
-# S3 buckets
+# S3
+printf "  S3 buckets..."
 ensure_s3_bucket test-bucket-1
 ensure_s3_bucket test-bucket-2
 ensure_s3_bucket logs-bucket
-ensure_s3_object test-bucket-1 test-file.txt "hello world"
+echo " done"
 
-# IAM roles
+printf "  S3 objects..."
+ensure_s3_object test-bucket-1 readme.md "# Test Bucket 1\n\nThis is a test bucket for LazyCloud development.\n\n## Contents\n\n- Config files\n- Scripts\n- Data files"
+ensure_s3_object test-bucket-1 test-file.txt "hello world"
+ensure_s3_object test-bucket-1 config/app.json '{"name": "lazycloud", "version": "0.1.0", "debug": false, "port": 8080}'
+ensure_s3_object test-bucket-1 config/settings.yaml "database:\n  host: localhost\n  port: 5432\n  name: myapp\n\nredis:\n  host: localhost\n  port: 6379"
+ensure_s3_object test-bucket-1 config/nginx.conf "server {\n    listen 80;\n    server_name example.com;\n\n    location / {\n        proxy_pass http://localhost:8080;\n    }\n}"
+ensure_s3_object test-bucket-1 scripts/deploy.sh "#!/bin/bash\nset -euo pipefail\n\necho 'Deploying application...'\ndocker compose up -d\necho 'Done.'"
+ensure_s3_object test-bucket-1 scripts/cleanup.sh "#!/bin/bash\necho 'Cleaning up temp files...'\nrm -rf /tmp/app-cache/*\necho 'Cleanup complete.'"
+ensure_s3_object test-bucket-1 data/users.csv "id,name,email,role\n1,Alice,alice@example.com,admin\n2,Bob,bob@example.com,user\n3,Charlie,charlie@example.com,user\n4,Diana,diana@example.com,editor"
+ensure_s3_object test-bucket-1 data/metrics.json '{"requests": 15234, "errors": 42, "latency_p99": 230, "uptime": 99.97}'
+ensure_s3_object test-bucket-1 data/notes.txt "Meeting notes 2026-03-17\n- Discussed S3 integration\n- Reviewed TUI design\n- Next steps: implement deletion"
+ensure_s3_object test-bucket-1 terraform/main.tf 'resource "aws_s3_bucket" "example" {\n  bucket = "my-bucket"\n\n  tags = {\n    Environment = "dev"\n  }\n}'
+ensure_s3_object test-bucket-1 terraform/variables.tf 'variable "region" {\n  default = "us-east-1"\n}\n\nvariable "environment" {\n  default = "dev"\n}'
+
+# test-bucket-2: images and binary-like files (for testing preview guard)
+ensure_s3_object test-bucket-2 index.html "<!DOCTYPE html>\n<html>\n<head><title>Test</title></head>\n<body><h1>Hello from S3</h1></body>\n</html>"
+ensure_s3_object test-bucket-2 styles.css "body {\n  font-family: sans-serif;\n  margin: 0;\n  padding: 20px;\n  background: #1e1e2e;\n  color: #cdd6f4;\n}"
+ensure_s3_object test-bucket-2 app.js "const greet = (name) => {\n  console.log(\`Hello, \${name}!\`);\n};\n\ngreet('LazyCloud');"
+ensure_s3_object test-bucket-2 photos/photo1.jpg "BINARY_PLACEHOLDER_NOT_A_REAL_IMAGE"
+ensure_s3_object test-bucket-2 photos/photo2.png "BINARY_PLACEHOLDER_NOT_A_REAL_IMAGE"
+ensure_s3_object test-bucket-2 docs/guide.md "# User Guide\n\n## Getting Started\n\n1. Install LazyCloud\n2. Run \`./lazycloud\`\n3. Browse your AWS resources\n\n## Tips\n\n- Use \`/\` to filter\n- Press \`L\` for event log"
+ensure_s3_object test-bucket-2 docs/changelog.md "# Changelog\n\n## v0.1.0\n\n- Initial S3 support\n- Bucket browsing\n- Object preview\n- Presigned URLs"
+ensure_s3_object test-bucket-2 backups/db-2026-03-01.sql "-- Database backup\nCREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);\nINSERT INTO users (name) VALUES ('Alice'), ('Bob');"
+ensure_s3_object test-bucket-2 backups/db-2026-03-15.sql "-- Database backup\nCREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT, email TEXT);\nINSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');"
+
+# logs-bucket: log files
+ensure_s3_object logs-bucket app/2026-03-01.log "[2026-03-01 08:00:00] INFO  Server started on :8080\n[2026-03-01 08:01:23] INFO  Request: GET /api/health\n[2026-03-01 08:05:45] WARN  Slow query: 2.3s\n[2026-03-01 08:10:00] ERROR Connection timeout to database"
+ensure_s3_object logs-bucket app/2026-03-15.log "[2026-03-15 09:00:00] INFO  Server started on :8080\n[2026-03-15 09:00:05] INFO  Connected to database\n[2026-03-15 09:15:30] INFO  Request: POST /api/users\n[2026-03-15 09:20:00] INFO  Request: GET /api/users"
+ensure_s3_object logs-bucket app/2026-03-17.log "[2026-03-17 10:00:00] INFO  Server started on :8080\n[2026-03-17 10:00:01] INFO  Health check passed\n[2026-03-17 10:30:00] WARN  High memory usage: 85%\n[2026-03-17 11:00:00] ERROR Out of memory"
+ensure_s3_object logs-bucket access/access.log "192.168.1.1 - - [17/Mar/2026:10:00:00] \"GET / HTTP/1.1\" 200 1234\n192.168.1.2 - - [17/Mar/2026:10:00:05] \"POST /api HTTP/1.1\" 201 56\n10.0.0.1 - - [17/Mar/2026:10:01:00] \"GET /health HTTP/1.1\" 200 2"
+ensure_s3_object logs-bucket errors/errors.json '{"timestamp": "2026-03-17T10:30:00Z", "level": "error", "message": "Connection refused", "service": "api", "trace_id": "abc123"}'
+echo " done"
+
+# IAM
+printf "  IAM roles..."
 EC2_TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 LAMBDA_TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-
 ensure_iam_role test-role "$EC2_TRUST"
 ensure_iam_role lambda-execution-role "$LAMBDA_TRUST"
+echo " done"
 
-# DynamoDB tables
+# DynamoDB
+printf "  DynamoDB tables..."
 ensure_dynamodb_table test-table
+echo " done"
 
-print_summary
+echo "Seeding complete."
