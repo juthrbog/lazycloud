@@ -35,7 +35,8 @@ type s3BucketPropsMsg struct {
 
 // S3List displays all S3 buckets.
 type S3List struct {
-	client              *aws.Client
+	s3                  aws.S3Service
+	defaultRegion       string
 	table               ui.Table
 	buckets             []aws.Bucket
 	filter              ui.Filter
@@ -52,18 +53,25 @@ type S3List struct {
 func (s *S3List) ID() string    { return "s3_list" }
 func (s *S3List) Title() string { return "S3 Buckets" }
 func (s *S3List) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
+	hints := []ui.KeyHint{
 		{Key: "enter", Desc: "browse"},
 		{Key: "d", Desc: "properties"},
-		{Key: "n", Desc: "new bucket"},
-		{Key: "x", Desc: "delete bucket"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
 	}
+	if !ui.ReadOnly {
+		hints = append(hints,
+			ui.KeyHint{Key: "n", Desc: "new bucket"},
+			ui.KeyHint{Key: "x", Desc: "delete bucket"},
+		)
+	}
+	hints = append(hints,
+		ui.KeyHint{Key: "/", Desc: "filter"},
+		ui.KeyHint{Key: "r", Desc: "refresh"},
+	)
+	return hints
 }
 
 // NewS3List creates the S3 bucket list view.
-func NewS3List(client *aws.Client) *S3List {
+func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
 	columns := []table.Column{
 		{Title: "Bucket", Width: 40},
 		{Title: "Created", Width: 22},
@@ -71,11 +79,12 @@ func NewS3List(client *aws.Client) *S3List {
 
 	t := ui.NewTable(columns, nil)
 	return &S3List{
-		client:  client,
-		table:   t,
-		filter:  ui.NewFilter(),
-		spinner: ui.NewSpinner("Loading S3 buckets..."),
-		loading: true,
+		s3:            s3,
+		defaultRegion: defaultRegion,
+		table:         t,
+		filter:        ui.NewFilter(),
+		spinner:       ui.NewSpinner("Loading S3 buckets..."),
+		loading:       true,
 	}
 }
 
@@ -87,12 +96,12 @@ func (s *S3List) Init() tea.Cmd {
 }
 
 func (s *S3List) fetchBuckets() tea.Cmd {
-	client := s.client
+	svc := s.s3
 	return func() tea.Msg {
-		if client == nil {
+		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
 		}
-		buckets, err := aws.ListBuckets(context.Background(), client)
+		buckets, err := svc.ListBuckets(context.Background())
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing S3 buckets"}
 		}
@@ -249,11 +258,21 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			bucket := selected[0]
 			return s, s.fetchBucketProperties(bucket)
 		case "n":
+			if ui.ReadOnly {
+				return s, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
 			s.creating = true
 			s.createInput = ui.NewFilter()
 			s.createInput.Activate()
 			return s, nil
 		case "x":
+			if ui.ReadOnly {
+				return s, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
 			selected := s.table.SelectedRow()
 			if selected == nil {
 				return s, nil
@@ -281,32 +300,32 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (s *S3List) fetchBucketProperties(bucket string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching properties for bucket: %s", bucket)
-		props, err := aws.GetBucketProperties(context.Background(), client, bucket)
+		props, err := svc.GetBucketProperties(context.Background(), bucket)
 		return s3BucketPropsMsg{props: props, err: err}
 	}
 }
 
 func (s *S3List) createBucket(name string) tea.Cmd {
-	client := s.client
-	region := client.Region
+	svc := s.s3
+	region := s.defaultRegion
 	if region == "" {
 		region = "us-east-1"
 	}
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Creating bucket: %s in %s", name, region)
-		err := aws.CreateBucket(context.Background(), client, name, region)
+		err := svc.CreateBucket(context.Background(), name, region)
 		return s3BucketCreatedMsg{name: name, err: err}
 	}
 }
 
 func (s *S3List) deleteBucket(bucket string) tea.Cmd {
-	client := s.client
+	svc := s.s3
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
-		err := aws.EmptyAndDeleteBucket(context.Background(), client, bucket)
+		err := svc.EmptyAndDeleteBucket(context.Background(), bucket)
 		return s3BucketDeletedMsg{bucket: bucket, err: err}
 	}
 }
