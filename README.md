@@ -7,7 +7,7 @@
 A terminal user interface (TUI) for browsing, managing, and interacting with AWS services and resources — without leaving your terminal. Built with Go and the [Charm](https://charm.sh) ecosystem, [inspired by](#inspired-by) tools like lazygit, k9s, and claws.
 
 <!-- Record with: vhs demo/s3.tape -->
-![LazyCloud Demo](demo/s3.gif)
+<!-- ![LazyCloud Demo](demo/s3.gif) -->
 
 ## Features
 
