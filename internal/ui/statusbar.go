@@ -16,7 +16,6 @@ type KeyHint struct {
 type StatusBarData struct {
 	Keys  []KeyHint
 	Error string
-	Info  string
 	Width int
 }
 
@@ -41,10 +40,6 @@ func RenderStatusBar(data StatusBarData) string {
 	}
 
 	bar := strings.Join(parts, "  ")
-
-	if data.Info != "" {
-		bar += "  " + s.StatusDesc.Render(data.Info)
-	}
 
 	barWidth := lipgloss.Width(bar)
 	if data.Width > barWidth {
