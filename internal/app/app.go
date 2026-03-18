@@ -21,8 +21,7 @@ var appCommands = []ui.PickerOption{
 	{Label: "quit           Exit LazyCloud", Value: "quit"},
 	{Label: "home           Go to home screen", Value: "home"},
 	{Label: "s3             S3 buckets", Value: "s3"},
-	{Label: "ec2            EC2 instances", Value: "ec2"},
-	{Label: "logs           Event log", Value: "logs"},
+{Label: "logs           Event log", Value: "logs"},
 	{Label: "theme          Switch theme", Value: "theme"},
 	{Label: "region         Switch region", Value: "region"},
 	{Label: "profile        Switch profile", Value: "profile"},
@@ -224,10 +223,6 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 	case "profile":
 		m.showProfilePicker()
 		return m, nil
-	case "ec2":
-		return m, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: "ec2_list"}
-		}
 	case "s3":
 		return m, func() tea.Msg {
 			return appmsg.NavigateMsg{ViewID: "s3_list"}
@@ -512,8 +507,13 @@ func composeOverlay(bg, dialog string, bgWidth, bgHeight int) string {
 
 func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 	switch n.ViewID {
-	case "ec2_list":
-		return views.NewEC2List(m.awsClient)
+	case "service_menu":
+		name := n.Params["service"]
+		features := views.ServiceFeatures(name)
+		if features == nil {
+			return nil
+		}
+		return views.NewServiceMenu(name, features)
 	case "s3_list":
 		return views.NewS3List(m.awsClient)
 	case "s3_objects":
