@@ -242,6 +242,39 @@ func PresignGetObject(ctx context.Context, client *Client, bucket, key string, e
 	return req.URL, nil
 }
 
+// ListAllKeys returns every object key under prefix (no delimiter, recursive).
+// Used to resolve a "folder" into concrete keys for deletion.
+func ListAllKeys(ctx context.Context, client *Client, bucket, prefix string) ([]string, error) {
+	svc, err := s3ClientForBucket(ctx, client, bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	var keys []string
+	var token *string
+	for {
+		input := &s3.ListObjectsV2Input{
+			Bucket: aws.String(bucket),
+			Prefix: aws.String(prefix),
+		}
+		if token != nil {
+			input.ContinuationToken = token
+		}
+		output, err := svc.ListObjectsV2(ctx, input)
+		if err != nil {
+			return nil, err
+		}
+		for _, obj := range output.Contents {
+			keys = append(keys, aws.ToString(obj.Key))
+		}
+		if !aws.ToBool(output.IsTruncated) {
+			break
+		}
+		token = output.NextContinuationToken
+	}
+	return keys, nil
+}
+
 // DeleteObject deletes a single S3 object.
 func DeleteObject(ctx context.Context, client *Client, bucket, key string) error {
 	svc, err := s3ClientForBucket(ctx, client, bucket)

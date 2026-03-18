@@ -7,7 +7,7 @@
 A terminal user interface (TUI) for browsing, managing, and interacting with AWS services and resources — without leaving your terminal. Built with Go and the [Charm](https://charm.sh) ecosystem, [inspired by](#inspired-by) tools like lazygit, k9s, and claws.
 
 <!-- Record with: vhs demo/s3.tape -->
-![LazyCloud Demo](demo/s3.gif)
+<!-- ![LazyCloud Demo](demo/s3.gif) -->
 
 ## Features
 
@@ -51,46 +51,46 @@ task dev               # run against LocalStack
 
 ### CLI Flags
 
-| Flag | Description |
-|------|-------------|
-| `--profile` | AWS profile (falls back to `AWS_PROFILE`) |
-| `--region` | AWS region (falls back to `AWS_REGION`) |
-| `--endpoint` | Endpoint override for LocalStack (falls back to `AWS_ENDPOINT_URL`) |
-| `--theme` | Color theme: `catppuccin`, `dracula`, `nord`, `tokyonight` |
-| `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs |
-| `--config` | Path to config file (default: `~/.config/lazycloud/config.toml`) |
-| `--log` | Path to debug log file |
-| `--init-config` | Write default config file and exit |
+| Flag              | Description                                                         |
+| ----------------- | ------------------------------------------------------------------- |
+| `--profile`       | AWS profile (falls back to `AWS_PROFILE`)                           |
+| `--region`        | AWS region (falls back to `AWS_REGION`)                             |
+| `--endpoint`      | Endpoint override for LocalStack (falls back to `AWS_ENDPOINT_URL`) |
+| `--theme`         | Color theme: `catppuccin`, `dracula`, `nord`, `tokyonight`          |
+| `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs                 |
+| `--config`        | Path to config file (default: `~/.config/lazycloud/config.toml`)    |
+| `--log`           | Path to debug log file                                              |
+| `--init-config`   | Write default config file and exit                                  |
 
 ### Keybindings
 
 **Global**
 
-| Key | Action |
-|-----|--------|
-| `j`/`k` or arrows | Navigate up/down |
-| `enter` | Drill into resource |
-| `esc` | Go back |
-| `/` | Filter/search |
-| `r` | Refresh |
-| `L` | Event log |
-| `P` | Switch AWS profile |
-| `R` | Switch AWS region |
-| `T` | Switch theme |
-| `:` | Command palette |
-| `q` | Quit |
+| Key               | Action              |
+| ----------------- | ------------------- |
+| `j`/`k` or arrows | Navigate up/down    |
+| `enter`           | Drill into resource |
+| `esc`             | Go back             |
+| `/`               | Filter/search       |
+| `r`               | Refresh             |
+| `L`               | Event log           |
+| `P`               | Switch AWS profile  |
+| `R`               | Switch AWS region   |
+| `T`               | Switch theme        |
+| `:`               | Command palette     |
+| `q`               | Quit                |
 
 **Content Viewer**
 
-| Key | Action |
-|-----|--------|
-| `j`/`k` | Move cursor |
-| `g`/`G` | Jump to top/bottom |
-| `ctrl+d`/`ctrl+u` | Half-page down/up |
-| `V` | Visual line select |
-| `y` | Yank to clipboard |
-| `e` | Open in `$EDITOR` |
-| `n` | Toggle line numbers |
+| Key               | Action              |
+| ----------------- | ------------------- |
+| `j`/`k`           | Move cursor         |
+| `g`/`G`           | Jump to top/bottom  |
+| `ctrl+d`/`ctrl+u` | Half-page down/up   |
+| `V`               | Visual line select  |
+| `y`               | Yank to clipboard   |
+| `e`               | Open in `$EDITOR`   |
+| `n`               | Toggle line numbers |
 
 ## Configuration
 
@@ -126,10 +126,10 @@ Only **AWS** is supported at this time. Other cloud providers may be added in th
 
 ### AWS
 
-| Service | Status | Description |
-|---------|--------|-------------|
-| [S3](services/aws/s3.md) | Implemented | Browse buckets, navigate objects, preview/download files, copy/move, versioning, presigned URLs, create/delete buckets and objects |
-| [EC2](services/aws/ec2.md) | Mock data | Browse instances (real API integration planned) |
+| Service                    | Status      | Description                                                                                                                        |
+| -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| [S3](services/aws/s3.md)   | Implemented | Browse buckets, navigate objects, preview/download files, copy/move, versioning, presigned URLs, create/delete buckets and objects |
+| [EC2](services/aws/ec2.md) | Mock data   | Browse instances (real API integration planned)                                                                                    |
 
 ## Tech Stack
 

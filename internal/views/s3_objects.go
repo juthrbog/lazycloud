@@ -20,6 +20,8 @@ import (
 
 // s3PageLoadedMsg delivers one page of results for progressive loading.
 type s3PageLoadedMsg struct {
+	bucket       string // identifies the target view
+	prefix       string // identifies the target view
 	objects      []aws.S3Object
 	prefixes     []string
 	hasMorePages bool
@@ -39,6 +41,10 @@ type s3ObjectContentMsg struct {
 type s3PresignedURLMsg struct {
 	url string
 	key string
+}
+
+type s3DeleteResolvedMsg struct {
+	keys []string
 }
 
 type s3DeleteCompleteMsg struct {
@@ -86,7 +92,7 @@ type S3Objects struct {
 	copySrcKey        string    // source key for copy/move
 	loading           bool
 	pageNum           int
-	pendingDeleteKeys []string
+	pendingDeleteEntries []s3TableEntry
 	err               error
 	width             int
 	height            int
@@ -144,6 +150,15 @@ func NewS3Objects(client *aws.Client, bucket, prefix string) *S3Objects {
 }
 
 func (s *S3Objects) Init() tea.Cmd {
+	// Already loaded — nothing to do (idempotent for navigator cache reuse).
+	if !s.loading {
+		return nil
+	}
+	// If re-entered from the navigator cache while still loading
+	// (e.g. user went back before the fetch completed), restart cleanly.
+	if s.pageNum > 0 {
+		return s.refreshListing()
+	}
 	return tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
 }
 
@@ -161,12 +176,35 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s/%s", bucket, prefix)}
 		}
 		return s3PageLoadedMsg{
+			bucket:       bucket,
+			prefix:       prefix,
 			objects:      page.Objects,
 			prefixes:     page.Prefixes,
 			hasMorePages: page.HasMorePages,
 			token:        page.Token,
 			pageNum:      pageNum,
 		}
+	}
+}
+
+// resolveDeleteKeys expands folders into their contained object keys.
+func (s *S3Objects) resolveDeleteKeys(entries []s3TableEntry) tea.Cmd {
+	client := s.client
+	bucket := s.bucket
+	return func() tea.Msg {
+		var keys []string
+		for _, e := range entries {
+			if e.isFolder {
+				folderKeys, err := aws.ListAllKeys(context.Background(), client, bucket, e.fullPath)
+				if err != nil {
+					return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s", e.fullPath)}
+				}
+				keys = append(keys, folderKeys...)
+			} else {
+				keys = append(keys, e.fullPath)
+			}
+		}
+		return s3DeleteResolvedMsg{keys: keys}
 	}
 }
 
@@ -265,13 +303,23 @@ func (s *S3Objects) moveObject(srcKey, dstKey string) tea.Cmd {
 func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.ConfirmResultMsg:
-		if m.Confirmed && m.Action == "delete_objects" && len(s.pendingDeleteKeys) > 0 {
-			keys := s.pendingDeleteKeys
-			s.pendingDeleteKeys = nil
-			return s, s.deleteObjects(keys)
+		if m.Confirmed && m.Action == "delete_objects" && len(s.pendingDeleteEntries) > 0 {
+			entries := s.pendingDeleteEntries
+			s.pendingDeleteEntries = nil
+			s.spinner.Show("Resolving keys...")
+			return s, tea.Batch(s.spinner.Tick(), s.resolveDeleteKeys(entries))
 		}
-		s.pendingDeleteKeys = nil
+		s.pendingDeleteEntries = nil
 		return s, nil
+
+	case s3DeleteResolvedMsg:
+		if len(m.keys) == 0 {
+			s.spinner.Hide()
+			return s, func() tea.Msg {
+				return msg.ToastError("No objects found to delete")
+			}
+		}
+		return s, s.deleteObjects(m.keys)
 
 	case s3DeleteCompleteMsg:
 		if m.err != nil {
@@ -323,6 +371,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case s3PageLoadedMsg:
+		// Discard messages from a different S3Objects view (e.g. user navigated back
+		// before loading finished, and the message was routed to the wrong view).
+		if m.bucket != s.bucket || m.prefix != s.prefix {
+			return s, nil
+		}
+
 		s.pageNum = m.pageNum
 
 		// Append new data (prefixes only come on first page typically, but handle any)
@@ -500,17 +554,33 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case "x", "X":
-			keys := s.collectDeleteKeys(false)
-			if len(keys) == 0 {
+			entries := s.collectDeleteEntries()
+			if len(entries) == 0 {
 				return s, func() tea.Msg {
-					return msg.ToastError("No objects to delete (select with space first)")
+					return msg.ToastError("No items to delete (select with space first)")
 				}
 			}
-			s.pendingDeleteKeys = keys
-			count := len(keys)
+			s.pendingDeleteEntries = entries
+			// Build a human-readable confirmation message
+			var folders, objects int
+			for _, e := range entries {
+				if e.isFolder {
+					folders++
+				} else {
+					objects++
+				}
+			}
+			var parts []string
+			if folders > 0 {
+				parts = append(parts, fmt.Sprintf("%d folder(s)", folders))
+			}
+			if objects > 0 {
+				parts = append(parts, fmt.Sprintf("%d object(s)", objects))
+			}
+			message := "Delete " + strings.Join(parts, " and ") + "?"
 			return s, func() tea.Msg {
 				return msg.RequestConfirmMsg{
-					Message: fmt.Sprintf("Delete %d object(s)?", count),
+					Message: message,
 					Action:  "delete_objects",
 				}
 			}
@@ -604,11 +674,11 @@ func (s *S3Objects) View() tea.View {
 	return tea.NewView(content)
 }
 
-// collectDeleteKeys gathers object keys for deletion.
+// collectDeleteEntries gathers entries (objects and folders) for deletion.
 // If items are selected, only deletes selected items that are currently visible.
 // If nothing is selected, deletes the item under the cursor.
-func (s *S3Objects) collectDeleteKeys(_ bool) []string {
-	var keys []string
+func (s *S3Objects) collectDeleteEntries() []s3TableEntry {
+	var entries []s3TableEntry
 
 	// Build a set of currently visible allRows indices
 	visibleSet := make(map[int]bool)
@@ -617,19 +687,18 @@ func (s *S3Objects) collectDeleteKeys(_ bool) []string {
 	}
 
 	if s.table.SelectionCount() > 0 {
-		// Only delete selected items that are currently visible
 		for _, allIdx := range s.table.SelectedIndices() {
-			if visibleSet[allIdx] && allIdx < len(s.entries) && !s.entries[allIdx].isFolder {
-				keys = append(keys, s.entries[allIdx].fullPath)
+			if visibleSet[allIdx] && allIdx < len(s.entries) {
+				entries = append(entries, s.entries[allIdx])
 			}
 		}
 	} else {
 		entry := s.selectedEntry()
-		if entry != nil && !entry.isFolder {
-			keys = append(keys, entry.fullPath)
+		if entry != nil {
+			entries = append(entries, *entry)
 		}
 	}
-	return keys
+	return entries
 }
 
 func (s *S3Objects) selectedEntry() *s3TableEntry {
