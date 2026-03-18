@@ -13,6 +13,39 @@ import (
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
+// S3Service defines all S3 operations that views depend on.
+type S3Service interface {
+	ListBuckets(ctx context.Context) ([]Bucket, error)
+	ListObjectsPage(ctx context.Context, bucket, prefix string, token *string) (*ObjectPage, error)
+	HeadObject(ctx context.Context, bucket, key string) (*ObjectMeta, error)
+	GetObjectContent(ctx context.Context, bucket, key string, maxBytes int64) (string, error)
+	PresignGetObject(ctx context.Context, bucket, key string, expiry time.Duration) (string, error)
+	ListAllKeys(ctx context.Context, bucket, prefix string) ([]string, error)
+	DownloadObject(ctx context.Context, bucket, key, destPath string) error
+	ListObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error)
+	GetBucketProperties(ctx context.Context, bucket string) (*BucketProperties, error)
+	GetBucketRegion(ctx context.Context, bucket string) (string, error)
+	DeleteObject(ctx context.Context, bucket, key string) error
+	DeleteObjects(ctx context.Context, bucket string, keys []string) error
+	DeleteBucket(ctx context.Context, bucket string) error
+	EmptyAndDeleteBucket(ctx context.Context, bucket string) error
+	CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error
+	MoveObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error
+	CreateBucket(ctx context.Context, name, region string) error
+}
+
+// S3ServiceImpl is the real AWS-backed implementation of S3Service.
+type S3ServiceImpl struct {
+	client *Client
+}
+
+// NewS3Service creates a real S3 service backed by the given AWS client.
+func NewS3Service(client *Client) *S3ServiceImpl {
+	return &S3ServiceImpl{client: client}
+}
+
+var _ S3Service = (*S3ServiceImpl)(nil)
+
 // S3Client returns an S3 service client configured for the current profile/region/endpoint.
 func (c *Client) S3Client() *s3.Client {
 	return s3.NewFromConfig(c.Config, func(o *s3.Options) {
@@ -35,17 +68,17 @@ func (c *Client) S3ClientForRegion(region string) *s3.Client {
 }
 
 // GetBucketRegion resolves the region a bucket lives in.
-func GetBucketRegion(ctx context.Context, client *Client, bucket string) (string, error) {
+func (svc *S3ServiceImpl) GetBucketRegion(ctx context.Context, bucket string) (string, error) {
 	// LocalStack doesn't support GetBucketLocation properly
-	if client.Endpoint != "" {
-		if client.Region != "" {
-			return client.Region, nil
+	if svc.client.Endpoint != "" {
+		if svc.client.Region != "" {
+			return svc.client.Region, nil
 		}
 		return "us-east-1", nil
 	}
 
-	svc := client.S3Client()
-	output, err := svc.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
+	s3c := svc.client.S3Client()
+	output, err := s3c.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
 		Bucket: aws.String(bucket),
 	})
 	if err != nil {
@@ -61,12 +94,12 @@ func GetBucketRegion(ctx context.Context, client *Client, bucket string) (string
 }
 
 // s3ClientForBucket resolves the bucket's region and returns a properly configured client.
-func s3ClientForBucket(ctx context.Context, client *Client, bucket string) (*s3.Client, error) {
-	region, err := GetBucketRegion(ctx, client, bucket)
+func (svc *S3ServiceImpl) s3ClientForBucket(ctx context.Context, bucket string) (*s3.Client, error) {
+	region, err := svc.GetBucketRegion(ctx, bucket)
 	if err != nil {
 		return nil, fmt.Errorf("resolving bucket region: %w", err)
 	}
-	return client.S3ClientForRegion(region), nil
+	return svc.client.S3ClientForRegion(region), nil
 }
 
 // Bucket represents an S3 bucket.
@@ -95,9 +128,9 @@ type ObjectMeta struct {
 }
 
 // ListBuckets returns all S3 buckets accessible to the current credentials.
-func ListBuckets(ctx context.Context, client *Client) ([]Bucket, error) {
-	svc := client.S3Client()
-	output, err := svc.ListBuckets(ctx, &s3.ListBucketsInput{})
+func (svc *S3ServiceImpl) ListBuckets(ctx context.Context) ([]Bucket, error) {
+	s3c := svc.client.S3Client()
+	output, err := s3c.ListBuckets(ctx, &s3.ListBucketsInput{})
 	if err != nil {
 		return nil, err
 	}
@@ -125,8 +158,8 @@ type ObjectPage struct {
 
 // ListObjectsPage fetches a single page of objects. Pass nil token for the first page.
 // Returns the page results and a token for the next page (nil if no more pages).
-func ListObjectsPage(ctx context.Context, client *Client, bucket, prefix string, token *string) (*ObjectPage, error) {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) ListObjectsPage(ctx context.Context, bucket, prefix string, token *string) (*ObjectPage, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +173,7 @@ func ListObjectsPage(ctx context.Context, client *Client, bucket, prefix string,
 		input.ContinuationToken = token
 	}
 
-	output, err := svc.ListObjectsV2(ctx, input)
+	output, err := s3c.ListObjectsV2(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -174,12 +207,12 @@ func ListObjectsPage(ctx context.Context, client *Client, bucket, prefix string,
 }
 
 // HeadObject returns detailed metadata for an S3 object.
-func HeadObject(ctx context.Context, client *Client, bucket, key string) (*ObjectMeta, error) {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) HeadObject(ctx context.Context, bucket, key string) (*ObjectMeta, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return nil, err
 	}
-	output, err := svc.HeadObject(ctx, &s3.HeadObjectInput{
+	output, err := s3c.HeadObject(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
@@ -202,13 +235,13 @@ func HeadObject(ctx context.Context, client *Client, bucket, key string) (*Objec
 }
 
 // GetObjectContent reads up to maxBytes of an S3 object and returns it as a string.
-func GetObjectContent(ctx context.Context, client *Client, bucket, key string, maxBytes int64) (string, error) {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) GetObjectContent(ctx context.Context, bucket, key string, maxBytes int64) (string, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return "", err
 	}
 	rangeHeader := fmt.Sprintf("bytes=0-%d", maxBytes-1)
-	output, err := svc.GetObject(ctx, &s3.GetObjectInput{
+	output, err := s3c.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 		Range:  aws.String(rangeHeader),
@@ -226,12 +259,12 @@ func GetObjectContent(ctx context.Context, client *Client, bucket, key string, m
 }
 
 // PresignGetObject generates a presigned GET URL for an S3 object.
-func PresignGetObject(ctx context.Context, client *Client, bucket, key string, expiry time.Duration) (string, error) {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) PresignGetObject(ctx context.Context, bucket, key string, expiry time.Duration) (string, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return "", err
 	}
-	presigner := s3.NewPresignClient(svc)
+	presigner := s3.NewPresignClient(s3c)
 	req, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
@@ -244,8 +277,8 @@ func PresignGetObject(ctx context.Context, client *Client, bucket, key string, e
 
 // ListAllKeys returns every object key under prefix (no delimiter, recursive).
 // Used to resolve a "folder" into concrete keys for deletion.
-func ListAllKeys(ctx context.Context, client *Client, bucket, prefix string) ([]string, error) {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) ListAllKeys(ctx context.Context, bucket, prefix string) ([]string, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +293,7 @@ func ListAllKeys(ctx context.Context, client *Client, bucket, prefix string) ([]
 		if token != nil {
 			input.ContinuationToken = token
 		}
-		output, err := svc.ListObjectsV2(ctx, input)
+		output, err := s3c.ListObjectsV2(ctx, input)
 		if err != nil {
 			return nil, err
 		}
@@ -276,12 +309,12 @@ func ListAllKeys(ctx context.Context, client *Client, bucket, prefix string) ([]
 }
 
 // DeleteObject deletes a single S3 object.
-func DeleteObject(ctx context.Context, client *Client, bucket, key string) error {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) DeleteObject(ctx context.Context, bucket, key string) error {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return err
 	}
-	_, err = svc.DeleteObject(ctx, &s3.DeleteObjectInput{
+	_, err = s3c.DeleteObject(ctx, &s3.DeleteObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
@@ -289,8 +322,8 @@ func DeleteObject(ctx context.Context, client *Client, bucket, key string) error
 }
 
 // DeleteObjects deletes multiple S3 objects in batches of up to 1000.
-func DeleteObjects(ctx context.Context, client *Client, bucket string, keys []string) error {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return err
 	}
@@ -308,7 +341,7 @@ func DeleteObjects(ctx context.Context, client *Client, bucket string, keys []st
 			objects[j] = s3types.ObjectIdentifier{Key: aws.String(key)}
 		}
 
-		_, err := svc.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+		_, err := s3c.DeleteObjects(ctx, &s3.DeleteObjectsInput{
 			Bucket: aws.String(bucket),
 			Delete: &s3types.Delete{
 				Objects: objects,
@@ -323,22 +356,22 @@ func DeleteObjects(ctx context.Context, client *Client, bucket string, keys []st
 }
 
 // DeleteBucket deletes an S3 bucket. The bucket must be empty.
-func DeleteBucket(ctx context.Context, client *Client, bucket string) error {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) DeleteBucket(ctx context.Context, bucket string) error {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return err
 	}
-	_, err = svc.DeleteBucket(ctx, &s3.DeleteBucketInput{
+	_, err = s3c.DeleteBucket(ctx, &s3.DeleteBucketInput{
 		Bucket: aws.String(bucket),
 	})
 	return err
 }
 
 // EmptyAndDeleteBucket deletes all objects in a bucket, then deletes the bucket itself.
-func EmptyAndDeleteBucket(ctx context.Context, client *Client, bucket string) error {
+func (svc *S3ServiceImpl) EmptyAndDeleteBucket(ctx context.Context, bucket string) error {
 	// List and delete all objects
 	for {
-		page, err := ListObjectsPage(ctx, client, bucket, "", nil)
+		page, err := svc.ListObjectsPage(ctx, bucket, "", nil)
 		if err != nil {
 			return fmt.Errorf("listing objects: %w", err)
 		}
@@ -349,21 +382,21 @@ func EmptyAndDeleteBucket(ctx context.Context, client *Client, bucket string) er
 		for i, obj := range page.Objects {
 			keys[i] = obj.Key
 		}
-		if err := DeleteObjects(ctx, client, bucket, keys); err != nil {
+		if err := svc.DeleteObjects(ctx, bucket, keys); err != nil {
 			return fmt.Errorf("deleting objects: %w", err)
 		}
 	}
-	return DeleteBucket(ctx, client, bucket)
+	return svc.DeleteBucket(ctx, bucket)
 }
 
 // DownloadObject downloads an S3 object to a local file.
-func DownloadObject(ctx context.Context, client *Client, bucket, key, destPath string) error {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) DownloadObject(ctx context.Context, bucket, key, destPath string) error {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return err
 	}
 
-	output, err := svc.GetObject(ctx, &s3.GetObjectInput{
+	output, err := s3c.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 	})
@@ -398,14 +431,14 @@ func DefaultDownloadPath(key string) string {
 }
 
 // CopyObject copies an S3 object to a new location.
-func CopyObject(ctx context.Context, client *Client, srcBucket, srcKey, dstBucket, dstKey string) error {
-	svc, err := s3ClientForBucket(ctx, client, dstBucket)
+func (svc *S3ServiceImpl) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
+	s3c, err := svc.s3ClientForBucket(ctx, dstBucket)
 	if err != nil {
 		return err
 	}
 
 	copySource := srcBucket + "/" + srcKey
-	_, err = svc.CopyObject(ctx, &s3.CopyObjectInput{
+	_, err = s3c.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:     aws.String(dstBucket),
 		Key:        aws.String(dstKey),
 		CopySource: aws.String(copySource),
@@ -414,11 +447,11 @@ func CopyObject(ctx context.Context, client *Client, srcBucket, srcKey, dstBucke
 }
 
 // MoveObject copies an object to a new location then deletes the source.
-func MoveObject(ctx context.Context, client *Client, srcBucket, srcKey, dstBucket, dstKey string) error {
-	if err := CopyObject(ctx, client, srcBucket, srcKey, dstBucket, dstKey); err != nil {
+func (svc *S3ServiceImpl) MoveObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
+	if err := svc.CopyObject(ctx, srcBucket, srcKey, dstBucket, dstKey); err != nil {
 		return fmt.Errorf("copy: %w", err)
 	}
-	if err := DeleteObject(ctx, client, srcBucket, srcKey); err != nil {
+	if err := svc.DeleteObject(ctx, srcBucket, srcKey); err != nil {
 		return fmt.Errorf("delete source: %w", err)
 	}
 	return nil
@@ -435,13 +468,13 @@ type ObjectVersion struct {
 }
 
 // ListObjectVersions returns all versions of a specific object.
-func ListObjectVersions(ctx context.Context, client *Client, bucket, key string) ([]ObjectVersion, error) {
-	svc, err := s3ClientForBucket(ctx, client, bucket)
+func (svc *S3ServiceImpl) ListObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return nil, err
 	}
 
-	output, err := svc.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+	output, err := s3c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
 		Bucket: aws.String(bucket),
 		Prefix: aws.String(key),
 	})
@@ -496,27 +529,27 @@ type BucketProperties struct {
 
 // GetBucketProperties aggregates bucket configuration from multiple API calls.
 // Individual call failures are non-fatal (permissions may vary).
-func GetBucketProperties(ctx context.Context, client *Client, bucket string) (*BucketProperties, error) {
-	region, err := GetBucketRegion(ctx, client, bucket)
+func (svc *S3ServiceImpl) GetBucketProperties(ctx context.Context, bucket string) (*BucketProperties, error) {
+	region, err := svc.GetBucketRegion(ctx, bucket)
 	if err != nil {
 		return nil, err
 	}
 
-	svc := client.S3ClientForRegion(region)
+	s3c := svc.client.S3ClientForRegion(region)
 	props := &BucketProperties{
 		Name:   bucket,
 		Region: region,
 	}
 
 	// Versioning
-	if vOut, err := svc.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
+	if vOut, err := s3c.GetBucketVersioning(ctx, &s3.GetBucketVersioningInput{
 		Bucket: aws.String(bucket),
 	}); err == nil {
 		props.Versioning = string(vOut.Status)
 	}
 
 	// Encryption
-	if eOut, err := svc.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{
+	if eOut, err := s3c.GetBucketEncryption(ctx, &s3.GetBucketEncryptionInput{
 		Bucket: aws.String(bucket),
 	}); err == nil && eOut.ServerSideEncryptionConfiguration != nil {
 		for _, rule := range eOut.ServerSideEncryptionConfiguration.Rules {
@@ -528,7 +561,7 @@ func GetBucketProperties(ctx context.Context, client *Client, bucket string) (*B
 	}
 
 	// Public access block
-	if pOut, err := svc.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
+	if pOut, err := s3c.GetPublicAccessBlock(ctx, &s3.GetPublicAccessBlockInput{
 		Bucket: aws.String(bucket),
 	}); err == nil && pOut.PublicAccessBlockConfiguration != nil {
 		cfg := pOut.PublicAccessBlockConfiguration
@@ -542,8 +575,8 @@ func GetBucketProperties(ctx context.Context, client *Client, bucket string) (*B
 }
 
 // CreateBucket creates a new S3 bucket in the specified region.
-func CreateBucket(ctx context.Context, client *Client, name, region string) error {
-	svc := client.S3ClientForRegion(region)
+func (svc *S3ServiceImpl) CreateBucket(ctx context.Context, name, region string) error {
+	s3c := svc.client.S3ClientForRegion(region)
 
 	input := &s3.CreateBucketInput{
 		Bucket: aws.String(name),
@@ -556,7 +589,7 @@ func CreateBucket(ctx context.Context, client *Client, name, region string) erro
 		}
 	}
 
-	_, err := svc.CreateBucket(ctx, input)
+	_, err := s3c.CreateBucket(ctx, input)
 	return err
 }
 

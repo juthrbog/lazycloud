@@ -10,6 +10,7 @@ import (
 type HeaderData struct {
 	Profile     string
 	Region      string
+	Mode        string // "RO" or "RW"
 	Breadcrumbs []string
 	Width       int
 }
@@ -32,9 +33,21 @@ func RenderHeader(data HeaderData) string {
 	title := " " + IconCloud.Icon() + " LazyCloud "
 	titleRendered := GradientText(title, s.HeaderGradient)
 
-	// Profile and region badges
+	// Profile, region, and mode badges
 	profileBadge := s.HeaderStyle.Render(" " + profile + " ")
 	regionBadge := s.HeaderAccent.Render(" " + region + " ")
+
+	var modeBadge string
+	if data.Mode == "RW" {
+		modeBadge = lipgloss.NewStyle().
+			Foreground(t.Base).
+			Background(t.Warning).
+			Bold(true).
+			Padding(0, 1).
+			Render("RW")
+	} else {
+		modeBadge = s.HeaderStyle.Render(" RO ")
+	}
 
 	// Breadcrumbs
 	crumbParts := make([]string, len(data.Breadcrumbs))
@@ -46,7 +59,7 @@ func RenderHeader(data HeaderData) string {
 	sep := lipgloss.NewStyle().Foreground(t.Muted).Render(" › ")
 	crumbs := strings.Join(crumbParts, sep)
 
-	bar := titleRendered + " " + profileBadge + " " + regionBadge + "  " + crumbs
+	bar := titleRendered + " " + profileBadge + " " + regionBadge + " " + modeBadge + "  " + crumbs
 
 	// Fill to full width with surface background
 	barWidth := lipgloss.Width(bar)
