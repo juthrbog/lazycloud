@@ -9,19 +9,25 @@ import (
 )
 
 type serviceEntry struct {
-	Name   string
-	ViewID string
-	Icon   ui.ServiceIcon
+	Name     string
+	Icon     ui.ServiceIcon
+	Features []ServiceFeature
 }
 
 var services = []serviceEntry{
-	{Name: "EC2 Instances", ViewID: "ec2_list", Icon: ui.IconEC2},
-	{Name: "S3 Buckets", ViewID: "s3_list", Icon: ui.IconS3},
-	{Name: "ECS Clusters", ViewID: "ecs_clusters", Icon: ui.IconECS},
-	{Name: "Lambda Functions", ViewID: "lambda_list", Icon: ui.IconLambda},
-	{Name: "IAM Roles", ViewID: "iam_roles", Icon: ui.IconIAM},
-	{Name: "RDS Instances", ViewID: "rds_list", Icon: ui.IconRDS},
-	{Name: "CloudWatch Logs", ViewID: "cloudwatch_logs", Icon: ui.IconCloudWatch},
+	{Name: "S3", Icon: ui.IconS3, Features: []ServiceFeature{
+		{Name: "Buckets", ViewID: "s3_list", Icon: ui.IconS3},
+	}},
+}
+
+// ServiceFeatures returns the features for the named service, or nil if not found.
+func ServiceFeatures(name string) []ServiceFeature {
+	for _, svc := range services {
+		if svc.Name == name {
+			return svc.Features
+		}
+	}
+	return nil
 }
 
 // Home is the service selector dashboard.
@@ -93,12 +99,9 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if selected == nil {
 				return h, nil
 			}
-			// Match by service name (column 1)
 			for _, svc := range services {
 				if svc.Name == selected[1] {
-					return h, func() tea.Msg {
-						return msg.NavigateMsg{ViewID: svc.ViewID}
-					}
+					return h, h.navigateService(svc)
 				}
 			}
 		}
@@ -107,6 +110,22 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	h.table, cmd = h.table.Update(m)
 	return h, cmd
+}
+
+// navigateService either goes directly to the resource view (single feature)
+// or opens an intermediate service menu (multiple features).
+func (h *Home) navigateService(svc serviceEntry) tea.Cmd {
+	if len(svc.Features) == 1 {
+		return func() tea.Msg {
+			return msg.NavigateMsg{ViewID: svc.Features[0].ViewID}
+		}
+	}
+	return func() tea.Msg {
+		return msg.NavigateMsg{
+			ViewID: "service_menu",
+			Params: map[string]string{"service": svc.Name},
+		}
+	}
 }
 
 func (h *Home) View() tea.View {

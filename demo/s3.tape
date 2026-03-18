@@ -11,103 +11,113 @@ Set Framerate 30
 
 # Setup (hidden from recording)
 Hide
-Type "export PATH=$HOME/.local/share/mise/shims:$PATH"
-Enter
-Sleep 500ms
-Type "task localstack:up > /dev/null 2>&1 && task localstack:seed > /dev/null 2>&1"
-Enter
-Sleep 8s
-Type "go build -o lazycloud . 2>/dev/null"
-Enter
+Type "task dev"
 Sleep 5s
-Type "clear"
-Enter
-Sleep 500ms
 Show
 
-# Launch LazyCloud against LocalStack (no nerd fonts)
-Type "./lazycloud --endpoint http://localhost:4566 --no-nerd-fonts"
-
-# Home screen — pause to show services list
-Sleep 3s
-
-# Navigate down to S3 Buckets and select it
+# Select S3 (only service listed)
 Down
-Sleep 500ms
 Enter
 
-# S3 bucket list loaded — pause to show
-Sleep 3s
-
-# Navigate to test-bucket-1 (past logs-bucket)
-Down
-Sleep 300ms
-Enter
-
-# Inside the bucket — show objects
-Sleep 3s
-
-# Preview test-file.txt content (enter)
-Enter
-
-# Content viewer showing file — pause to read
-Sleep 3s
-
-# Go back to objects
-Escape
-Sleep 1s
-
-# Show metadata with d
-Type "d"
-
-# Metadata JSON displayed — pause to read
-Sleep 3s
-
-# Go back to objects
-Escape
-Sleep 1s
-
-# Go back to bucket list
-Escape
-Sleep 1s
-
-# Go back to home
-Escape
-Sleep 1s
-
-# Show region picker
-Shift+R
+# S3 bucket list loaded — show 3 buckets: logs-bucket, test-bucket-1, test-bucket-2
 Sleep 2s
 
-# Scroll down a bit
-Down
+# Navigate to test-bucket-1 (cursor starts on logs-bucket)
+Down 2
 Sleep 300ms
-Down
-Sleep 300ms
-Down
-Sleep 300ms
+Enter
 
-# Cancel
+# Inside the bucket — show folders and files
+# Order: config/, data/, scripts/, terraform/, readme.md, test-file.txt
+Sleep 2s
+
+# Enter config/ folder to show nested navigation
+Enter
+
+# config/ contents: app.json, nginx.conf, settings.yaml
+Sleep 2s
+
+# Preview app.json content (syntax-highlighted JSON)
+Enter
+
+# Content viewer showing JSON — pause to read
+Sleep 2s
+
+# Go back to config/ listing
 Escape
-Sleep 1s
+Sleep 500ms
 
-# Open event log
-Shift+L
-
-# Pause to show events
-Sleep 3s
-
-# Go back to home
+# Show metadata on app.json
+Type "d"
+Sleep 2s
 Escape
-Sleep 1s
+
+# Move to settings.yaml (down past nginx.conf)
+Down
+Sleep 300ms
+Down
+Sleep 300ms
+
+# Preview settings.yaml
+Enter
+
+# Content viewer showing YAML — pause to read
+Sleep 2s
+
+# Go back to config/ listing
+Escape
+Sleep 500ms
+
+# Show filtering
+Type "/"
+Type "test-file"
+Sleep 2s
+Escape
+
+Down
+Sleep 200ms
+Down
+Sleep 200ms
+Space
+Sleep 200ms
+Down
+Sleep 200ms
+Space
+Sleep 200ms
+Down
+Sleep 200ms
+Space
+Sleep 200ms
+Type "x"
+Sleep 300ms
+Type "confirm"
+Enter
+Sleep 2s
 
 # Open command palette
 Type ":"
 Sleep 2s
 
-# Filter commands
-Type "s3"
+# Go back to home
+Type "h"
+Sleep 300ms
+Enter
+
+# Back into S3
 Sleep 1s
+Enter
+
+Type "n"
+Sleep 300ms
+Type "me-make-new-bucket"
+Enter
+Sleep 2s
+
+# Open event log
+Shift+L
+
+# Pause to show events
+Sleep 2s
 
 # Cancel
 Escape
