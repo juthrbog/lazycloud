@@ -80,6 +80,9 @@ func NewS3List(client *aws.Client) *S3List {
 }
 
 func (s *S3List) Init() tea.Cmd {
+	if !s.loading {
+		return nil
+	}
 	return tea.Batch(s.spinner.Tick(), s.fetchBuckets())
 }
 

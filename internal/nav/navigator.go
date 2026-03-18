@@ -30,11 +30,11 @@ func New(root View) *Navigator {
 }
 
 // Push adds a view to the stack. If a cached version with the same ID exists,
-// it is reused. Returns the Init command for new (non-cached) views.
+// it is reused. Init is always called — views should be idempotent if already loaded.
 func (n *Navigator) Push(v View) tea.Cmd {
 	if cached, ok := n.cache[v.ID()]; ok {
 		n.stack = append(n.stack, cached)
-		return nil
+		return cached.Init()
 	}
 	n.cache[v.ID()] = v
 	n.stack = append(n.stack, v)
