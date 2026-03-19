@@ -87,7 +87,9 @@ task dev               # run against LocalStack
 | `:`               | Command palette           |
 | `q`               | Quit                      |
 
-**Content Viewer**
+**Content Viewer / Side Panel**
+
+These keys apply in the content viewer and when the side panel is focused (press `tab` to toggle focus).
 
 | Key               | Action              |
 | ----------------- | ------------------- |
@@ -98,6 +100,20 @@ task dev               # run against LocalStack
 | `y`               | Yank to clipboard   |
 | `e`               | Open in `$EDITOR`   |
 | `n`               | Toggle line numbers |
+| `tab`             | Focus main view     |
+| `esc`             | Close panel         |
+
+**Picker** (profile, region, theme, sort, command palette)
+
+| Key               | Action              |
+| ----------------- | ------------------- |
+| `↑`/`↓`           | Navigate options    |
+| `enter`           | Select              |
+| `esc`             | Cancel              |
+| `ctrl+x`          | Clear/reset         |
+| *type*            | Fuzzy filter        |
+
+The picker ranks matches by relevance: prefix matches first, then substring, then fuzzy.
 
 ## Configuration
 
