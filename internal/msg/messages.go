@@ -61,3 +61,10 @@ type RequestConfirmMsg struct {
 	Message string
 	Action  string
 }
+
+// RequestSortPickerMsg asks the app to show a column sort picker.
+// The PickerResultMsg (ID="sort") is routed back to the current view.
+type RequestSortPickerMsg struct {
+	Columns    []string // column titles
+	CurrentCol int      // currently sorted column index (-1 if unsorted)
+}
