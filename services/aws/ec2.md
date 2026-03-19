@@ -37,6 +37,7 @@ Pressing `enter` or `d` fetches full instance metadata via `DescribeInstances` a
 |-----|--------|
 | `enter` / `d` | View instance details as JSON |
 | `o` | Start SSM session (connect to instance) |
+| `m` | Manage instance (start/stop/reboot/terminate picker) |
 | `y` | Copy instance ID to clipboard |
 | `/` | Filter instances |
 | `r` | Refresh |
@@ -48,6 +49,22 @@ Instance states are color-coded:
 - **Green**: running, available, active
 - **Red**: stopped, terminated, deleted
 - **Yellow**: pending, starting, stopping
+
+## Instance Operations
+
+Press `m` on an instance to open an action picker showing only the valid operations for the instance's current state:
+
+| Instance state | Available actions |
+|---------------|-------------------|
+| running | Stop, Reboot, Terminate |
+| stopped | Start |
+| pending, stopping, etc. | No actions available |
+
+- **Start** executes immediately (safe, reversible)
+- **Stop**, **Reboot**, and **Terminate** require typing "confirm" before proceeding
+- All operations are gated behind ReadWrite mode — press `W` to switch from ReadOnly
+
+After any operation, the instance list auto-refreshes to show the updated state.
 
 ## SSM Session
 
@@ -68,7 +85,11 @@ If the instance is not running or the plugin is not installed, a toast error is 
 type EC2Service interface {
     ListInstances(ctx context.Context) ([]Instance, error)
     GetInstanceDetail(ctx context.Context, instanceID string) (*InstanceDetail, error)
+    StartInstance(ctx context.Context, instanceID string) error
+    StopInstance(ctx context.Context, instanceID string) error
+    RebootInstance(ctx context.Context, instanceID string) error
+    TerminateInstance(ctx context.Context, instanceID string) error
 }
 ```
 
-Pagination is handled automatically in `ListInstances`. The service uses `DescribeInstances` for both operations.
+Pagination is handled automatically in `ListInstances`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.

@@ -62,6 +62,13 @@ type RequestConfirmMsg struct {
 	Action  string
 }
 
+// RequestActionPickerMsg asks the app to show an action picker.
+// The PickerResultMsg (ID="action") is routed back to the current view.
+type RequestActionPickerMsg struct {
+	Title   string   // picker title
+	Options []string // action labels
+}
+
 // RequestSortPickerMsg asks the app to show a column sort picker.
 // The PickerResultMsg (ID="sort") is routed back to the current view.
 type RequestSortPickerMsg struct {
