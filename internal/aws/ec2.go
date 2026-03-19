@@ -17,6 +17,10 @@ import (
 type EC2Service interface {
 	ListInstances(ctx context.Context) ([]Instance, error)
 	GetInstanceDetail(ctx context.Context, instanceID string) (*InstanceDetail, error)
+	StartInstance(ctx context.Context, instanceID string) error
+	StopInstance(ctx context.Context, instanceID string) error
+	RebootInstance(ctx context.Context, instanceID string) error
+	TerminateInstance(ctx context.Context, instanceID string) error
 }
 
 // EC2ServiceImpl is the real AWS-backed implementation of EC2Service.
@@ -170,6 +174,42 @@ func (svc *EC2ServiceImpl) GetInstanceDetail(ctx context.Context, instanceID str
 	}
 
 	return nil, nil
+}
+
+// StartInstance starts a stopped EC2 instance.
+func (svc *EC2ServiceImpl) StartInstance(ctx context.Context, instanceID string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.StartInstances(ctx, &ec2.StartInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	return err
+}
+
+// StopInstance stops a running EC2 instance.
+func (svc *EC2ServiceImpl) StopInstance(ctx context.Context, instanceID string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.StopInstances(ctx, &ec2.StopInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	return err
+}
+
+// RebootInstance reboots a running EC2 instance.
+func (svc *EC2ServiceImpl) RebootInstance(ctx context.Context, instanceID string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.RebootInstances(ctx, &ec2.RebootInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	return err
+}
+
+// TerminateInstance terminates an EC2 instance. This is irreversible.
+func (svc *EC2ServiceImpl) TerminateInstance(ctx context.Context, instanceID string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+		InstanceIds: []string{instanceID},
+	})
+	return err
 }
 
 // mapInstance extracts list-view fields from an SDK instance.

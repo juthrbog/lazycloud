@@ -175,6 +175,18 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.confirm.Show(msg.Message, msg.Action)
 		return m, nil
 
+	case appmsg.RequestActionPickerMsg:
+		var options []ui.PickerOption
+		for _, opt := range msg.Options {
+			options = append(options, ui.PickerOption{Label: opt, Value: opt})
+		}
+		title := msg.Title
+		if title == "" {
+			title = "Action"
+		}
+		m.picker.Show("action", title, options, 0)
+		return m, nil
+
 	case appmsg.RequestSortPickerMsg:
 		var options []ui.PickerOption
 		for _, col := range msg.Columns {
@@ -193,8 +205,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ui.PickerResultMsg:
-		// Sort picker: always route to current view (including clear/cancel)
-		if msg.ID == "sort" {
+		// Sort and action pickers: route to current view
+		if msg.ID == "sort" || msg.ID == "action" {
 			if msg.Selected == -1 {
 				return m, nil // esc cancel — do nothing
 			}
