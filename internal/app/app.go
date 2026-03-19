@@ -774,7 +774,7 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		}
 		return views.NewServiceMenu(name, features)
 	case "ec2_list":
-		return views.NewEC2List(m.ec2)
+		return views.NewEC2List(m.ec2, m.awsClient)
 	case "s3_list":
 		return views.NewS3List(m.s3, m.config.AWS.Region)
 	case "s3_objects":

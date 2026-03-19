@@ -3,6 +3,9 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -35,6 +38,31 @@ func (c *Client) EC2Client() *ec2.Client {
 			o.BaseEndpoint = aws.String(c.Endpoint)
 		}
 	})
+}
+
+// SSMSessionCmd returns an exec.Cmd to start an SSM session for the given instance.
+// Requires the AWS CLI and session-manager-plugin to be installed.
+// The label is displayed as a banner before the session starts (e.g. "my-server (i-abc123)").
+func (c *Client) SSMSessionCmd(instanceID, label string) *exec.Cmd {
+	args := []string{"ssm", "start-session", "--target", instanceID}
+	if c.Region != "" {
+		args = append(args, "--region", c.Region)
+	}
+	if c.Profile != "" {
+		args = append(args, "--profile", c.Profile)
+	}
+	// Build a shell command that prints a banner then execs the session
+	fullArgs := append([]string{"aws"}, args...)
+	awsCmd := strings.Join(fullArgs, " ")
+	banner := fmt.Sprintf("\033[1;36m── SSM Session: %s ──\033[0m\n", label)
+	shell := fmt.Sprintf("printf '%s' && %s", banner, awsCmd)
+	return exec.Command("sh", "-c", shell)
+}
+
+// SSMPluginAvailable returns true if the session-manager-plugin is installed.
+func SSMPluginAvailable() bool {
+	_, err := exec.LookPath("session-manager-plugin")
+	return err == nil
 }
 
 // Instance represents an EC2 instance in list views.

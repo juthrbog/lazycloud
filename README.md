@@ -152,7 +152,7 @@ Only **AWS** is supported at this time. Other cloud providers may be added in th
 | Service                    | Status      | Description                                                                                                                        |
 | -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | [S3](services/aws/s3.md)   | Implemented | Browse buckets, navigate objects, preview/download files, copy/move, versioning, presigned URLs, create/delete buckets and objects |
-| [EC2](services/aws/ec2.md) | Implemented | Browse instances, view instance details, color-coded state, copy instance ID                                                       |
+| [EC2](services/aws/ec2.md) | Implemented | Browse instances, view instance details, color-coded state, copy instance ID, SSM session connect                                  |
 
 ## Tech Stack
 
