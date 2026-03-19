@@ -36,6 +36,7 @@ Pressing `enter` or `d` fetches full instance metadata via `DescribeInstances` a
 | Key | Action |
 |-----|--------|
 | `enter` / `d` | View instance details as JSON |
+| `o` | Start SSM session (connect to instance) |
 | `y` | Copy instance ID to clipboard |
 | `/` | Filter instances |
 | `r` | Refresh |
@@ -47,6 +48,17 @@ Instance states are color-coded:
 - **Green**: running, available, active
 - **Red**: stopped, terminated, deleted
 - **Yellow**: pending, starting, stopping
+
+## SSM Session
+
+Press `o` on a running instance to start an SSM Session Manager shell. This suspends the TUI, opens an interactive terminal session, and restores the TUI when you exit.
+
+**Prerequisites:**
+- AWS CLI installed (`aws` command available)
+- [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) installed
+- Instance must be running with SSM agent and an appropriate IAM instance profile
+
+If the instance is not running or the plugin is not installed, a toast error is shown.
 
 ## Service Layer
 
