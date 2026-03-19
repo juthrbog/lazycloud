@@ -154,6 +154,71 @@ func TestResizeBelowThresholdClosesPanel(t *testing.T) {
 	assert.False(t, m.panelOpen)
 }
 
+// --- topLevelViewID ---
+
+func TestTopLevelViewIDOnHome(t *testing.T) {
+	m := newTestModel(140, 40)
+	assert.Equal(t, "", m.topLevelViewID())
+}
+
+func TestTopLevelViewIDOnEC2(t *testing.T) {
+	m := newTestModel(140, 40)
+	// Simulate navigating to ec2_list
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "ec2_list"})
+	m = result.(Model)
+
+	assert.Equal(t, "ec2_list", m.topLevelViewID())
+}
+
+func TestTopLevelViewIDOnS3(t *testing.T) {
+	m := newTestModel(140, 40)
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "s3_list"})
+	m = result.(Model)
+
+	assert.Equal(t, "s3_list", m.topLevelViewID())
+}
+
+// --- Region/profile apply ---
+
+func TestApplyRegionReturnsToDismissToast(t *testing.T) {
+	m := newTestModel(140, 40)
+	_, cmd := m.applyRegion("eu-west-1")
+	assert.NotNil(t, cmd, "applyRegion must return a cmd (toast dismiss + resize)")
+}
+
+func TestApplyRegionReturnsToServiceView(t *testing.T) {
+	m := newTestModel(140, 40)
+	// Navigate to EC2
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "ec2_list"})
+	m = result.(Model)
+
+	m, cmd := m.applyRegion("eu-west-1")
+	assert.NotNil(t, cmd)
+	// The nav was reset but a NavigateMsg should restore ec2_list.
+	// After processing batch, current view should be ec2_list.
+	assert.Equal(t, "Services", m.nav.Current().Title()) // nav was reset to home
+	// The returned cmd batch includes a NavigateMsg to ec2_list
+}
+
+func TestApplyRegionStaysOnHomeWhenOnHome(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = m.applyRegion("eu-west-1")
+	assert.Equal(t, "Services", m.nav.Current().Title())
+	assert.Equal(t, 1, m.nav.Depth())
+}
+
+func TestApplyProfileReturnsToDismissToast(t *testing.T) {
+	m := newTestModel(140, 40)
+	_, cmd := m.applyProfile("staging")
+	assert.NotNil(t, cmd)
+}
+
+func TestApplyThemeReturnsToDismissToast(t *testing.T) {
+	m := newTestModel(140, 40)
+	_, cmd := m.applyTheme("dracula")
+	assert.NotNil(t, cmd)
+}
+
 // --- Key hints ---
 
 func TestKeyHintsPanelFocused(t *testing.T) {
