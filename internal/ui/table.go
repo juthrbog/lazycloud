@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -19,16 +20,18 @@ const (
 
 // Table wraps bubbles/table with sort, filter, and multi-select support.
 type Table struct {
-	inner        table.Model
-	allRows      []table.Row
-	columns      []table.Column
-	sortCol      int
-	sortDir      SortDirection
-	filterText   string
-	selected     map[int]bool // indices into allRows
-	filteredMap  []int        // maps filtered row index → allRows index
-	width        int
-	height       int
+	inner       table.Model
+	allRows     []table.Row
+	columns     []table.Column
+	baseColumns []table.Column // original titles without sort indicators
+	sortCol     int
+	sortDir     SortDirection
+	sortKeys    []table.Row // parallel to allRows; nil = use display value
+	filterText  string
+	selected    map[int]bool // indices into allRows
+	filteredMap []int        // maps filtered row index → allRows index
+	width       int
+	height      int
 }
 
 // NewTable creates a Table with the given columns and rows.
@@ -53,12 +56,16 @@ func NewTable(columns []table.Column, rows []table.Row) Table {
 		Bold(false)
 	t.SetStyles(st)
 
+	baseCols := make([]table.Column, len(columns))
+	copy(baseCols, columns)
+
 	tbl := Table{
-		inner:    t,
-		allRows:  rows,
-		columns:  columns,
-		sortCol:  -1,
-		selected: make(map[int]bool),
+		inner:       t,
+		allRows:     rows,
+		columns:     columns,
+		baseColumns: baseCols,
+		sortCol:     -1,
+		selected:    make(map[int]bool),
 	}
 	tbl.buildFilteredMap()
 	return tbl
@@ -72,9 +79,20 @@ func (t *Table) SetSize(w, h int) {
 	t.inner.SetHeight(h)
 }
 
-// SetRows replaces the table data and reapplies sort/filter. Clears selection.
+// SetRows replaces the table data and reapplies sort/filter. Clears selection and sort keys.
 func (t *Table) SetRows(rows []table.Row) {
 	t.allRows = rows
+	t.sortKeys = nil
+	t.selected = make(map[int]bool)
+	t.applyFilterAndSort()
+}
+
+// SetRowsWithSortKeys replaces the table data with parallel sort keys.
+// Sort keys must be the same length as rows; each sort key row provides
+// string values that sort correctly for each column.
+func (t *Table) SetRowsWithSortKeys(rows []table.Row, sortKeys []table.Row) {
+	t.allRows = rows
+	t.sortKeys = sortKeys
 	t.selected = make(map[int]bool)
 	t.applyFilterAndSort()
 }
@@ -175,6 +193,51 @@ func (t *Table) Sort(col int) {
 		t.sortCol = col
 		t.sortDir = SortAsc
 	}
+	t.updateColumnHeaders()
+	t.applyFilterAndSort()
+}
+
+// SortColumnNames returns the base column titles and the currently sorted column index.
+func (t Table) SortColumnNames() ([]string, int) {
+	names := make([]string, len(t.baseColumns))
+	for i, c := range t.baseColumns {
+		names[i] = c.Title
+	}
+	return names, t.sortCol
+}
+
+// ClearSort removes any active sort, restoring the original row order.
+func (t *Table) ClearSort() {
+	t.sortCol = -1
+	t.sortDir = SortAsc
+	t.updateColumnHeaders()
+	t.applyFilterAndSort()
+}
+
+// SortNext advances to the next sort column (ascending), or clears sort after the last column.
+func (t *Table) SortNext() {
+	next := t.sortCol + 1
+	if next >= len(t.baseColumns) {
+		t.sortCol = -1
+	} else {
+		t.sortCol = next
+		t.sortDir = SortAsc
+	}
+	t.updateColumnHeaders()
+	t.applyFilterAndSort()
+}
+
+// SortReverse reverses the current sort direction. No-op if no column is sorted.
+func (t *Table) SortReverse() {
+	if t.sortCol < 0 {
+		return
+	}
+	if t.sortDir == SortAsc {
+		t.sortDir = SortDesc
+	} else {
+		t.sortDir = SortAsc
+	}
+	t.updateColumnHeaders()
 	t.applyFilterAndSort()
 }
 
@@ -201,6 +264,23 @@ func (t Table) View() string {
 	return t.inner.View()
 }
 
+// updateColumnHeaders rebuilds column titles with sort indicators.
+func (t *Table) updateColumnHeaders() {
+	cols := make([]table.Column, len(t.baseColumns))
+	for i, c := range t.baseColumns {
+		cols[i] = c
+		if i == t.sortCol {
+			if t.sortDir == SortAsc {
+				cols[i].Title = c.Title + " ▲"
+			} else {
+				cols[i].Title = c.Title + " ▼"
+			}
+		}
+	}
+	t.columns = cols
+	t.inner.SetColumns(cols)
+}
+
 func (t *Table) applyFilterAndSort() {
 	t.filteredMap = nil
 	rows := t.allRows
@@ -223,16 +303,40 @@ func (t *Table) applyFilterAndSort() {
 		t.buildFilteredMap()
 	}
 
-	// Sort
+	// Sort — reorder both rows and filteredMap in tandem
 	if t.sortCol >= 0 && t.sortCol < len(t.columns) {
 		col := t.sortCol
 		dir := t.sortDir
-		sort.SliceStable(rows, func(i, j int) bool {
-			if dir == SortAsc {
-				return rows[i][col] < rows[j][col]
+		indices := make([]int, len(rows))
+		for i := range indices {
+			indices[i] = i
+		}
+		sort.SliceStable(indices, func(i, j int) bool {
+			ii, jj := indices[i], indices[j]
+			origI := t.filteredMap[ii]
+			origJ := t.filteredMap[jj]
+			vi, vj := rows[ii][col], rows[jj][col]
+			if t.sortKeys != nil {
+				if origI < len(t.sortKeys) && col < len(t.sortKeys[origI]) {
+					vi = t.sortKeys[origI][col]
+				}
+				if origJ < len(t.sortKeys) && col < len(t.sortKeys[origJ]) {
+					vj = t.sortKeys[origJ][col]
+				}
 			}
-			return rows[i][col] > rows[j][col]
+			if dir == SortAsc {
+				return vi < vj
+			}
+			return vi > vj
 		})
+		sortedRows := make([]table.Row, len(rows))
+		sortedMap := make([]int, len(rows))
+		for i, idx := range indices {
+			sortedRows[i] = rows[idx]
+			sortedMap[i] = t.filteredMap[idx]
+		}
+		rows = sortedRows
+		t.filteredMap = sortedMap
 	}
 
 	// Apply selection markers to display rows
@@ -261,4 +365,9 @@ func (t *Table) buildFilteredMap() {
 	for i := range t.allRows {
 		t.filteredMap[i] = i
 	}
+}
+
+// SortKeyBytes returns a zero-padded string suitable for numeric byte sorting.
+func SortKeyBytes(size int64) string {
+	return fmt.Sprintf("%020d", size)
 }

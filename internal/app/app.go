@@ -20,6 +20,7 @@ import (
 var appCommands = []ui.PickerOption{
 	{Label: "quit           Exit LazyCloud", Value: "quit"},
 	{Label: "home           Go to home screen", Value: "home"},
+	{Label: "ec2            EC2 instances", Value: "ec2"},
 	{Label: "s3             S3 buckets", Value: "s3"},
 	{Label: "logs           Event log", Value: "logs"},
 	{Label: "mode           Toggle ReadOnly/ReadWrite", Value: "mode"},
@@ -40,6 +41,7 @@ type Model struct {
 	config    config.Config
 	awsClient *aws.Client
 	s3        aws.S3Service
+	ec2       aws.EC2Service
 	nav       *nav.Navigator
 	confirm   ui.Confirm
 	picker    ui.Picker
@@ -75,6 +77,7 @@ func New(cfg config.Config) Model {
 		config:    cfg,
 		awsClient: awsClient,
 		s3:        aws.NewS3Service(awsClient),
+		ec2:       aws.NewEC2Service(awsClient),
 		nav:       nav.New(home),
 		confirm:   ui.NewConfirm(),
 		picker:    ui.NewPicker(),
@@ -172,12 +175,32 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.confirm.Show(msg.Message, msg.Action)
 		return m, nil
 
+	case appmsg.RequestSortPickerMsg:
+		var options []ui.PickerOption
+		for _, col := range msg.Columns {
+			options = append(options, ui.PickerOption{Label: col, Value: col})
+		}
+		initialIdx := 0
+		if msg.CurrentCol >= 0 {
+			initialIdx = msg.CurrentCol
+		}
+		m.picker.Show("sort", "Sort by Column", options, initialIdx)
+		return m, nil
+
 	case ui.ConfirmResultMsg:
 		// Route to current view
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
 	case ui.PickerResultMsg:
+		// Sort picker: always route to current view (including clear/cancel)
+		if msg.ID == "sort" {
+			if msg.Selected == -1 {
+				return m, nil // esc cancel — do nothing
+			}
+			cmd := m.nav.UpdateCurrent(msg)
+			return m, cmd
+		}
 		if msg.Selected < 0 {
 			return m, nil
 		}
@@ -290,6 +313,10 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 	case "profile":
 		m.showProfilePicker()
 		return m, nil
+	case "ec2":
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "ec2_list"}
+		}
 	case "s3":
 		return m, func() tea.Msg {
 			return appmsg.NavigateMsg{ViewID: "s3_list"}
@@ -447,6 +474,7 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	}
 	m.awsClient = awsClient
 	m.s3 = aws.NewS3Service(awsClient)
+	m.ec2 = aws.NewEC2Service(awsClient)
 
 	home := views.NewHome()
 	m.nav = nav.New(home)
@@ -521,6 +549,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	}
 	m.awsClient = awsClient
 	m.s3 = aws.NewS3Service(awsClient)
+	m.ec2 = aws.NewEC2Service(awsClient)
 
 	home := views.NewHome()
 	m.nav = nav.New(home)
@@ -702,6 +731,8 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 			return nil
 		}
 		return views.NewServiceMenu(name, features)
+	case "ec2_list":
+		return views.NewEC2List(m.ec2)
 	case "s3_list":
 		return views.NewS3List(m.s3, m.config.AWS.Region)
 	case "s3_objects":
