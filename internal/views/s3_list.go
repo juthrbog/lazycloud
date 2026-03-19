@@ -64,6 +64,7 @@ func (s *S3List) KeyMap() []ui.KeyHint {
 		)
 	}
 	hints = append(hints,
+		ui.KeyHint{Key: "s/S", Desc: "sort"},
 		ui.KeyHint{Key: "/", Desc: "filter"},
 		ui.KeyHint{Key: "r", Desc: "refresh"},
 	)
@@ -165,6 +166,16 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case ui.PickerResultMsg:
+		if m.ID == "sort" {
+			if m.Value == "_clear" {
+				s.table.ClearSort()
+			} else if m.Selected >= 0 {
+				s.table.Sort(m.Selected)
+			}
+		}
+		return s, nil
+
 	case s3BucketsLoadedMsg:
 		s.loading = false
 		s.spinner.Hide()
@@ -231,6 +242,14 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.String() {
 		case "esc":
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
+		case "s":
+			columns, currentCol := s.table.SortColumnNames()
+			return s, func() tea.Msg {
+				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
+			}
+		case "S":
+			s.table.SortReverse()
+			return s, nil
 		case "/":
 			s.filter.Activate()
 			return s, nil

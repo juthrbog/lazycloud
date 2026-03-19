@@ -45,6 +45,7 @@ func (s *S3Versions) KeyMap() []ui.KeyHint {
 	return []ui.KeyHint{
 		{Key: "enter", Desc: "view"},
 		{Key: "d", Desc: "describe"},
+		{Key: "s/S", Desc: "sort"},
 		{Key: "r", Desc: "refresh"},
 	}
 }
@@ -98,6 +99,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.spinner.Hide()
 		s.versions = m.versions
 		var rows []table.Row
+		var sortKeys []table.Row
 		for _, v := range m.versions {
 			latest := ""
 			if v.IsLatest {
@@ -114,8 +116,25 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				latest,
 				delMarker,
 			})
+			sortKeys = append(sortKeys, table.Row{
+				v.VersionID,
+				ui.SortKeyBytes(v.Size),
+				v.LastModified.Format("2006-01-02 15:04:05"),
+				latest,
+				delMarker,
+			})
 		}
-		s.table.SetRows(rows)
+		s.table.SetRowsWithSortKeys(rows, sortKeys)
+		return s, nil
+
+	case ui.PickerResultMsg:
+		if m.ID == "sort" {
+			if m.Value == "_clear" {
+				s.table.ClearSort()
+			} else if m.Selected >= 0 {
+				s.table.Sort(m.Selected)
+			}
+		}
 		return s, nil
 
 	case msg.ErrorMsg:
@@ -134,6 +153,14 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.String() {
 		case "esc":
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
+		case "s":
+			columns, currentCol := s.table.SortColumnNames()
+			return s, func() tea.Msg {
+				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
+			}
+		case "S":
+			s.table.SortReverse()
+			return s, nil
 		case "r":
 			s.loading = true
 			s.spinner.Show("Loading versions...")

@@ -104,6 +104,13 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 			return p, func() tea.Msg {
 				return PickerResultMsg{ID: id, Selected: -1}
 			}
+		case "ctrl+x":
+			// Clear/reset — dismiss picker with a special value
+			p.visible = false
+			id := p.id
+			return p, func() tea.Msg {
+				return PickerResultMsg{ID: id, Selected: -2, Value: "_clear"}
+			}
 		case "backspace":
 			if len(p.filter) > 0 {
 				p.filter = p.filter[:len(p.filter)-1]
@@ -130,16 +137,22 @@ func (p *Picker) rebuildFiltered() {
 			p.filtered = append(p.filtered, i)
 		}
 	} else {
-		// Value matches first, then label-only matches
-		var labelOnly []int
+		// Rank: prefix > contains > fuzzy-only
+		var prefix, contains, fuzzyOnly []int
 		for i, opt := range p.options {
-			if fuzzyMatch(strings.ToLower(opt.Value), query) {
-				p.filtered = append(p.filtered, i)
-			} else if fuzzyMatch(strings.ToLower(opt.Label), query) {
-				labelOnly = append(labelOnly, i)
+			label := strings.ToLower(opt.Label)
+			value := strings.ToLower(opt.Value)
+			if strings.HasPrefix(label, query) || strings.HasPrefix(value, query) {
+				prefix = append(prefix, i)
+			} else if strings.Contains(label, query) || strings.Contains(value, query) {
+				contains = append(contains, i)
+			} else if fuzzyMatch(label, query) || fuzzyMatch(value, query) {
+				fuzzyOnly = append(fuzzyOnly, i)
 			}
 		}
-		p.filtered = append(p.filtered, labelOnly...)
+		p.filtered = append(p.filtered, prefix...)
+		p.filtered = append(p.filtered, contains...)
+		p.filtered = append(p.filtered, fuzzyOnly...)
 	}
 	if p.cursor >= len(p.filtered) {
 		p.cursor = max(0, len(p.filtered)-1)
@@ -215,7 +228,7 @@ func (p Picker) View() string {
 		}
 	}
 
-	b.WriteString("\n" + hintStyle.Render("↑↓ navigate  enter select  esc cancel"))
+	b.WriteString("\n" + hintStyle.Render("↑↓ navigate  enter select  ctrl+x clear  esc cancel"))
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
