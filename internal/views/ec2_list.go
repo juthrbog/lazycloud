@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
@@ -29,31 +30,45 @@ type ec2SSMSessionFinishedMsg struct {
 	err          error
 }
 
+type ec2InstanceMutatedMsg struct {
+	action     string // "started", "stopped", "rebooted", "terminated"
+	instanceID string
+	err        error
+}
+
 // EC2List displays all EC2 instances.
 type EC2List struct {
-	ec2       aws.EC2Service
-	awsClient *aws.Client
-	table     ui.Table
-	instances []aws.Instance
-	filter    ui.Filter
-	spinner   ui.Spinner
-	loading   bool
-	err       error
-	width     int
-	height    int
+	ec2               aws.EC2Service
+	awsClient         *aws.Client
+	table             ui.Table
+	instances         []aws.Instance
+	filter            ui.Filter
+	spinner           ui.Spinner
+	loading           bool
+	pendingInstanceID string // instance targeted by a pending action
+	pendingAction     string // action name awaiting confirmation
+	err               error
+	width             int
+	height            int
 }
 
 func (e *EC2List) ID() string    { return "ec2_list" }
 func (e *EC2List) Title() string { return "EC2 Instances" }
 func (e *EC2List) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
+	hints := []ui.KeyHint{
 		{Key: "enter/d", Desc: "details"},
 		{Key: "o", Desc: "connect (SSM)"},
-		{Key: "y", Desc: "copy ID"},
-		{Key: "s/S", Desc: "sort"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
 	}
+	if !ui.ReadOnly {
+		hints = append(hints, ui.KeyHint{Key: "m", Desc: "manage"})
+	}
+	hints = append(hints,
+		ui.KeyHint{Key: "y", Desc: "copy ID"},
+		ui.KeyHint{Key: "s/S", Desc: "sort"},
+		ui.KeyHint{Key: "/", Desc: "filter"},
+		ui.KeyHint{Key: "r", Desc: "refresh"},
+	)
+	return hints
 }
 
 // NewEC2List creates the EC2 instance list view.
@@ -120,8 +135,56 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.Selected >= 0 {
 				e.table.Sort(m.Selected)
 			}
+		} else if m.ID == "action" && m.Selected >= 0 {
+			id := e.pendingInstanceID
+			switch m.Value {
+			case "Start":
+				return e, e.startInstance(id)
+			case "Stop", "Reboot", "Terminate":
+				e.pendingAction = m.Value
+				action := m.Value
+				return e, func() tea.Msg {
+					return msg.RequestConfirmMsg{
+						Message: action + " instance " + id + "?",
+						Action:  "ec2_" + strings.ToLower(action),
+					}
+				}
+			}
 		}
 		return e, nil
+
+	case ui.ConfirmResultMsg:
+		if !m.Confirmed {
+			e.pendingInstanceID = ""
+			e.pendingAction = ""
+			return e, nil
+		}
+		id := e.pendingInstanceID
+		e.pendingInstanceID = ""
+		switch m.Action {
+		case "ec2_stop":
+			return e, e.stopInstance(id)
+		case "ec2_reboot":
+			return e, e.rebootInstance(id)
+		case "ec2_terminate":
+			return e, e.terminateInstance(id)
+		}
+		return e, nil
+
+	case ec2InstanceMutatedMsg:
+		if m.err != nil {
+			e.err = m.err
+			return e, func() tea.Msg {
+				return msg.ToastError(m.action + " failed: " + m.err.Error())
+			}
+		}
+		e.loading = true
+		e.spinner.Show("Refreshing instances...")
+		action := m.action
+		id := m.instanceID
+		return e, tea.Batch(e.spinner.Tick(), e.fetchInstances(), func() tea.Msg {
+			return msg.ToastSuccess("Instance " + action + ": " + id)
+		})
 
 	case ec2SSMSessionFinishedMsg:
 		if m.err != nil {
@@ -230,23 +293,47 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastSuccess("Copied: " + id)
 				}
 			}
+		case "m":
+			if ui.ReadOnly {
+				return e, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
+			selected := e.table.SelectedRow()
+			if selected == nil {
+				return e, nil
+			}
+			inst := e.findInstance(selected[0])
+			if inst == nil {
+				return e, nil
+			}
+			actions := e.actionsForState(inst.State)
+			if len(actions) == 0 {
+				state := inst.State
+				return e, func() tea.Msg {
+					return msg.ToastError("No actions available for " + state + " instance")
+				}
+			}
+			e.pendingInstanceID = inst.ID
+			return e, func() tea.Msg {
+				return msg.RequestActionPickerMsg{
+					Title:   "Manage Instance",
+					Options: actions,
+				}
+			}
 		case "o":
 			selected := e.table.SelectedRow()
 			if selected == nil {
 				return e, nil
 			}
-			instanceID := selected[0]
-			var instanceName string
-			for _, inst := range e.instances {
-				if inst.ID == instanceID {
-					instanceName = inst.Name
-					if inst.State != "running" {
-						state := inst.State
-						return e, func() tea.Msg {
-							return msg.ToastError("Instance is " + state + " — must be running for SSM")
-						}
-					}
-					break
+			inst := e.findInstance(selected[0])
+			if inst == nil {
+				return e, nil
+			}
+			if inst.State != "running" {
+				state := inst.State
+				return e, func() tea.Msg {
+					return msg.ToastError("Instance is " + state + " — must be running for SSM")
 				}
 			}
 			if !aws.SSMPluginAvailable() {
@@ -254,13 +341,13 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastError("session-manager-plugin not found — install it first")
 				}
 			}
-			label := instanceID
-			if instanceName != "" {
-				label = instanceName + " (" + instanceID + ")"
+			label := inst.ID
+			if inst.Name != "" {
+				label = inst.Name + " (" + inst.ID + ")"
 			}
 			eventlog.Infof(eventlog.CatAWS, "Starting SSM session: %s", label)
-			id := instanceID
-			name := instanceName
+			id := inst.ID
+			name := inst.Name
 			ssmCmd := e.awsClient.SSMSessionCmd(id, label)
 			return e, tea.ExecProcess(ssmCmd, func(err error) tea.Msg {
 				return ec2SSMSessionFinishedMsg{instanceID: id, instanceName: name, err: err}
@@ -277,6 +364,62 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	e.table, cmd = e.table.Update(m)
 	return e, cmd
+}
+
+func (e *EC2List) findInstance(id string) *aws.Instance {
+	for i := range e.instances {
+		if e.instances[i].ID == id {
+			return &e.instances[i]
+		}
+	}
+	return nil
+}
+
+func (e *EC2List) actionsForState(state string) []string {
+	switch state {
+	case "stopped":
+		return []string{"Start"}
+	case "running":
+		return []string{"Stop", "Reboot", "Terminate"}
+	default:
+		return nil
+	}
+}
+
+func (e *EC2List) startInstance(id string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Starting instance: %s", id)
+		err := svc.StartInstance(context.Background(), id)
+		return ec2InstanceMutatedMsg{action: "started", instanceID: id, err: err}
+	}
+}
+
+func (e *EC2List) stopInstance(id string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Stopping instance: %s", id)
+		err := svc.StopInstance(context.Background(), id)
+		return ec2InstanceMutatedMsg{action: "stopped", instanceID: id, err: err}
+	}
+}
+
+func (e *EC2List) rebootInstance(id string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Rebooting instance: %s", id)
+		err := svc.RebootInstance(context.Background(), id)
+		return ec2InstanceMutatedMsg{action: "rebooted", instanceID: id, err: err}
+	}
+}
+
+func (e *EC2List) terminateInstance(id string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Terminating instance: %s", id)
+		err := svc.TerminateInstance(context.Background(), id)
+		return ec2InstanceMutatedMsg{action: "terminated", instanceID: id, err: err}
+	}
 }
 
 func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row) {
