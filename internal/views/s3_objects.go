@@ -124,6 +124,7 @@ func (s *S3Objects) KeyMap() []ui.KeyHint {
 		hints = append(hints, ui.KeyHint{Key: "x", Desc: "delete"})
 	}
 	hints = append(hints,
+		ui.KeyHint{Key: "s/S", Desc: "sort"},
 		ui.KeyHint{Key: "/", Desc: "filter"},
 		ui.KeyHint{Key: "r", Desc: "refresh"},
 	)
@@ -323,6 +324,16 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.pendingDeleteEntries = nil
 		return s, nil
 
+	case ui.PickerResultMsg:
+		if m.ID == "sort" {
+			if m.Value == "_clear" {
+				s.table.ClearSort()
+			} else if m.Selected >= 0 {
+				s.table.Sort(m.Selected)
+			}
+		}
+		return s, nil
+
 	case s3DeleteResolvedMsg:
 		if len(m.keys) == 0 {
 			s.spinner.Hide()
@@ -505,6 +516,14 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.String() {
 		case "esc":
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
+		case "s":
+			columns, currentCol := s.table.SortColumnNames()
+			return s, func() tea.Msg {
+				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
+			}
+		case "S":
+			s.table.SortReverse()
+			return s, nil
 		case "/":
 			s.filter.Activate()
 			return s, nil
@@ -738,6 +757,7 @@ func (s *S3Objects) selectedEntry() *s3TableEntry {
 func (s *S3Objects) buildTable() {
 	s.entries = nil
 	var rows []table.Row
+	var sortKeys []table.Row
 
 	for _, prefix := range s.prefixes {
 		name := prefix[len(s.prefix):]
@@ -746,6 +766,14 @@ func (s *S3Objects) buildTable() {
 			"📁",
 			name,
 			"-",
+			"",
+			"",
+		})
+		// Sort keys: "0" prefix ensures folders sort before files
+		sortKeys = append(sortKeys, table.Row{
+			"0",
+			name,
+			ui.SortKeyBytes(0),
 			"",
 			"",
 		})
@@ -761,9 +789,16 @@ func (s *S3Objects) buildTable() {
 			obj.LastModified.Format("2006-01-02 15:04:05"),
 			obj.StorageClass,
 		})
+		sortKeys = append(sortKeys, table.Row{
+			"1",
+			name,
+			ui.SortKeyBytes(obj.Size),
+			obj.LastModified.Format("2006-01-02 15:04:05"),
+			obj.StorageClass,
+		})
 	}
 
-	s.table.SetRows(rows)
+	s.table.SetRowsWithSortKeys(rows, sortKeys)
 }
 
 func (s *S3Objects) fetchMetadataAndNavigate(key string) tea.Cmd {

@@ -15,6 +15,9 @@ type serviceEntry struct {
 }
 
 var services = []serviceEntry{
+	{Name: "EC2", Icon: ui.IconEC2, Features: []ServiceFeature{
+		{Name: "Instances", ViewID: "ec2_list", Icon: ui.IconEC2},
+	}},
 	{Name: "S3", Icon: ui.IconS3, Features: []ServiceFeature{
 		{Name: "Buckets", ViewID: "s3_list", Icon: ui.IconS3},
 	}},
