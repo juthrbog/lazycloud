@@ -476,18 +476,30 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	m.s3 = aws.NewS3Service(awsClient)
 	m.ec2 = aws.NewEC2Service(awsClient)
 
+	// Remember the active service view before resetting navigation
+	returnTo := m.topLevelViewID()
+
 	home := views.NewHome()
 	m.nav = nav.New(home)
 	m.err = ""
-	m.toasts.Add("Profile: "+profile, ui.ToastSuccess, 0)
+	_, toastCmd := m.toasts.Add("Profile: "+profile, ui.ToastSuccess, 0)
 
-	var cmd tea.Cmd
-	if m.width > 0 && m.height > 0 {
-		cmd = func() tea.Msg {
-			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-		}
+	var cmds []tea.Cmd
+	if toastCmd != nil {
+		cmds = append(cmds, toastCmd)
 	}
-	return m, cmd
+	if returnTo != "" {
+		viewID := returnTo
+		cmds = append(cmds, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: viewID}
+		})
+	}
+	if m.width > 0 && m.height > 0 {
+		cmds = append(cmds, func() tea.Msg {
+			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+		})
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m *Model) showModePicker() {
@@ -551,18 +563,30 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	m.s3 = aws.NewS3Service(awsClient)
 	m.ec2 = aws.NewEC2Service(awsClient)
 
+	// Remember the active service view before resetting navigation
+	returnTo := m.topLevelViewID()
+
 	home := views.NewHome()
 	m.nav = nav.New(home)
 	m.err = ""
-	m.toasts.Add("Region: "+region, ui.ToastSuccess, 0)
+	_, toastCmd := m.toasts.Add("Region: "+region, ui.ToastSuccess, 0)
 
-	var cmd tea.Cmd
-	if m.width > 0 && m.height > 0 {
-		cmd = func() tea.Msg {
-			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-		}
+	var cmds []tea.Cmd
+	if toastCmd != nil {
+		cmds = append(cmds, toastCmd)
 	}
-	return m, cmd
+	if returnTo != "" {
+		viewID := returnTo
+		cmds = append(cmds, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: viewID}
+		})
+	}
+	if m.width > 0 && m.height > 0 {
+		cmds = append(cmds, func() tea.Msg {
+			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+		})
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {
@@ -579,16 +603,19 @@ func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
 	m.err = ""
-	m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
+	_, toastCmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
 
 	// Re-send window size so the new home view sizes correctly
-	var cmd tea.Cmd
-	if m.width > 0 && m.height > 0 {
-		cmd = func() tea.Msg {
-			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-		}
+	var cmds []tea.Cmd
+	if toastCmd != nil {
+		cmds = append(cmds, toastCmd)
 	}
-	return m, cmd
+	if m.width > 0 && m.height > 0 {
+		cmds = append(cmds, func() tea.Msg {
+			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+		})
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m Model) View() tea.View {
@@ -720,6 +747,21 @@ func composeOverlay(bg, dialog string, bgWidth, bgHeight int) string {
 		lipgloss.NewLayer(dialog).X(x).Y(y).Z(1),
 	)
 	return comp.Render()
+}
+
+// topLevelViewID returns the view ID of the top-level service view the user
+// is currently in (e.g. "ec2_list", "s3_list"), or "" if on the home screen.
+// Used to restore navigation after region/profile changes.
+func (m Model) topLevelViewID() string {
+	id := m.nav.Current().ID()
+	switch {
+	case strings.HasPrefix(id, "ec2"):
+		return "ec2_list"
+	case strings.HasPrefix(id, "s3"):
+		return "s3_list"
+	default:
+		return ""
+	}
 }
 
 func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
