@@ -23,9 +23,16 @@ type ec2InstanceDetailMsg struct {
 	err    error
 }
 
+type ec2SSMSessionFinishedMsg struct {
+	instanceID   string
+	instanceName string
+	err          error
+}
+
 // EC2List displays all EC2 instances.
 type EC2List struct {
 	ec2       aws.EC2Service
+	awsClient *aws.Client
 	table     ui.Table
 	instances []aws.Instance
 	filter    ui.Filter
@@ -41,6 +48,7 @@ func (e *EC2List) Title() string { return "EC2 Instances" }
 func (e *EC2List) KeyMap() []ui.KeyHint {
 	return []ui.KeyHint{
 		{Key: "enter/d", Desc: "details"},
+		{Key: "o", Desc: "connect (SSM)"},
 		{Key: "y", Desc: "copy ID"},
 		{Key: "s/S", Desc: "sort"},
 		{Key: "/", Desc: "filter"},
@@ -49,7 +57,7 @@ func (e *EC2List) KeyMap() []ui.KeyHint {
 }
 
 // NewEC2List creates the EC2 instance list view.
-func NewEC2List(ec2 aws.EC2Service) *EC2List {
+func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
 	columns := []table.Column{
 		{Title: "Instance ID", Width: 21},
 		{Title: "Name", Width: 24},
@@ -63,11 +71,12 @@ func NewEC2List(ec2 aws.EC2Service) *EC2List {
 
 	t := ui.NewTable(columns, nil)
 	return &EC2List{
-		ec2:     ec2,
-		table:   t,
-		filter:  ui.NewFilter(),
-		spinner: ui.NewSpinner("Loading EC2 instances..."),
-		loading: true,
+		ec2:       ec2,
+		awsClient: awsClient,
+		table:     t,
+		filter:    ui.NewFilter(),
+		spinner:   ui.NewSpinner("Loading EC2 instances..."),
+		loading:   true,
 	}
 }
 
@@ -113,6 +122,23 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return e, nil
+
+	case ec2SSMSessionFinishedMsg:
+		if m.err != nil {
+			return e, func() tea.Msg {
+				return msg.ToastError("SSM session failed: " + m.err.Error())
+			}
+		}
+		label := m.instanceID
+		if m.instanceName != "" {
+			label = m.instanceName
+		}
+		// Refresh instance list — state may have changed during the session
+		e.loading = true
+		e.spinner.Show("Refreshing instances...")
+		return e, tea.Batch(e.spinner.Tick(), e.fetchInstances(), func() tea.Msg {
+			return msg.ToastSuccess("Session ended: " + label)
+		})
 
 	case ec2InstancesLoadedMsg:
 		e.loading = false
@@ -204,6 +230,41 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastSuccess("Copied: " + id)
 				}
 			}
+		case "o":
+			selected := e.table.SelectedRow()
+			if selected == nil {
+				return e, nil
+			}
+			instanceID := selected[0]
+			var instanceName string
+			for _, inst := range e.instances {
+				if inst.ID == instanceID {
+					instanceName = inst.Name
+					if inst.State != "running" {
+						state := inst.State
+						return e, func() tea.Msg {
+							return msg.ToastError("Instance is " + state + " — must be running for SSM")
+						}
+					}
+					break
+				}
+			}
+			if !aws.SSMPluginAvailable() {
+				return e, func() tea.Msg {
+					return msg.ToastError("session-manager-plugin not found — install it first")
+				}
+			}
+			label := instanceID
+			if instanceName != "" {
+				label = instanceName + " (" + instanceID + ")"
+			}
+			eventlog.Infof(eventlog.CatAWS, "Starting SSM session: %s", label)
+			id := instanceID
+			name := instanceName
+			ssmCmd := e.awsClient.SSMSessionCmd(id, label)
+			return e, tea.ExecProcess(ssmCmd, func(err error) tea.Msg {
+				return ec2SSMSessionFinishedMsg{instanceID: id, instanceName: name, err: err}
+			})
 		}
 	}
 
