@@ -86,21 +86,44 @@ func (tm *ToastManager) Dismiss(id int) {
 	}
 }
 
-// HasActive returns whether any toasts are showing.
+// Cleanup removes toasts that have exceeded their duration.
+// This is a fallback for cases where the dismiss command may not fire
+// (e.g., when toasts originate from view closures routed through the
+// message loop). Call from Update periodically.
+func (tm *ToastManager) Cleanup() {
+	now := time.Now()
+	filtered := tm.toasts[:0]
+	for _, t := range tm.toasts {
+		if now.Sub(t.CreatedAt) < t.Duration {
+			filtered = append(filtered, t)
+		}
+	}
+	tm.toasts = filtered
+}
+
+// HasActive returns whether any non-expired toasts exist.
 func (tm ToastManager) HasActive() bool {
-	return len(tm.toasts) > 0
+	now := time.Now()
+	for _, t := range tm.toasts {
+		if now.Sub(t.CreatedAt) < t.Duration {
+			return true
+		}
+	}
+	return false
 }
 
 // View renders the toast stack as a bordered block.
+// Skips expired toasts that haven't been cleaned up yet.
 func (tm ToastManager) View(width int) string {
-	if len(tm.toasts) == 0 {
-		return ""
-	}
-
 	t := ActiveTheme
+	now := time.Now()
 	var lines []string
 
 	for _, toast := range tm.toasts {
+		if now.Sub(toast.CreatedAt) >= toast.Duration {
+			continue
+		}
+
 		var icon string
 		var style lipgloss.Style
 
@@ -118,6 +141,10 @@ func (tm ToastManager) View(width int) string {
 
 		line := style.Render(fmt.Sprintf(" %s %s ", icon, toast.Text))
 		lines = append(lines, line)
+	}
+
+	if len(lines) == 0 {
+		return ""
 	}
 
 	content := strings.Join(lines, "\n")
