@@ -40,6 +40,9 @@ go.work.sum
 # Binary
 lazycloud
 
+# GoReleaser
+dist/
+
 # LocalStack
 localstack-data/
 
