@@ -130,7 +130,7 @@ func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
 	assert.Equal(t, "ec2_terminate", confirm.Action)
 }
 
-func TestEC2List_StartExecutesImmediately(t *testing.T) {
+func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
 	view, mockSvc := newTestEC2List()
 	loadInstances(view, []aws.Instance{testStoppedInstance})
 	view.pendingInstanceID = "i-stopped"
@@ -140,13 +140,26 @@ func TestEC2List_StartExecutesImmediately(t *testing.T) {
 	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Start"})
 	require.NotNil(t, cmd)
 
-	// Execute the command — it should call StartInstance
+	// Verify optimistic state update happened immediately
+	inst := view.findInstance("i-stopped")
+	require.NotNil(t, inst)
+	assert.Equal(t, "pending", inst.State, "instance state should be optimistically set to pending")
+
+	// Verify spinner is showing
+	assert.True(t, view.spinner.Visible())
+
+	// Execute the batch — one of the cmds calls StartInstance
+	// (tea.Batch returns a BatchMsg containing the cmds)
 	result := cmd()
-	mutated, ok := result.(ec2InstanceMutatedMsg)
-	require.True(t, ok, "expected ec2InstanceMutatedMsg, got %T", result)
-	assert.Equal(t, "started", mutated.action)
-	assert.Equal(t, "i-stopped", mutated.instanceID)
-	assert.NoError(t, mutated.err)
+	batchMsgs, ok := result.(tea.BatchMsg)
+	require.True(t, ok, "expected tea.BatchMsg, got %T", result)
+
+	// Execute each cmd in the batch to trigger the mock
+	for _, batchCmd := range batchMsgs {
+		if batchCmd != nil {
+			batchCmd()
+		}
+	}
 	mockSvc.AssertCalled(t, "StartInstance", mock.Anything, "i-stopped")
 }
 
