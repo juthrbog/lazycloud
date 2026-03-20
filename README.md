@@ -27,6 +27,12 @@ A terminal user interface (TUI) for browsing, managing, and interacting with AWS
 
 ## Getting Started
 
+### Install from releases
+
+Download the latest binary from the [Releases](https://github.com/juthrbog/lazycloud/releases) page, extract it, and add it to your `PATH`.
+
+### Build from source
+
 ```bash
 # Build
 go build -o lazycloud .
@@ -64,6 +70,7 @@ task dev               # run against LocalStack
 | `--log`           | Path to debug log file                                              |
 | `--read-write`    | Start in ReadWrite mode (default: ReadOnly)                         |
 | `--init-config`   | Write default config file and exit                                  |
+| `--version`       | Print version and exit                                              |
 
 ### Keybindings
 
