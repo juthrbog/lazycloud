@@ -128,6 +128,7 @@ tasks:
     cmds:
       - rm -f {{.BINARY}}
       - rm -rf .task/
+      - rm -rf dist/
 
   deps:
     desc: Download and tidy dependencies
@@ -135,7 +136,15 @@ tasks:
       - go mod download
       - go mod tidy
 
+  # ─── Release ────────────────────────────────────────────
+
   snapshot:
-    desc: Build cross-platform binaries (requires goreleaser)
+    desc: Build cross-platform binaries locally (requires goreleaser)
     cmds:
       - goreleaser build --snapshot --clean
+
+  release:
+    desc: "Tag and push a new release (usage: task release -- v0.1.0)"
+    cmds:
+      - git tag {{.CLI_ARGS}}
+      - git push origin {{.CLI_ARGS}}

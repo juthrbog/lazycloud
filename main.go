@@ -11,6 +11,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/app"
 	"github.com/juthrbog/lazycloud/internal/config"
 	"github.com/juthrbog/lazycloud/internal/ui"
+	"github.com/juthrbog/lazycloud/internal/version"
 )
 
 func main() {
@@ -24,7 +25,13 @@ func main() {
 	configPath := flag.String("config", "", "path to config file")
 	readWrite := flag.Bool("read-write", false, "start in ReadWrite mode (default: ReadOnly)")
 	initConfig := flag.Bool("init-config", false, "write default config file and exit")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("lazycloud %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
+		return
+	}
 
 	// Write default config and exit
 	if *initConfig {
