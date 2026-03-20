@@ -8,6 +8,7 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/config"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 func newTestModel(width, height int) Model {
@@ -217,6 +218,54 @@ func TestApplyThemeReturnsToDismissToast(t *testing.T) {
 	m := newTestModel(140, 40)
 	_, cmd := m.applyTheme("dracula")
 	assert.NotNil(t, cmd)
+}
+
+// --- Toast dismiss ---
+
+func TestToastMsgHandlerReturnsDismissCmd(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	result, cmd := m.Update(msg.ToastMsg{Text: "ReadOnly mode", Level: 2})
+	m = result.(Model)
+
+	assert.True(t, m.toasts.HasActive(), "toast should be visible after ToastMsg")
+	assert.NotNil(t, cmd, "dismiss cmd must be returned from ToastMsg handler")
+}
+
+func TestToastDismissMsgRemovesToast(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	id, _ := m.toasts.Add("test toast", ui.ToastInfo, 0)
+	assert.True(t, m.toasts.HasActive())
+
+	result, _ := m.Update(ui.ToastDismissMsg{ID: id})
+	m = result.(Model)
+
+	assert.False(t, m.toasts.HasActive(), "toast should be dismissed")
+}
+
+func TestReadOnlyToastFullPath(t *testing.T) {
+	// Simulate the full path: view closure → ToastMsg → dismiss cmd
+	ui.ReadOnly = true
+	defer func() { ui.ReadOnly = true }()
+
+	m := newTestModel(140, 40)
+
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "ec2_list"})
+	m = result.(Model)
+
+	// Press 'm' — view returns closure that produces ToastError
+	result, viewCmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
+	m = result.(Model)
+	assert.NotNil(t, viewCmd)
+
+	// Execute closure, feed result back to Update
+	toastMsg := viewCmd()
+	result, dismissCmd := m.Update(toastMsg)
+	m = result.(Model)
+
+	assert.True(t, m.toasts.HasActive(), "toast should be visible")
+	assert.NotNil(t, dismissCmd, "dismiss cmd must be returned")
 }
 
 // --- Key hints ---

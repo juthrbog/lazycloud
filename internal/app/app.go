@@ -94,6 +94,9 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
+	// Remove expired toasts as a fallback in case dismiss commands were dropped.
+	m.toasts.Cleanup()
+
 	// Picker intercepts all input when visible
 	if m.picker.Visible() {
 		var cmd tea.Cmd
