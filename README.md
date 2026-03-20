@@ -159,7 +159,7 @@ Only **AWS** is supported at this time. Other cloud providers may be added in th
 | Service                    | Status      | Description                                                                                                                        |
 | -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | [S3](services/aws/s3.md)   | Implemented | Browse buckets, navigate objects, preview/download files, copy/move, versioning, presigned URLs, create/delete buckets and objects |
-| [EC2](services/aws/ec2.md) | Implemented | Browse instances, view instance details, color-coded state, copy instance ID, SSM session connect                                  |
+| [EC2](services/aws/ec2.md) | Implemented | Browse instances, view details, start/stop/reboot/terminate, SSM session connect, color-coded state                                |
 
 ## Tech Stack
 
@@ -181,7 +181,7 @@ task test              # run all unit + integration tests
 task test:integration  # run integration tests against LocalStack
 ```
 
-Tests use [testify](https://github.com/stretchr/testify) for assertions and mocking, and [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest) for interaction-level tests that exercise the full BubbleTea program lifecycle. A shared `MockS3Service` in `internal/aws/awstest/` enables testing views without AWS credentials.
+Tests use [testify](https://github.com/stretchr/testify) for assertions and mocking, and [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest) for interaction-level tests that exercise the full BubbleTea program lifecycle. Shared mocks (`MockS3Service`, `MockEC2Service`) in `internal/aws/awstest/` enable testing views without AWS credentials.
 
 ## Architecture & Patterns
 
@@ -190,8 +190,8 @@ LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture
 ### Layer Separation
 
 ```
-internal/aws/           S3Service interface + SDK implementation. No UI imports.
-internal/aws/awstest/   Shared testify mock for S3Service (used by view and app tests).
+internal/aws/           Service interfaces (S3Service, EC2Service) + SDK implementations. No UI imports.
+internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
 internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
 internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
 internal/app/           Root model — message router, layout compositor, view factory, side panel.

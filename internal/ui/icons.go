@@ -40,7 +40,7 @@ func StateColor(state string) string {
 		return lipgloss.NewStyle().Foreground(t.StateRunning).Render(IconRunning.Icon() + " " + state)
 	case "stopped", "terminated", "deleted":
 		return lipgloss.NewStyle().Foreground(t.StateStopped).Render(IconStopped.Icon() + " " + state)
-	case "pending", "starting", "stopping", "creating":
+	case "pending", "starting", "stopping", "shutting-down", "creating":
 		return lipgloss.NewStyle().Foreground(t.StatePending).Render(IconPending.Icon() + " " + state)
 	default:
 		return state
