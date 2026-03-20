@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
@@ -29,6 +30,8 @@ type ec2SSMSessionFinishedMsg struct {
 	instanceName string
 	err          error
 }
+
+type ec2DelayedRefreshMsg struct{}
 
 type ec2InstanceMutatedMsg struct {
 	action     string // "started", "stopped", "rebooted", "terminated"
@@ -139,7 +142,10 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			id := e.pendingInstanceID
 			switch m.Value {
 			case "Start":
-				return e, e.startInstance(id)
+				ts := transitionalState("Start")
+				e.setInstanceState(id, ts)
+				e.spinner.Show("starting " + id + "...")
+				return e, tea.Batch(e.spinner.Tick(), e.startInstance(id))
 			case "Stop", "Reboot", "Terminate":
 				e.pendingAction = m.Value
 				action := m.Value
@@ -160,31 +166,48 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return e, nil
 		}
 		id := e.pendingInstanceID
+		action := e.pendingAction
 		e.pendingInstanceID = ""
+		e.pendingAction = ""
+		if ts := transitionalState(action); ts != "" {
+			e.setInstanceState(id, ts)
+			e.spinner.Show(ts + " " + id + "...")
+		}
 		switch m.Action {
 		case "ec2_stop":
-			return e, e.stopInstance(id)
+			return e, tea.Batch(e.spinner.Tick(), e.stopInstance(id))
 		case "ec2_reboot":
-			return e, e.rebootInstance(id)
+			return e, tea.Batch(e.spinner.Tick(), e.rebootInstance(id))
 		case "ec2_terminate":
-			return e, e.terminateInstance(id)
+			return e, tea.Batch(e.spinner.Tick(), e.terminateInstance(id))
 		}
 		return e, nil
 
 	case ec2InstanceMutatedMsg:
 		if m.err != nil {
+			e.spinner.Hide()
 			e.err = m.err
 			return e, func() tea.Msg {
 				return msg.ToastError(m.action + " failed: " + m.err.Error())
 			}
 		}
-		e.loading = true
-		e.spinner.Show("Refreshing instances...")
+		// Delay refresh to give AWS time to register the state transition.
+		// Without this, DescribeInstances may return the old state and
+		// overwrite the optimistic update.
+		e.spinner.Show("Waiting for state change...")
 		action := m.action
 		id := m.instanceID
-		return e, tea.Batch(e.spinner.Tick(), e.fetchInstances(), func() tea.Msg {
+		delayedRefresh := func() tea.Msg {
+			time.Sleep(2 * time.Second)
+			return ec2DelayedRefreshMsg{}
+		}
+		return e, tea.Batch(e.spinner.Tick(), delayedRefresh, func() tea.Msg {
 			return msg.ToastSuccess("Instance " + action + ": " + id)
 		})
+
+	case ec2DelayedRefreshMsg:
+		e.spinner.Show("Refreshing instances...")
+		return e, tea.Batch(e.spinner.Tick(), e.fetchInstances())
 
 	case ec2SSMSessionFinishedMsg:
 		if m.err != nil {
@@ -375,6 +398,32 @@ func (e *EC2List) findInstance(id string) *aws.Instance {
 	return nil
 }
 
+// setInstanceState optimistically updates an instance's state in the local
+// data and rebuilds the table so the UI reflects the change immediately.
+func (e *EC2List) setInstanceState(id, state string) {
+	if inst := e.findInstance(id); inst != nil {
+		inst.State = state
+	}
+	rows, sortKeys := e.buildRows(e.instances)
+	e.table.SetRowsWithSortKeys(rows, sortKeys)
+}
+
+// transitionalState returns the EC2 transitional state for a given action.
+func transitionalState(action string) string {
+	switch action {
+	case "Start":
+		return "pending"
+	case "Stop":
+		return "stopping"
+	case "Reboot":
+		return "pending"
+	case "Terminate":
+		return "shutting-down"
+	default:
+		return ""
+	}
+}
+
 func (e *EC2List) actionsForState(state string) []string {
 	switch state {
 	case "stopped":
@@ -457,7 +506,8 @@ func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row)
 
 func (e *EC2List) View() tea.View {
 	var content string
-	if e.loading {
+	if e.loading && len(e.instances) == 0 {
+		// Initial load — spinner only
 		content = "\n  " + e.spinner.View()
 	} else if e.err != nil {
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+e.err.Error())
@@ -467,7 +517,11 @@ func (e *EC2List) View() tea.View {
 			content = e.filter.View() + "\n" + content
 		}
 		filtered, total := e.table.RowCount()
-		content += fmt.Sprintf("\n %d/%d instances", filtered, total)
+		status := fmt.Sprintf("\n %d/%d instances", filtered, total)
+		if e.spinner.Visible() {
+			status += "  " + e.spinner.View()
+		}
+		content += status
 	}
 	return tea.NewView(content)
 }
