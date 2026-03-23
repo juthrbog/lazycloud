@@ -31,9 +31,6 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# AI design docs
-.ai/
-
 # Task runner
 .task/
 
