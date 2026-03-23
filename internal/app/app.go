@@ -21,6 +21,7 @@ var appCommands = []ui.PickerOption{
 	{Label: "quit           Exit LazyCloud", Value: "quit"},
 	{Label: "home           Go to home screen", Value: "home"},
 	{Label: "ec2            EC2 instances", Value: "ec2"},
+	{Label: "amis           EC2 AMIs", Value: "amis"},
 	{Label: "s3             S3 buckets", Value: "s3"},
 	{Label: "logs           Event log", Value: "logs"},
 	{Label: "mode           Toggle ReadOnly/ReadWrite", Value: "mode"},
@@ -202,12 +203,30 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.picker.Show("sort", "Sort by Column", options, initialIdx)
 		return m, nil
 
+	case appmsg.RequestFeaturePickerMsg:
+		var options []ui.PickerOption
+		for i, label := range msg.Labels {
+			options = append(options, ui.PickerOption{Label: label, Value: msg.ViewIDs[i]})
+		}
+		m.picker.Show("feature", msg.Service, options, 0)
+		return m, nil
+
 	case ui.ConfirmResultMsg:
 		// Route to current view
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
 	case ui.PickerResultMsg:
+		// Feature picker: navigate to the selected view
+		if msg.ID == "feature" {
+			if msg.Selected < 0 {
+				return m, nil
+			}
+			viewID := msg.Value
+			return m, func() tea.Msg {
+				return appmsg.NavigateMsg{ViewID: viewID}
+			}
+		}
 		// Sort and action pickers: route to current view
 		if msg.ID == "sort" || msg.ID == "action" {
 			if msg.Selected == -1 {
@@ -331,6 +350,10 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 	case "ec2":
 		return m, func() tea.Msg {
 			return appmsg.NavigateMsg{ViewID: "ec2_list"}
+		}
+	case "amis":
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "ami_list"}
 		}
 	case "s3":
 		return m, func() tea.Msg {
@@ -772,6 +795,8 @@ func (m Model) topLevelViewID() string {
 	switch {
 	case strings.HasPrefix(id, "ec2"):
 		return "ec2_list"
+	case strings.HasPrefix(id, "ami"):
+		return "ami_list"
 	case strings.HasPrefix(id, "s3"):
 		return "s3_list"
 	default:
@@ -781,15 +806,10 @@ func (m Model) topLevelViewID() string {
 
 func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 	switch n.ViewID {
-	case "service_menu":
-		name := n.Params["service"]
-		features := views.ServiceFeatures(name)
-		if features == nil {
-			return nil
-		}
-		return views.NewServiceMenu(name, features)
 	case "ec2_list":
 		return views.NewEC2List(m.ec2, m.awsClient)
+	case "ami_list":
+		return views.NewAMIList(m.ec2)
 	case "s3_list":
 		return views.NewS3List(m.s3, m.config.AWS.Region)
 	case "s3_objects":
