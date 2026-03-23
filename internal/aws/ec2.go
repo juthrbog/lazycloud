@@ -21,6 +21,8 @@ type EC2Service interface {
 	StopInstance(ctx context.Context, instanceID string) error
 	RebootInstance(ctx context.Context, instanceID string) error
 	TerminateInstance(ctx context.Context, instanceID string) error
+	ListOwnedAMIs(ctx context.Context) ([]AMI, error)
+	SearchAMIs(ctx context.Context, query string) ([]AMI, error)
 }
 
 // EC2ServiceImpl is the real AWS-backed implementation of EC2Service.
@@ -210,6 +212,66 @@ func (svc *EC2ServiceImpl) TerminateInstance(ctx context.Context, instanceID str
 		InstanceIds: []string{instanceID},
 	})
 	return err
+}
+
+// AMI represents an EC2 Amazon Machine Image.
+type AMI struct {
+	ID           string
+	Name         string
+	OwnerID      string
+	OwnerAlias   string
+	Architecture string
+	State        string
+	CreationDate string
+}
+
+// ListOwnedAMIs returns all AMIs owned by the current account.
+func (svc *EC2ServiceImpl) ListOwnedAMIs(ctx context.Context) ([]AMI, error) {
+	ec2c := svc.client.EC2Client()
+	output, err := ec2c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		Owners: []string{"self"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	amis := make([]AMI, 0, len(output.Images))
+	for _, img := range output.Images {
+		amis = append(amis, mapAMI(img))
+	}
+	return amis, nil
+}
+
+// SearchAMIs searches public AMIs by name (max 100 results).
+func (svc *EC2ServiceImpl) SearchAMIs(ctx context.Context, query string) ([]AMI, error) {
+	ec2c := svc.client.EC2Client()
+	output, err := ec2c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		Filters: []ec2types.Filter{
+			{Name: aws.String("name"), Values: []string{"*" + query + "*"}},
+			{Name: aws.String("state"), Values: []string{"available"}},
+		},
+		MaxResults: aws.Int32(100),
+	})
+	if err != nil {
+		return nil, err
+	}
+	amis := make([]AMI, 0, len(output.Images))
+	for _, img := range output.Images {
+		amis = append(amis, mapAMI(img))
+	}
+	return amis, nil
+}
+
+// mapAMI extracts list-view fields from an SDK image.
+func mapAMI(img ec2types.Image) AMI {
+	return AMI{
+		ID:           aws.ToString(img.ImageId),
+		Name:         aws.ToString(img.Name),
+		OwnerID:      aws.ToString(img.OwnerId),
+		OwnerAlias:   aws.ToString(img.ImageOwnerAlias),
+		Architecture: string(img.Architecture),
+		State:        string(img.State),
+		CreationDate: aws.ToString(img.CreationDate),
+	}
 }
 
 // mapInstance extracts list-view fields from an SDK instance.
