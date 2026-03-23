@@ -8,29 +8,26 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
+type serviceFeature struct {
+	Name   string
+	ViewID string
+	Icon   ui.ServiceIcon
+}
+
 type serviceEntry struct {
 	Name     string
 	Icon     ui.ServiceIcon
-	Features []ServiceFeature
+	Features []serviceFeature
 }
 
 var services = []serviceEntry{
-	{Name: "EC2", Icon: ui.IconEC2, Features: []ServiceFeature{
+	{Name: "EC2", Icon: ui.IconEC2, Features: []serviceFeature{
 		{Name: "Instances", ViewID: "ec2_list", Icon: ui.IconEC2},
+		{Name: "AMIs", ViewID: "ami_list", Icon: ui.IconCloud},
 	}},
-	{Name: "S3", Icon: ui.IconS3, Features: []ServiceFeature{
+	{Name: "S3", Icon: ui.IconS3, Features: []serviceFeature{
 		{Name: "Buckets", ViewID: "s3_list", Icon: ui.IconS3},
 	}},
-}
-
-// ServiceFeatures returns the features for the named service, or nil if not found.
-func ServiceFeatures(name string) []ServiceFeature {
-	for _, svc := range services {
-		if svc.Name == name {
-			return svc.Features
-		}
-	}
-	return nil
 }
 
 // Home is the service selector dashboard.
@@ -116,17 +113,25 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // navigateService either goes directly to the resource view (single feature)
-// or opens an intermediate service menu (multiple features).
+// or shows a feature picker popup (multiple features).
 func (h *Home) navigateService(svc serviceEntry) tea.Cmd {
 	if len(svc.Features) == 1 {
 		return func() tea.Msg {
 			return msg.NavigateMsg{ViewID: svc.Features[0].ViewID}
 		}
 	}
+	labels := make([]string, len(svc.Features))
+	viewIDs := make([]string, len(svc.Features))
+	for i, f := range svc.Features {
+		labels[i] = f.Name
+		viewIDs[i] = f.ViewID
+	}
+	name := svc.Name
 	return func() tea.Msg {
-		return msg.NavigateMsg{
-			ViewID: "service_menu",
-			Params: map[string]string{"service": svc.Name},
+		return msg.RequestFeaturePickerMsg{
+			Service: name,
+			Labels:  labels,
+			ViewIDs: viewIDs,
 		}
 	}
 }
