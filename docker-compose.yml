@@ -1,10 +1,10 @@
 services:
   localstack:
-    image: localstack/localstack
+    image: docker.io/localstack/localstack
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=s3,ec2,lambda,ecs,iam,rds,logs,cloudformation,route53,dynamodb
+      - SERVICES=s3,ec2
       - DEBUG=0
       - PERSISTENCE=1
     volumes:

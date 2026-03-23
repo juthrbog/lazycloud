@@ -15,27 +15,59 @@ ensure_s3_bucket() {
     aws s3api head-bucket --bucket "$1" &>/dev/null || aws s3 mb "s3://$1" >/dev/null
 }
 
-ensure_iam_role() {
-    aws iam get-role --role-name "$1" &>/dev/null || \
-        aws iam create-role --role-name "$1" --assume-role-policy-document "$2" >/dev/null
-}
-
-ensure_dynamodb_table() {
-    aws dynamodb describe-table --table-name "$1" &>/dev/null || \
-        aws dynamodb create-table \
-            --table-name "$1" \
-            --key-schema AttributeName=id,KeyType=HASH \
-            --attribute-definitions AttributeName=id,AttributeType=S \
-            --billing-mode PAY_PER_REQUEST >/dev/null
-}
-
 ensure_s3_object() {
     echo -e "$3" | aws s3 cp - "s3://$1/$2" >/dev/null
 }
 
+# Returns the AMI ID for an image with the given name, or empty string if not found.
+find_ami() {
+    aws ec2 describe-images --owners self \
+        --filters "Name=name,Values=$1" \
+        --query "Images[0].ImageId" --output text 2>/dev/null | grep -v None || true
+}
+
+ensure_ami() {
+    local name="$1" arch="$2"
+    local existing
+    existing=$(find_ami "$name")
+    if [ -n "$existing" ]; then
+        echo "$existing"
+        return
+    fi
+    aws ec2 register-image \
+        --name "$name" \
+        --architecture "$arch" \
+        --root-device-name /dev/xvda \
+        --virtualization-type hvm \
+        --query "ImageId" --output text
+}
+
+# Returns instance ID(s) tagged with the given Name, or empty string.
+find_instance() {
+    aws ec2 describe-instances \
+        --filters "Name=tag:Name,Values=$1" "Name=instance-state-name,Values=pending,running,stopped,stopping" \
+        --query "Reservations[0].Instances[0].InstanceId" --output text 2>/dev/null | grep -v None || true
+}
+
+ensure_instance() {
+    local name="$1" ami_id="$2" type="$3"
+    local existing
+    existing=$(find_instance "$name")
+    if [ -n "$existing" ]; then
+        echo "$existing"
+        return
+    fi
+    aws ec2 run-instances \
+        --image-id "$ami_id" \
+        --instance-type "$type" \
+        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$name}]" \
+        --query "Instances[0].InstanceId" --output text
+}
+
 echo "Seeding LocalStack at $ENDPOINT..."
 
-# S3
+# ─── S3 ─────────────────────────────────────────────────────────────────────
+
 printf "  S3 buckets..."
 ensure_s3_bucket test-bucket-1
 ensure_s3_bucket test-bucket-2
@@ -75,17 +107,26 @@ ensure_s3_object logs-bucket access/access.log "192.168.1.1 - - [17/Mar/2026:10:
 ensure_s3_object logs-bucket errors/errors.json '{"timestamp": "2026-03-17T10:30:00Z", "level": "error", "message": "Connection refused", "service": "api", "trace_id": "abc123"}'
 echo " done"
 
-# IAM
-printf "  IAM roles..."
-EC2_TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-LAMBDA_TRUST='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-ensure_iam_role test-role "$EC2_TRUST"
-ensure_iam_role lambda-execution-role "$LAMBDA_TRUST"
+# ─── EC2 AMIs ────────────────────────────────────────────────────────────────
+
+printf "  EC2 AMIs..."
+AMI_AL2=$(ensure_ami "lazycloud-amazonlinux2-x86_64" "x86_64")
+AMI_UBUNTU=$(ensure_ami "lazycloud-ubuntu2204-x86_64" "x86_64")
+AMI_ARM=$(ensure_ami "lazycloud-ubuntu2204-arm64" "arm64")
+AMI_MINIMAL=$(ensure_ami "lazycloud-minimal-x86_64" "x86_64")
 echo " done"
 
-# DynamoDB
-printf "  DynamoDB tables..."
-ensure_dynamodb_table test-table
+# ─── EC2 Instances ───────────────────────────────────────────────────────────
+
+printf "  EC2 instances..."
+INST_WEB=$(ensure_instance "web-server-1"    "$AMI_AL2"    "t3.micro")
+INST_API=$(ensure_instance "api-server-1"    "$AMI_UBUNTU" "t3.small")
+INST_DB=$(ensure_instance  "db-primary"      "$AMI_UBUNTU" "t3.medium")
+INST_ARM=$(ensure_instance "worker-arm-1"    "$AMI_ARM"    "t4g.micro")
+INST_OLD=$(ensure_instance "old-bastion"     "$AMI_MINIMAL" "t2.micro")
+
+# Stop a couple so we have a mix of running/stopped in the list
+aws ec2 stop-instances --instance-ids "$INST_DB" "$INST_OLD" >/dev/null 2>&1 || true
 echo " done"
 
 echo "Seeding complete."
