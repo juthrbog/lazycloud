@@ -110,7 +110,7 @@ These keys apply in the content viewer and when the side panel is focused (press
 | `tab`             | Focus main view     |
 | `esc`             | Close panel         |
 
-**Picker** (profile, region, theme, sort, command palette)
+**Picker** (profile, region, theme, sort, feature selection, command palette)
 
 | Key               | Action              |
 | ----------------- | ------------------- |
@@ -121,6 +121,8 @@ These keys apply in the content viewer and when the side panel is focused (press
 | *type*            | Fuzzy filter        |
 
 The picker ranks matches by relevance: prefix matches first, then substring, then fuzzy.
+
+Selecting a service with multiple features (e.g. EC2 → Instances / AMIs) opens a feature picker popup rather than navigating to an intermediate view.
 
 ## Configuration
 
@@ -159,7 +161,7 @@ Only **AWS** is supported at this time. Other cloud providers may be added in th
 | Service                    | Status      | Description                                                                                                                        |
 | -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | [S3](services/aws/s3.md)   | Implemented | Browse buckets, navigate objects, preview/download files, copy/move, versioning, presigned URLs, create/delete buckets and objects |
-| [EC2](services/aws/ec2.md) | Implemented | Browse instances, view details, start/stop/reboot/terminate, SSM session connect, color-coded state                                |
+| [EC2](services/aws/ec2.md) | Implemented | Browse instances and AMIs, view details, start/stop/reboot/terminate, SSM session connect, color-coded state, public AMI search   |
 
 ## Tech Stack
 
@@ -237,9 +239,11 @@ When the terminal is at least 120 columns wide, pressing `d` (describe) or `ente
 
 To add a new service (e.g., Lambda):
 
-1. `internal/aws/lambda.go` — define a service interface and SDK-backed implementation (follow the `S3Service` pattern)
+1. `internal/aws/lambda.go` — define a service interface and SDK-backed implementation (follow the `EC2Service` pattern)
 2. `internal/views/lambda_list.go` — view implementing `nav.View`, accepting the service interface
-3. Register the view ID in `app.go`'s `resolveView()` and add it to the home view's service list
+3. Register the view ID in `app.go`'s `resolveView()` and add it to the `services` slice in `internal/views/home.go`
+
+If the service has multiple features (like EC2's Instances and AMIs), add each as a `serviceFeature` entry in `home.go`. A feature picker popup is shown automatically when a service has more than one feature.
 
 ## Contributing
 
