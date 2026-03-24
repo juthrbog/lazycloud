@@ -10,6 +10,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/aws/awstest"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 func newTestAMIList() (*AMIList, *awstest.MockEC2Service) {
@@ -106,6 +107,20 @@ func TestAMIList_EnterEmitsNavigateToContent(t *testing.T) {
 	assert.Equal(t, "content", nav.ViewID)
 	assert.Equal(t, "json", nav.Params["format"])
 	assert.Contains(t, nav.Params["content"], "ami-111")
+}
+
+// --- Responsive columns ---
+
+func TestAMIList_NarrowTierHidesColumns(t *testing.T) {
+	cols := amiColumns(ui.TierNarrow)
+	assert.Equal(t, 3, len(cols), "narrow tier should show 3 columns")
+	assert.Equal(t, "AMI ID", cols[0].Title)
+	assert.Equal(t, "State", cols[2].Title)
+}
+
+func TestAMIList_WideTierShowsAllColumns(t *testing.T) {
+	cols := amiColumns(ui.TierWide)
+	assert.Equal(t, 6, len(cols), "wide tier should show 6 columns")
 }
 
 // --- findAMI ---

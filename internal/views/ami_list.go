@@ -37,6 +37,7 @@ type AMIList struct {
 	err          error
 	width        int
 	height       int
+	widthTier    ui.WidthTier
 }
 
 func (a *AMIList) ID() string    { return "ami_list" }
@@ -56,9 +57,15 @@ func (a *AMIList) KeyMap() []ui.KeyHint {
 	return hints
 }
 
-// NewAMIList creates the AMI list view.
-func NewAMIList(ec2 aws.EC2Service) *AMIList {
-	columns := []table.Column{
+func amiColumns(tier ui.WidthTier) []table.Column {
+	if tier == ui.TierNarrow {
+		return []table.Column{
+			{Title: "AMI ID", Width: 21},
+			{Title: "Name", Width: 34},
+			{Title: "State", Width: 14},
+		}
+	}
+	return []table.Column{
 		{Title: "AMI ID", Width: 21},
 		{Title: "Name", Width: 34},
 		{Title: "Owner", Width: 16},
@@ -66,6 +73,11 @@ func NewAMIList(ec2 aws.EC2Service) *AMIList {
 		{Title: "State", Width: 14},
 		{Title: "Created", Width: 12},
 	}
+}
+
+// NewAMIList creates the AMI list view.
+func NewAMIList(ec2 aws.EC2Service) *AMIList {
+	columns := amiColumns(ui.TierMedium)
 
 	ti := textinput.New()
 	ti.Prompt = "? "
@@ -79,6 +91,7 @@ func NewAMIList(ec2 aws.EC2Service) *AMIList {
 		ownedMode: true,
 		spinner:   ui.NewSpinner("Loading AMIs..."),
 		loading:   true,
+		widthTier: ui.TierMedium,
 	}
 }
 
@@ -135,7 +148,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		a.amis = m.amis
 		a.ownedMode = m.owned
 		a.lastQuery = m.query
-		rows := buildAMIRows(m.amis)
+		rows := buildAMIRows(m.amis, a.widthTier)
 		a.table.SetRows(rows)
 		return a, nil
 
@@ -148,6 +161,16 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = m.Width
 		a.height = m.Height
+		newTier := ui.GetWidthTier(m.Width)
+		wasNarrow := a.widthTier == ui.TierNarrow
+		isNarrow := newTier == ui.TierNarrow
+		a.widthTier = newTier
+		if wasNarrow != isNarrow {
+			a.table.SetColumns(amiColumns(newTier))
+			if len(a.amis) > 0 {
+				a.table.SetRows(buildAMIRows(a.amis, newTier))
+			}
+		}
 		a.table.SetSize(m.Width, m.Height-3)
 		a.filter.SetWidth(m.Width)
 		a.search.SetWidth(m.Width - 4)
@@ -274,8 +297,9 @@ func (a *AMIList) findAMI(id string) *aws.AMI {
 	return nil
 }
 
-func buildAMIRows(amis []aws.AMI) []table.Row {
+func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []table.Row {
 	rows := make([]table.Row, 0, len(amis))
+	narrow := tier == ui.TierNarrow
 	for _, ami := range amis {
 		owner := ami.OwnerID
 		if ami.OwnerAlias != "" {
@@ -285,14 +309,16 @@ func buildAMIRows(amis []aws.AMI) []table.Row {
 		if len(created) >= 10 {
 			created = created[:10]
 		}
-		rows = append(rows, table.Row{
-			ami.ID,
-			ami.Name,
-			owner,
-			ami.Architecture,
-			ui.StateColor(ami.State),
-			created,
-		})
+		if narrow {
+			rows = append(rows, table.Row{
+				ami.ID, ami.Name, ui.StateColor(ami.State),
+			})
+		} else {
+			rows = append(rows, table.Row{
+				ami.ID, ami.Name, owner, ami.Architecture,
+				ui.StateColor(ami.State), created,
+			})
+		}
 	}
 	return rows
 }

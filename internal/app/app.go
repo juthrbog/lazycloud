@@ -698,6 +698,19 @@ func (m Model) View() tea.View {
 	headerHeight := lipgloss.Height(header)
 	statusHeight := lipgloss.Height(statusBar)
 	contentHeight := m.height - headerHeight - statusHeight
+
+	// Ensure minimum table height by hiding chrome
+	minContent := ui.MinTableRows + 2 // +2 for border
+	if contentHeight < minContent && headerHeight > 0 {
+		header = ""
+		headerHeight = 0
+		contentHeight = m.height - statusHeight
+	}
+	if contentHeight < minContent && statusHeight > 0 {
+		statusBar = ""
+		statusHeight = 0
+		contentHeight = m.height
+	}
 	if contentHeight < 0 {
 		contentHeight = 0
 	}
