@@ -17,6 +17,7 @@ type Theme struct {
 	Error     color.Color
 	Warning   color.Color
 	Success   color.Color
+	Info      color.Color
 
 	// Surfaces
 	Base       color.Color // main background-ish tone
@@ -30,6 +31,9 @@ type Theme struct {
 	// Gradient stops for header
 	GradientFrom color.Color
 	GradientTo   color.Color
+
+	// Syntax highlighting
+	ChromaStyle string // Chroma library style name (e.g., "catppuccin-mocha", "dracula")
 
 	// State colors
 	StateRunning color.Color
@@ -47,6 +51,7 @@ var Catppuccin = Theme{
 	Error:        lipgloss.Color("#f38ba8"), // red
 	Warning:      lipgloss.Color("#f9e2af"), // yellow
 	Success:      lipgloss.Color("#a6e3a1"), // green
+	Info:         lipgloss.Color("#89b4fa"), // blue
 	Base:         lipgloss.Color("#1e1e2e"), // base
 	Surface:      lipgloss.Color("#313244"), // surface0
 	Overlay:      lipgloss.Color("#45475a"), // surface1
@@ -56,6 +61,7 @@ var Catppuccin = Theme{
 	BrightText:   lipgloss.Color("#ffffff"),
 	GradientFrom: lipgloss.Color("#cba6f7"), // mauve
 	GradientTo:   lipgloss.Color("#89b4fa"), // blue
+	ChromaStyle:  "catppuccin-mocha",
 	StateRunning: lipgloss.Color("#a6e3a1"), // green
 	StateStopped: lipgloss.Color("#f38ba8"), // red
 	StatePending: lipgloss.Color("#f9e2af"), // yellow
@@ -69,6 +75,7 @@ var Dracula = Theme{
 	Error:        lipgloss.Color("#ff5555"), // red
 	Warning:      lipgloss.Color("#f1fa8c"), // yellow
 	Success:      lipgloss.Color("#50fa7b"), // green
+	Info:         lipgloss.Color("#8be9fd"), // cyan
 	Base:         lipgloss.Color("#282a36"), // background
 	Surface:      lipgloss.Color("#44475a"), // current line
 	Overlay:      lipgloss.Color("#6272a4"), // comment
@@ -78,6 +85,7 @@ var Dracula = Theme{
 	BrightText:   lipgloss.Color("#ffffff"),
 	GradientFrom: lipgloss.Color("#bd93f9"), // purple
 	GradientTo:   lipgloss.Color("#ff79c6"), // pink
+	ChromaStyle:  "dracula",
 	StateRunning: lipgloss.Color("#50fa7b"), // green
 	StateStopped: lipgloss.Color("#ff5555"), // red
 	StatePending: lipgloss.Color("#f1fa8c"), // yellow
@@ -91,6 +99,7 @@ var Nord = Theme{
 	Error:        lipgloss.Color("#bf616a"), // aurora red
 	Warning:      lipgloss.Color("#ebcb8b"), // aurora yellow
 	Success:      lipgloss.Color("#a3be8c"), // aurora green
+	Info:         lipgloss.Color("#81a1c1"), // frost blue
 	Base:         lipgloss.Color("#2e3440"), // polar night
 	Surface:      lipgloss.Color("#3b4252"), // polar night
 	Overlay:      lipgloss.Color("#434c5e"), // polar night
@@ -100,6 +109,7 @@ var Nord = Theme{
 	BrightText:   lipgloss.Color("#ffffff"),
 	GradientFrom: lipgloss.Color("#88c0d0"), // frost
 	GradientTo:   lipgloss.Color("#5e81ac"), // frost
+	ChromaStyle:  "nord",
 	StateRunning: lipgloss.Color("#a3be8c"),
 	StateStopped: lipgloss.Color("#bf616a"),
 	StatePending: lipgloss.Color("#ebcb8b"),
@@ -113,6 +123,7 @@ var TokyoNight = Theme{
 	Error:        lipgloss.Color("#f7768e"), // red
 	Warning:      lipgloss.Color("#e0af68"), // yellow
 	Success:      lipgloss.Color("#9ece6a"), // green
+	Info:         lipgloss.Color("#7aa2f7"), // blue
 	Base:         lipgloss.Color("#1a1b26"), // bg
 	Surface:      lipgloss.Color("#24283b"), // bg_dark
 	Overlay:      lipgloss.Color("#414868"), // bg_highlight
@@ -122,6 +133,7 @@ var TokyoNight = Theme{
 	BrightText:   lipgloss.Color("#ffffff"),
 	GradientFrom: lipgloss.Color("#7aa2f7"), // blue
 	GradientTo:   lipgloss.Color("#bb9af7"), // purple
+	ChromaStyle:  "tokyonight-night",
 	StateRunning: lipgloss.Color("#9ece6a"),
 	StateStopped: lipgloss.Color("#f7768e"),
 	StatePending: lipgloss.Color("#e0af68"),
