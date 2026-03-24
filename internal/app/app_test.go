@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/config"
 	"github.com/juthrbog/lazycloud/internal/msg"
@@ -171,12 +172,63 @@ func TestTopLevelViewIDOnEC2(t *testing.T) {
 	assert.Equal(t, "ec2_list", m.topLevelViewID())
 }
 
+func TestTopLevelViewIDOnAMI(t *testing.T) {
+	m := newTestModel(140, 40)
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "ami_list"})
+	m = result.(Model)
+
+	assert.Equal(t, "ami_list", m.topLevelViewID())
+}
+
 func TestTopLevelViewIDOnS3(t *testing.T) {
 	m := newTestModel(140, 40)
 	result, _ := m.Update(msg.NavigateMsg{ViewID: "s3_list"})
 	m = result.(Model)
 
 	assert.Equal(t, "s3_list", m.topLevelViewID())
+}
+
+// --- Feature picker ---
+
+func TestFeaturePickerBecomesVisible(t *testing.T) {
+	m := newTestModel(140, 40)
+	result, _ := m.Update(msg.RequestFeaturePickerMsg{
+		Service: "EC2",
+		Labels:  []string{"Instances", "AMIs"},
+		ViewIDs: []string{"ec2_list", "ami_list"},
+	})
+	m = result.(Model)
+
+	assert.True(t, m.picker.Visible())
+}
+
+func TestFeaturePickerResultNavigatesToView(t *testing.T) {
+	m := newTestModel(140, 40)
+	initialDepth := m.nav.Depth()
+
+	// Simulate picker selection of "AMIs" (index 1, value "ami_list")
+	result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Selected: 1, Value: "ami_list"})
+	m = result.(Model)
+	require.NotNil(t, cmd)
+
+	// Execute the NavigateMsg cmd
+	navMsg := cmd()
+	result, _ = m.Update(navMsg)
+	m = result.(Model)
+
+	assert.Greater(t, m.nav.Depth(), initialDepth)
+	assert.Equal(t, "AMIs", m.nav.Current().Title())
+}
+
+func TestFeaturePickerEscDoesNothing(t *testing.T) {
+	m := newTestModel(140, 40)
+	initialDepth := m.nav.Depth()
+
+	result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Selected: -1, Value: ""})
+	m = result.(Model)
+
+	assert.Equal(t, initialDepth, m.nav.Depth())
+	assert.Nil(t, cmd)
 }
 
 // --- Region/profile apply ---
