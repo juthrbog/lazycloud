@@ -34,6 +34,7 @@ type Model struct {
 	nav       *nav.Navigator
 	confirm   ui.Confirm
 	picker    ui.Picker
+	help      ui.HelpOverlay
 	toasts    ui.ToastManager
 	width     int
 	height    int
@@ -70,6 +71,7 @@ func New(cfg config.Config) Model {
 		nav:       nav.New(home),
 		confirm:   ui.NewConfirm(),
 		picker:    ui.NewPicker(),
+		help:      ui.NewHelpOverlay(),
 		toasts:    ui.NewToastManager(),
 		isDark:    true,
 	}
@@ -97,6 +99,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.confirm.Visible() {
 		var cmd tea.Cmd
 		m.confirm, cmd = m.confirm.Update(teaMsg)
+		return m, cmd
+	}
+
+	// Help overlay intercepts all input when visible
+	if m.help.Visible() {
+		var cmd tea.Cmd
+		m.help, cmd = m.help.Update(teaMsg)
 		return m, cmd
 	}
 
@@ -300,6 +309,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case ":":
 			m.picker.Show("command", "Command", registry.PickerOptions(), 0)
+			return m, nil
+		case "?":
+			hints := m.collectAllKeyHints()
+			m.help.Show(hints, m.width, m.height)
 			return m, nil
 		}
 	}
@@ -724,6 +737,11 @@ func (m Model) View() tea.View {
 
 	body := lipgloss.JoinVertical(lipgloss.Left, header, contentStr, statusBar)
 
+	// Help overlay
+	if m.help.Visible() {
+		body = composeOverlay(body, m.help.View(), m.width, m.height)
+	}
+
 	// Overlay popup centered on the full screen
 	if m.picker.Visible() || m.confirm.Visible() {
 		var dialog string
@@ -858,7 +876,55 @@ func (m Model) currentKeyHints() []ui.KeyHint {
 		ui.KeyHint{Key: "R", Desc: "region"},
 		ui.KeyHint{Key: "T", Desc: "theme"},
 		ui.KeyHint{Key: ":", Desc: "command"},
+		ui.KeyHint{Key: "?", Desc: "help"},
 		ui.KeyHint{Key: "q", Desc: "quit"},
 	)
+	return hints
+}
+
+// collectAllKeyHints returns all keybindings with categories set for the help overlay.
+func (m Model) collectAllKeyHints() []ui.KeyHint {
+	var hints []ui.KeyHint
+
+	// View-specific hints
+	for _, h := range m.nav.Current().KeyMap() {
+		// Leave Category empty — rendered as "Current View"
+		hints = append(hints, h)
+	}
+
+	// Navigation hints
+	if m.panelOpen {
+		hints = append(hints, ui.KeyHint{Key: "tab", Desc: "toggle panel focus", Category: "Navigation"})
+	}
+	if m.nav.Depth() > 1 {
+		hints = append(hints, ui.KeyHint{Key: "esc", Desc: "go back", Category: "Navigation"})
+	}
+
+	// Panel hints (when panel is open)
+	if m.panelOpen {
+		panelHints := []ui.KeyHint{
+			{Key: "j/k", Desc: "scroll", Category: "Panel"},
+			{Key: "g/G", Desc: "top/bottom", Category: "Panel"},
+			{Key: "V", Desc: "visual select", Category: "Panel"},
+			{Key: "y", Desc: "yank to clipboard", Category: "Panel"},
+			{Key: "e", Desc: "open in editor", Category: "Panel"},
+			{Key: "esc", Desc: "close panel", Category: "Panel"},
+		}
+		hints = append(hints, panelHints...)
+	}
+
+	// Global hints
+	globalHints := []ui.KeyHint{
+		{Key: "W", Desc: "toggle ReadOnly/ReadWrite", Category: "Global"},
+		{Key: "L", Desc: "event log", Category: "Global"},
+		{Key: "P", Desc: "switch AWS profile", Category: "Global"},
+		{Key: "R", Desc: "switch AWS region", Category: "Global"},
+		{Key: "T", Desc: "switch theme", Category: "Global"},
+		{Key: ":", Desc: "command palette", Category: "Global"},
+		{Key: "?", Desc: "this help", Category: "Global"},
+		{Key: "q", Desc: "quit", Category: "Global"},
+	}
+	hints = append(hints, globalHints...)
+
 	return hints
 }

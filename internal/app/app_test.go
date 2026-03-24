@@ -401,6 +401,56 @@ func TestExecuteCommandUnknown(t *testing.T) {
 	assert.True(t, m.toasts.HasActive(), "unknown command should show error toast")
 }
 
+// --- Help overlay ---
+
+func TestQuestionMarkOpensHelp(t *testing.T) {
+	m := newTestModel(140, 40)
+	assert.False(t, m.help.Visible())
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = result.(Model)
+
+	assert.True(t, m.help.Visible())
+}
+
+func TestHelpOverlayInterceptsInput(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// Open help
+	result, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = result.(Model)
+	assert.True(t, m.help.Visible())
+
+	// Esc should dismiss help, not navigate back
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = result.(Model)
+	assert.False(t, m.help.Visible())
+}
+
+func TestHelpDoesNotOpenWhenPickerVisible(t *testing.T) {
+	m := newTestModel(140, 40)
+	m.picker.Show("test", "Test", []ui.PickerOption{{Label: "a", Value: "a"}}, 0)
+	assert.True(t, m.picker.Visible())
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})
+	m = result.(Model)
+
+	assert.False(t, m.help.Visible(), "help should not open when picker is visible")
+}
+
+func TestCollectAllKeyHintsHasCategories(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	hints := m.collectAllKeyHints()
+	categories := make(map[string]bool)
+	for _, h := range hints {
+		categories[h.Category] = true
+	}
+
+	assert.True(t, categories["Global"], "should have Global category")
+	assert.True(t, categories[""], "should have empty category (Current View)")
+}
+
 // --- Registry sync ---
 
 func TestRegistryNavCommandsCoveredByResolveView(t *testing.T) {
