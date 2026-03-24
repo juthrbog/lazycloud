@@ -14,6 +14,7 @@ LazyCloud is a terminal user interface (TUI) for interacting with AWS services, 
 **Companion docs** (also in `.ai/`):
 - [ARCHITECTURE.md](ARCHITECTURE.md) — service hierarchy, registry pattern, scaling strategy, width tiers
 - [THEMING.md](THEMING.md) — semantic color roles, focus/dimming, icon conventions, accessibility
+- [TESTING.md](TESTING.md) — three-tier testing pyramid, mock patterns, coverage priorities
 
 ## Architecture
 
