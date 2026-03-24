@@ -13,28 +13,16 @@ import (
 	"github.com/juthrbog/lazycloud/internal/eventlog"
 	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
+	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 	"github.com/juthrbog/lazycloud/internal/views"
 )
 
-var appCommands = []ui.PickerOption{
-	{Label: "quit           Exit LazyCloud", Value: "quit"},
-	{Label: "home           Go to home screen", Value: "home"},
-	{Label: "ec2            EC2 instances", Value: "ec2"},
-	{Label: "amis           EC2 AMIs", Value: "amis"},
-	{Label: "s3             S3 buckets", Value: "s3"},
-	{Label: "logs           Event log", Value: "logs"},
-	{Label: "mode           Toggle ReadOnly/ReadWrite", Value: "mode"},
-	{Label: "theme          Switch theme", Value: "theme"},
-	{Label: "region         Switch region", Value: "region"},
-	{Label: "profile        Switch profile", Value: "profile"},
-}
 
 // Side panel constants.
 const (
-	panelMinWidth  = 40
-	panelMaxWidth  = 80
-	panelThreshold = 120 // minimum terminal width to show side panel
+	panelMinWidth = 40
+	panelMaxWidth = 80
 )
 
 // Model is the root application model — message router and layout compositor.
@@ -311,7 +299,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.pushView(views.NewEventLog())
 			return m, cmd
 		case ":":
-			m.picker.Show("command", "Command", appCommands, 0)
+			m.picker.Show("command", "Command", registry.PickerOptions(), 0)
 			return m, nil
 		}
 	}
@@ -320,21 +308,30 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
-	switch cmd {
-	case "q", "quit":
-		return m, tea.Quit
-	case "qa", "qall":
+func (m Model) executeCommand(input string) (Model, tea.Cmd) {
+	cmd := registry.LookupCommand(input)
+	if cmd == nil {
+		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
+		return m, toastCmd
+	}
+
+	// Navigation commands emit a NavigateMsg.
+	if cmd.IsNav() {
+		viewID := cmd.ViewID
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: viewID}
+		}
+	}
+
+	// Action commands handled individually.
+	switch cmd.Name {
+	case "quit":
 		return m, tea.Quit
 	case "home":
 		home := views.NewHome()
 		m.nav = nav.New(home)
 		m.err = ""
 		return m, m.resizeCmd()
-	case "logs", "log", "events":
-		return m, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: "eventlog"}
-		}
 	case "mode":
 		m.showModePicker()
 		return m, nil
@@ -347,20 +344,8 @@ func (m Model) executeCommand(cmd string) (Model, tea.Cmd) {
 	case "profile":
 		m.showProfilePicker()
 		return m, nil
-	case "ec2":
-		return m, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: "ec2_list"}
-		}
-	case "amis":
-		return m, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: "ami_list"}
-		}
-	case "s3":
-		return m, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: "s3_list"}
-		}
 	default:
-		_, toastCmd := m.toasts.Add("Unknown command: "+cmd, ui.ToastError, 0)
+		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
 	}
 }
@@ -390,7 +375,7 @@ func (m *Model) pushView(v nav.View) tea.Cmd {
 // --- Side panel helpers ---
 
 func (m Model) canShowPanel() bool {
-	return m.width >= panelThreshold
+	return ui.GetWidthTier(m.width) == ui.TierWide
 }
 
 func (m Model) panelWidth() int {
