@@ -1,6 +1,6 @@
 # EC2
 
-Browse EC2 instances.
+Browse EC2 instances and AMIs.
 
 ## Views
 
@@ -77,6 +77,34 @@ Press `o` on a running instance to start an SSM Session Manager shell. This susp
 
 If the instance is not running or the plugin is not installed, a toast error is shown.
 
+## AMI List
+
+Lists AMIs owned by the current account by default. Public AMIs can be searched by name.
+
+| Column | Description |
+|--------|-------------|
+| AMI ID | Image identifier |
+| Name | Image name |
+| Owner | Owner alias or account ID |
+| Architecture | x86_64, arm64 |
+| State | available, pending, etc. (color-coded) |
+| Created | Creation date |
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `enter` / `d` | View AMI details as JSON |
+| `y` | Copy AMI ID to clipboard |
+| `?` | Search public AMIs by name |
+| `/` | Filter current list |
+| `s` / `S` | Sort / reverse sort |
+| `r` | Refresh (returns to owned AMIs) |
+
+### Public AMI Search
+
+Press `?` to open an inline search prompt. Type a name fragment (e.g. `amazon-linux`, `ubuntu`) and press `enter` to query the AWS API. Results are capped at 100. Press `r` to return to the owned AMI list.
+
 ## Service Layer
 
 `internal/aws/ec2.go` implements the `EC2Service` interface:
@@ -89,7 +117,9 @@ type EC2Service interface {
     StopInstance(ctx context.Context, instanceID string) error
     RebootInstance(ctx context.Context, instanceID string) error
     TerminateInstance(ctx context.Context, instanceID string) error
+    ListOwnedAMIs(ctx context.Context) ([]AMI, error)
+    SearchAMIs(ctx context.Context, query string) ([]AMI, error)
 }
 ```
 
-Pagination is handled automatically in `ListInstances`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.
+Pagination is handled automatically in `ListInstances`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). `ListOwnedAMIs` uses `DescribeImages` with `Owners: ["self"]`. `SearchAMIs` filters by name with a 100-result cap. A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.

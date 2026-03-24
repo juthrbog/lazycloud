@@ -45,3 +45,13 @@ func (m *MockEC2Service) TerminateInstance(ctx context.Context, instanceID strin
 	args := m.Called(ctx, instanceID)
 	return args.Error(0)
 }
+
+func (m *MockEC2Service) ListOwnedAMIs(ctx context.Context) ([]aws.AMI, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]aws.AMI), args.Error(1)
+}
+
+func (m *MockEC2Service) SearchAMIs(ctx context.Context, query string) ([]aws.AMI, error) {
+	args := m.Called(ctx, query)
+	return args.Get(0).([]aws.AMI), args.Error(1)
+}
