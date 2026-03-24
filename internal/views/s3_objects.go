@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 	"time"
 
@@ -813,14 +814,17 @@ func (s *S3Objects) fetchMetadataAndNavigate(key string) tea.Cmd {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("head s3://%s/%s", bucket, key)}
 		}
 		jsonBytes, _ := json.MarshalIndent(meta, "", "  ")
-		return msg.NavigateMsg{
-			ViewID: "content",
-			Params: map[string]string{
-				"title":   path.Base(key) + " (metadata)",
-				"content": string(jsonBytes),
-				"format":  "json",
-			},
+		title := path.Base(key) + " (metadata)"
+		tabs := []msg.TabContent{
+			{Title: "Info", Content: buildS3InfoContent(meta), Format: "text"},
+			{Title: "JSON", Content: string(jsonBytes), Format: "json"},
 		}
+		if len(meta.Metadata) > 0 {
+			tabs = append(tabs, msg.TabContent{
+				Title: "Metadata", Content: buildS3MetadataContent(meta.Metadata), Format: "text",
+			})
+		}
+		return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
 	}
 }
 
@@ -879,4 +883,35 @@ func isPreviewable(contentType, key string, size int64) bool {
 		".hcl": true, ".sql": true, ".graphql": true, ".svg": true,
 	}
 	return textExts[ext]
+}
+
+func buildS3InfoContent(meta *aws.ObjectMeta) string {
+	fields := []struct{ k, v string }{
+		{"Key", meta.Key},
+		{"Size", aws.FormatBytes(meta.Size)},
+		{"Content Type", meta.ContentType},
+		{"Storage Class", meta.StorageClass},
+		{"Last Modified", meta.LastModified.Format("2006-01-02 15:04:05")},
+		{"ETag", meta.ETag},
+	}
+	var b strings.Builder
+	for _, f := range fields {
+		if f.v != "" {
+			b.WriteString(fmt.Sprintf("%-16s %s\n", f.k, f.v))
+		}
+	}
+	return b.String()
+}
+
+func buildS3MetadataContent(metadata map[string]string) string {
+	keys := make([]string, 0, len(metadata))
+	for k := range metadata {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(fmt.Sprintf("%-24s %s\n", k, metadata[k]))
+	}
+	return b.String()
 }
