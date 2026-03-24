@@ -58,20 +58,15 @@ type EC2List struct {
 func (e *EC2List) ID() string    { return "ec2_list" }
 func (e *EC2List) Title() string { return "EC2 Instances" }
 func (e *EC2List) KeyMap() []ui.KeyHint {
-	hints := []ui.KeyHint{
+	return []ui.KeyHint{
 		{Key: "enter/d", Desc: "details"},
 		{Key: "o", Desc: "connect (SSM)"},
+		{Key: "m", Desc: "manage", Mode: ui.ModeReadWrite},
+		{Key: "y", Desc: "copy ID"},
+		{Key: "s/S", Desc: "sort"},
+		{Key: "/", Desc: "filter"},
+		{Key: "r", Desc: "refresh"},
 	}
-	if !ui.ReadOnly {
-		hints = append(hints, ui.KeyHint{Key: "m", Desc: "manage"})
-	}
-	hints = append(hints,
-		ui.KeyHint{Key: "y", Desc: "copy ID"},
-		ui.KeyHint{Key: "s/S", Desc: "sort"},
-		ui.KeyHint{Key: "/", Desc: "filter"},
-		ui.KeyHint{Key: "r", Desc: "refresh"},
-	)
-	return hints
 }
 
 // NewEC2List creates the EC2 instance list view.

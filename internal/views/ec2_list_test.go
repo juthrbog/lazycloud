@@ -165,25 +165,20 @@ func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
 
 // --- KeyMap ---
 
-func TestEC2List_KeyMapHidesManageInReadOnly(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
+func TestEC2List_KeyMapManageIsReadWriteOnly(t *testing.T) {
 	view, _ := newTestEC2List()
 	hints := view.KeyMap()
 
-	descs := make([]string, len(hints))
-	for i, h := range hints {
-		descs[i] = h.Desc
+	for _, h := range hints {
+		if h.Desc == "manage" {
+			assert.Equal(t, ui.ModeReadWrite, h.Mode, "manage hint should require ReadWrite mode")
+			return
+		}
 	}
-	assert.NotContains(t, descs, "manage")
-	assert.Contains(t, descs, "details")
+	t.Fatal("expected 'manage' hint in KeyMap")
 }
 
-func TestEC2List_KeyMapShowsManageInReadWrite(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
-
+func TestEC2List_KeyMapAlwaysContainsAllHints(t *testing.T) {
 	view, _ := newTestEC2List()
 	hints := view.KeyMap()
 
@@ -191,6 +186,7 @@ func TestEC2List_KeyMapShowsManageInReadWrite(t *testing.T) {
 	for i, h := range hints {
 		descs[i] = h.Desc
 	}
+	assert.Contains(t, descs, "details")
 	assert.Contains(t, descs, "manage")
 }
 

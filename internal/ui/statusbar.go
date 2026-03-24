@@ -6,10 +6,21 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// HintMode controls when a keybinding hint is shown based on ReadOnly state.
+type HintMode int
+
+const (
+	ModeAny       HintMode = iota // shown in both ReadOnly and ReadWrite (default zero value)
+	ModeReadOnly                  // shown only in ReadOnly mode
+	ModeReadWrite                 // shown only in ReadWrite mode
+)
+
 // KeyHint represents a single keybinding hint for the status bar.
 type KeyHint struct {
-	Key  string
-	Desc string
+	Key      string
+	Desc     string
+	Mode     HintMode // zero value = ModeAny (backward compatible)
+	Category string   // for help overlay grouping; empty = uncategorized
 }
 
 // StatusBarData holds the values needed to render the status bar.
@@ -35,6 +46,12 @@ func RenderStatusBar(data StatusBarData) string {
 
 	var parts []string
 	for _, k := range data.Keys {
+		if k.Mode == ModeReadWrite && ReadOnly {
+			continue
+		}
+		if k.Mode == ModeReadOnly && !ReadOnly {
+			continue
+		}
 		hint := s.StatusKey.Render("<"+k.Key+">") + " " + s.StatusDesc.Render(k.Desc)
 		parts = append(parts, hint)
 	}
