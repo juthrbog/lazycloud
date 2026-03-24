@@ -36,7 +36,7 @@ Home (service grid)
 1. **AWS layer**: Create `internal/aws/<service>.go` with a service interface and SDK implementation
 2. **Mock**: Create `internal/aws/awstest/mock_<service>.go` for testing
 3. **Views**: Create one or more view files in `internal/views/`
-4. **Registry**: Add a `Service` entry (with `Feature` sub-resources) and `Command` entries in `internal/registry/registry.go` — this automatically populates the home view and command palette
+4. **Registry**: Add a `Service` entry (with `Feature` sub-resources) and `Command` entries in `internal/registry/registry.go` — this automatically populates the home view and command bar
 5. **View factory**: Add a case in `app.go`'s `resolveView()` for each new ViewID (the sync test will catch any missing entries)
 6. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
 
@@ -99,7 +99,7 @@ For height, the table should always show at minimum 5 rows. If the terminal is t
 
 ### Command Registry Pattern
 
-**Implemented in `internal/registry/registry.go`.** Services and commands are defined once and consumed by both the home view and the command palette.
+**Implemented in `internal/registry/registry.go`.** Services and commands are defined once and consumed by both the home view and the command bar.
 
 ```go
 // Service is a top-level AWS service shown in the home grid.
@@ -119,7 +119,7 @@ type Command struct {
 ```
 
 - `registry.Services` drives the home view's service grid
-- `registry.Commands` drives the command palette via `registry.PickerOptions()`
+- `registry.Commands` drives the command bar via `registry.CommandBarEntries()`
 - `registry.LookupCommand(input)` resolves names and aliases in `executeCommand()`
 - A sync test (`TestRegistryNavCommandsCoveredByResolveView`) ensures every nav command has a corresponding view factory entry in `app.go`'s `resolveView()`
 

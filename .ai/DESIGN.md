@@ -404,7 +404,8 @@ Follow vim-style keybindings consistent with lazygit/k9s. See the README for the
 | `P`               | Switch AWS profile        |
 | `R`               | Switch AWS region         |
 | `T`               | Switch theme              |
-| `:`               | Command palette           |
+| `:`               | Command bar               |
+| `?`               | Help overlay              |
 | `q`               | Quit                      |
 
 ## Dependencies
