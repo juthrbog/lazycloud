@@ -46,6 +46,18 @@ type YankedMsg struct {
 
 // ContentView displays syntax-highlighted, scrollable content with a cursor,
 // visual line selection, and yank-to-clipboard.
+// ContentLink maps a line to a navigation target for cross-resource navigation.
+type ContentLink struct {
+	ViewID string
+	Params map[string]string
+}
+
+// ContentLinkActivatedMsg is emitted when the user presses Enter on a linked line.
+type ContentLinkActivatedMsg struct {
+	ViewID string
+	Params map[string]string
+}
+
 type ContentView struct {
 	viewport    viewport.Model
 	title       string
@@ -56,6 +68,7 @@ type ContentView struct {
 	cursor      int  // current cursor line (0-indexed)
 	visualMode  bool // visual line selection active
 	visualStart int  // anchor line for visual selection
+	links       map[int]ContentLink // line index → navigation target
 	width       int
 	height      int
 	yankMsg     string // transient "yanked N lines" feedback
@@ -89,6 +102,22 @@ func (cv *ContentView) SetSize(w, h int) {
 	cv.viewport.SetWidth(w)
 	cv.viewport.SetHeight(h - 2)
 	cv.renderContent()
+}
+
+// SetLinks sets navigable line links. Lines with links show a visual indicator
+// and emit NavigateMsg when Enter is pressed on them.
+func (cv *ContentView) SetLinks(links map[int]ContentLink) {
+	cv.links = links
+	cv.renderContent()
+}
+
+// HasLinkAtCursor reports whether the current cursor line has a navigation link.
+func (cv ContentView) HasLinkAtCursor() bool {
+	if cv.links == nil {
+		return false
+	}
+	_, ok := cv.links[cv.cursor]
+	return ok
 }
 
 // SetContent replaces the content.
@@ -264,6 +293,19 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 			cmd := cv.yankSelection()
 			return cv, cmd
 
+		// Navigate linked line
+		case "enter":
+			if cv.links != nil {
+				if link, ok := cv.links[cv.cursor]; ok {
+					viewID := link.ViewID
+					params := link.Params
+					return cv, func() tea.Msg {
+						return ContentLinkActivatedMsg{ViewID: viewID, Params: params}
+					}
+				}
+			}
+			return cv, nil
+
 		// Line numbers toggle
 		case "n":
 			cv.ToggleLineNumbers()
@@ -308,6 +350,9 @@ func (cv ContentView) View() string {
 
 	// Footer
 	hints := "j/k move  V visual  y yank  e editor  n lines  g/G top/bottom  esc back"
+	if len(cv.links) > 0 {
+		hints = "enter navigate  " + hints
+	}
 	footer := lipgloss.NewStyle().Foreground(t.Muted).Render(hints)
 
 	return header + "\n" + cv.viewport.View() + "\n" + footer
@@ -339,6 +384,8 @@ func (cv *ContentView) renderContent() {
 
 	cursorStyle := lipgloss.NewStyle().Background(t.Overlay).Width(lineWidth)
 	selectStyle := lipgloss.NewStyle().Background(t.Secondary).Width(lineWidth)
+	linkPrefix := lipgloss.NewStyle().Foreground(t.Info).Render("→ ")
+	linkPrefixWidth := lipgloss.Width(linkPrefix)
 
 	lo, hi := cv.selectionRange()
 
@@ -350,13 +397,33 @@ func (cv *ContentView) renderContent() {
 			b.WriteString(num)
 		}
 
-		// Apply cursor/selection highlight
-		if cv.visualMode && i >= lo && i <= hi {
-			b.WriteString(selectStyle.Render(line))
-		} else if i == cv.cursor {
-			b.WriteString(cursorStyle.Render(line))
+		// Link indicator prefix
+		_, isLinked := cv.links[i]
+		if isLinked && cv.links != nil {
+			b.WriteString(linkPrefix)
+			// Reduce line width for cursor/select styling to account for prefix
+			adjWidth := lineWidth - linkPrefixWidth
+			if adjWidth < 10 {
+				adjWidth = 10
+			}
+			adjCursor := lipgloss.NewStyle().Background(t.Overlay).Width(adjWidth)
+			adjSelect := lipgloss.NewStyle().Background(t.Secondary).Width(adjWidth)
+			if cv.visualMode && i >= lo && i <= hi {
+				b.WriteString(adjSelect.Render(line))
+			} else if i == cv.cursor {
+				b.WriteString(adjCursor.Render(line))
+			} else {
+				b.WriteString(line)
+			}
 		} else {
-			b.WriteString(line)
+			// Apply cursor/selection highlight
+			if cv.visualMode && i >= lo && i <= hi {
+				b.WriteString(selectStyle.Render(line))
+			} else if i == cv.cursor {
+				b.WriteString(cursorStyle.Render(line))
+			} else {
+				b.WriteString(line)
+			}
 		}
 
 		if i < len(hLines)-1 {
