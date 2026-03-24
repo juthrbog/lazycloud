@@ -84,3 +84,16 @@ type RequestFeaturePickerMsg struct {
 	Labels  []string // display names (e.g. "Instances", "AMIs")
 	ViewIDs []string // corresponding view IDs
 }
+
+// TabContent describes one tab in a tabbed detail panel.
+type TabContent struct {
+	Title   string // tab label (e.g. "Info", "JSON", "Tags")
+	Content string // rendered content for this tab
+	Format  string // content format (maps to ui.ContentFormat, e.g. "json", "text")
+}
+
+// TabbedContentMsg tells the app to open the detail panel with multiple tabs.
+type TabbedContentMsg struct {
+	PanelTitle string       // overall title for logging/breadcrumbs
+	Tabs       []TabContent // one or more tabs to display
+}
