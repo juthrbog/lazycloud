@@ -13,7 +13,8 @@ type tabEntry struct {
 	title   string
 	content string
 	format  ContentFormat
-	viewer  *ContentView // nil until first accessed
+	links   map[int]ContentLink // navigable lines
+	viewer  *ContentView        // nil until first accessed
 }
 
 // TabbedPanel displays multiple content tabs with a tab bar and lazy viewer creation.
@@ -25,12 +26,16 @@ type TabbedPanel struct {
 	height int
 }
 
-// NewTabbedPanel creates a tabbed panel. The first tab's viewer is created eagerly.
-func NewTabbedPanel(title string, tabs []struct {
+// TabInput describes the data for one tab, passed to NewTabbedPanel.
+type TabInput struct {
 	Title   string
 	Content string
 	Format  string
-}) TabbedPanel {
+	Links   map[int]ContentLink // optional: navigable lines
+}
+
+// NewTabbedPanel creates a tabbed panel. The first tab's viewer is created eagerly.
+func NewTabbedPanel(title string, tabs []TabInput) TabbedPanel {
 	entries := make([]tabEntry, len(tabs))
 	for i, t := range tabs {
 		format := ContentFormat(t.Format)
@@ -41,6 +46,7 @@ func NewTabbedPanel(title string, tabs []struct {
 			title:   t.Title,
 			content: t.Content,
 			format:  format,
+			links:   t.Links,
 		}
 	}
 
@@ -67,6 +73,9 @@ func (tp *TabbedPanel) ensureViewer(idx int) {
 	}
 	tab := tp.tabs[idx]
 	cv := NewContentView(tab.title, tab.content, tab.format)
+	if len(tab.links) > 0 {
+		cv.SetLinks(tab.links)
+	}
 	if tp.width > 0 && tp.height > 0 {
 		cv.SetSize(tp.width, tp.viewerHeight())
 	}

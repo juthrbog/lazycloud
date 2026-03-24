@@ -641,3 +641,18 @@ func TestTabbedPanelTabSwitchKeyHint(t *testing.T) {
 	}
 	assert.Contains(t, descs, "switch tab")
 }
+
+func TestContentLinkActivatedMsgClosesPanelAndNavigates(t *testing.T) {
+	m := newTestModel(140, 40)
+	openPanel(&m)
+	assert.True(t, m.panelOpen)
+
+	result, cmd := m.Update(ui.ContentLinkActivatedMsg{
+		ViewID: "ami_list",
+		Params: map[string]string{"id": "ami-123"},
+	})
+	m = result.(Model)
+
+	assert.False(t, m.panelOpen, "panel should close on link activation")
+	assert.NotNil(t, cmd, "should return NavigateMsg cmd")
+}
