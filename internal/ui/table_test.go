@@ -195,3 +195,29 @@ func TestSortKeyBytes(t *testing.T) {
 	assert.Less(t, SortKeyBytes(1536), SortKeyBytes(2097152))
 	assert.Less(t, SortKeyBytes(2097152), SortKeyBytes(536870912))
 }
+
+func TestSetColumnsSwapsColumns(t *testing.T) {
+	tbl := testTable()
+
+	newCols := []table.Column{
+		{Title: "Name", Width: 20},
+		{Title: "Size", Width: 10},
+	}
+	tbl.SetColumns(newCols)
+
+	assert.Equal(t, 2, len(tbl.columns))
+	assert.Equal(t, -1, tbl.sortCol, "sort should be reset after SetColumns")
+}
+
+func TestSetColumnsResetsSortState(t *testing.T) {
+	tbl := testTable()
+	tbl.Sort(0) // sort by Name
+	assert.Equal(t, 0, tbl.sortCol)
+
+	tbl.SetColumns([]table.Column{
+		{Title: "A", Width: 10},
+		{Title: "B", Width: 10},
+	})
+
+	assert.Equal(t, -1, tbl.sortCol, "sort column should reset")
+}
