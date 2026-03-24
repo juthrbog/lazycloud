@@ -53,22 +53,15 @@ type S3List struct {
 func (s *S3List) ID() string    { return "s3_list" }
 func (s *S3List) Title() string { return "S3 Buckets" }
 func (s *S3List) KeyMap() []ui.KeyHint {
-	hints := []ui.KeyHint{
+	return []ui.KeyHint{
 		{Key: "enter", Desc: "browse"},
 		{Key: "d", Desc: "properties"},
+		{Key: "n", Desc: "new bucket", Mode: ui.ModeReadWrite},
+		{Key: "x", Desc: "delete bucket", Mode: ui.ModeReadWrite},
+		{Key: "s/S", Desc: "sort"},
+		{Key: "/", Desc: "filter"},
+		{Key: "r", Desc: "refresh"},
 	}
-	if !ui.ReadOnly {
-		hints = append(hints,
-			ui.KeyHint{Key: "n", Desc: "new bucket"},
-			ui.KeyHint{Key: "x", Desc: "delete bucket"},
-		)
-	}
-	hints = append(hints,
-		ui.KeyHint{Key: "s/S", Desc: "sort"},
-		ui.KeyHint{Key: "/", Desc: "filter"},
-		ui.KeyHint{Key: "r", Desc: "refresh"},
-	)
-	return hints
 }
 
 // NewS3List creates the S3 bucket list view.
