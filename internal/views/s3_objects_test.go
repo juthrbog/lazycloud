@@ -160,28 +160,21 @@ func TestS3Objects_StalePageDiscarded(t *testing.T) {
 
 // --- KeyMap tests ---
 
-func TestS3Objects_KeyMapHidesMutatingInReadOnly(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
+func TestS3Objects_KeyMapMutatingHintsAreReadWriteOnly(t *testing.T) {
 	view, _ := newTestS3Objects()
 	hints := view.KeyMap()
 
-	descs := make([]string, len(hints))
-	for i, h := range hints {
-		descs[i] = h.Desc
+	rwDescs := []string{"delete", "copy", "move"}
+	for _, h := range hints {
+		for _, rw := range rwDescs {
+			if h.Desc == rw {
+				assert.Equal(t, ui.ModeReadWrite, h.Mode, "%q hint should require ReadWrite mode", rw)
+			}
+		}
 	}
-	assert.NotContains(t, descs, "delete")
-	assert.NotContains(t, descs, "copy")
-	assert.NotContains(t, descs, "move")
-	assert.Contains(t, descs, "view")
-	assert.Contains(t, descs, "download")
 }
 
-func TestS3Objects_KeyMapShowsMutatingInReadWrite(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
-
+func TestS3Objects_KeyMapAlwaysContainsAllHints(t *testing.T) {
 	view, _ := newTestS3Objects()
 	hints := view.KeyMap()
 
@@ -189,6 +182,8 @@ func TestS3Objects_KeyMapShowsMutatingInReadWrite(t *testing.T) {
 	for i, h := range hints {
 		descs[i] = h.Desc
 	}
+	assert.Contains(t, descs, "view")
+	assert.Contains(t, descs, "download")
 	assert.Contains(t, descs, "delete")
 	assert.Contains(t, descs, "copy")
 	assert.Contains(t, descs, "move")

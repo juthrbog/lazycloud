@@ -137,26 +137,21 @@ func TestS3List_DeleteTriggersConfirm(t *testing.T) {
 	assert.Contains(t, confirm.Message, "test-bucket")
 }
 
-func TestS3List_KeyMapHidesMutatingInReadOnly(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
+func TestS3List_KeyMapMutatingHintsAreReadWriteOnly(t *testing.T) {
 	view, _ := newTestS3List()
 	hints := view.KeyMap()
 
-	descs := make([]string, len(hints))
-	for i, h := range hints {
-		descs[i] = h.Desc
+	rwDescs := []string{"new bucket", "delete bucket"}
+	for _, h := range hints {
+		for _, rw := range rwDescs {
+			if h.Desc == rw {
+				assert.Equal(t, ui.ModeReadWrite, h.Mode, "%q hint should require ReadWrite mode", rw)
+			}
+		}
 	}
-	assert.NotContains(t, descs, "new bucket")
-	assert.NotContains(t, descs, "delete bucket")
-	assert.Contains(t, descs, "browse")
 }
 
-func TestS3List_KeyMapShowsMutatingInReadWrite(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
-
+func TestS3List_KeyMapAlwaysContainsAllHints(t *testing.T) {
 	view, _ := newTestS3List()
 	hints := view.KeyMap()
 
@@ -164,6 +159,7 @@ func TestS3List_KeyMapShowsMutatingInReadWrite(t *testing.T) {
 	for i, h := range hints {
 		descs[i] = h.Desc
 	}
+	assert.Contains(t, descs, "browse")
 	assert.Contains(t, descs, "new bucket")
 	assert.Contains(t, descs, "delete bucket")
 }
