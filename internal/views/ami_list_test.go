@@ -56,11 +56,11 @@ func TestAMIList_SearchResultSetsOwnedModeFalse(t *testing.T) {
 
 // --- Search mode ---
 
-func TestAMIList_QuestionMarkActivatesSearch(t *testing.T) {
+func TestAMIList_PActivatesSearch(t *testing.T) {
 	view, _ := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1})
 
-	view.Update(keyPress('?'))
+	view.Update(keyPress('p'))
 
 	assert.True(t, view.searchActive)
 }
@@ -69,7 +69,7 @@ func TestAMIList_EscCancelsSearch(t *testing.T) {
 	view, _ := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1})
 
-	view.Update(keyPress('?'))
+	view.Update(keyPress('p'))
 	assert.True(t, view.searchActive)
 
 	view.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
