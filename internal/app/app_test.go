@@ -570,3 +570,74 @@ func TestRegistryNavCommandsCoveredByResolveView(t *testing.T) {
 		}
 	}
 }
+
+// --- Tabbed panel ---
+
+func TestTabbedContentMsgOpensTabbedPanel(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	tabs := []msg.TabContent{
+		{Title: "Info", Content: "info text", Format: "text"},
+		{Title: "JSON", Content: `{"a":1}`, Format: "json"},
+		{Title: "Tags", Content: "Name  test", Format: "text"},
+	}
+
+	result, _ := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
+	m = result.(Model)
+
+	assert.True(t, m.panelOpen)
+	assert.True(t, m.panelFocused)
+	assert.NotNil(t, m.panel)
+	assert.Equal(t, 3, m.panel.TabCount())
+}
+
+func TestTabbedContentMsgFallbackOnNarrow(t *testing.T) {
+	m := newTestModel(80, 40) // TierMedium — no panel
+	initialDepth := m.nav.Depth()
+
+	tabs := []msg.TabContent{
+		{Title: "Info", Content: "info text", Format: "text"},
+		{Title: "JSON", Content: `{"a":1}`, Format: "json"},
+	}
+
+	result, cmd := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
+	m = result.(Model)
+
+	assert.False(t, m.panelOpen, "panel should not open on narrow terminal")
+	assert.NotNil(t, cmd, "should return NavigateMsg for first tab")
+
+	// Execute the NavigateMsg
+	navMsg := cmd()
+	result, _ = m.Update(navMsg)
+	m = result.(Model)
+
+	assert.Greater(t, m.nav.Depth(), initialDepth, "should push content view")
+}
+
+func TestTabbedPanelTabSwitchKeyHint(t *testing.T) {
+	m := newTestModel(140, 40)
+	openPanel(&m)
+	assert.True(t, m.panelFocused)
+
+	// Single tab — no switch hint
+	hints := m.currentKeyHints()
+	for _, h := range hints {
+		assert.NotContains(t, h.Key, "switch tab")
+	}
+
+	// Open with multiple tabs
+	tabs := []msg.TabContent{
+		{Title: "Info", Content: "info", Format: "text"},
+		{Title: "JSON", Content: "{}", Format: "json"},
+		{Title: "Tags", Content: "k v", Format: "text"},
+	}
+	result, _ := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
+	m = result.(Model)
+
+	hints = m.currentKeyHints()
+	descs := make([]string, len(hints))
+	for i, h := range hints {
+		descs[i] = h.Desc
+	}
+	assert.Contains(t, descs, "switch tab")
+}

@@ -43,7 +43,7 @@ type Model struct {
 	isDark    bool
 
 	// Side detail panel
-	panel        *ui.ContentView
+	panel        *ui.TabbedPanel
 	panelOpen    bool
 	panelFocused bool
 }
@@ -159,6 +159,27 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.nav.Depth() > 1 {
 			m.nav.Pop()
 			m.resizeViews()
+		}
+		return m, nil
+
+	case appmsg.TabbedContentMsg:
+		if m.canShowPanel() {
+			m.openTabbedPanel(msg.PanelTitle, msg.Tabs)
+			return m, nil
+		}
+		// Narrow terminal fallback: push first tab as full-screen content
+		if len(msg.Tabs) > 0 {
+			first := msg.Tabs[0]
+			return m, func() tea.Msg {
+				return appmsg.NavigateMsg{
+					ViewID: "content",
+					Params: map[string]string{
+						"title":   first.Title,
+						"content": first.Content,
+						"format":  first.Format,
+					},
+				}
+			}
 		}
 		return m, nil
 
@@ -417,15 +438,30 @@ func (m Model) panelWidth() int {
 }
 
 func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
-	if format == "" {
-		format = ui.FormatAuto
+	m.openTabbedPanel(title, []appmsg.TabContent{
+		{Title: title, Content: content, Format: string(format)},
+	})
+}
+
+func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
+	tabStructs := make([]struct {
+		Title   string
+		Content string
+		Format  string
+	}, len(tabs))
+	for i, t := range tabs {
+		tabStructs[i] = struct {
+			Title   string
+			Content string
+			Format  string
+		}{Title: t.Title, Content: t.Content, Format: t.Format}
 	}
-	cv := ui.NewContentView(title, content, format)
-	m.panel = &cv
+	tp := ui.NewTabbedPanel(title, tabStructs)
+	m.panel = &tp
 	m.panelOpen = true
 	m.panelFocused = true
 	m.resizeViews()
-	eventlog.Infof(eventlog.CatUI, "Panel opened: %s", title)
+	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
 }
 
 func (m *Model) closePanel() {
@@ -895,15 +931,23 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 
 func (m Model) currentKeyHints() []ui.KeyHint {
 	if m.panelOpen && m.panelFocused {
-		return []ui.KeyHint{
-			{Key: "j/k", Desc: "scroll"},
-			{Key: "g/G", Desc: "top/bottom"},
-			{Key: "V", Desc: "visual"},
-			{Key: "y", Desc: "yank"},
-			{Key: "e", Desc: "editor"},
-			{Key: "tab", Desc: "focus main"},
-			{Key: "esc", Desc: "close panel"},
+		hints := []ui.KeyHint{}
+		if m.panel != nil && m.panel.TabCount() > 1 {
+			hints = append(hints, ui.KeyHint{
+				Key:  fmt.Sprintf("1-%d", m.panel.TabCount()),
+				Desc: "switch tab",
+			})
 		}
+		hints = append(hints,
+			ui.KeyHint{Key: "j/k", Desc: "scroll"},
+			ui.KeyHint{Key: "g/G", Desc: "top/bottom"},
+			ui.KeyHint{Key: "V", Desc: "visual"},
+			ui.KeyHint{Key: "y", Desc: "yank"},
+			ui.KeyHint{Key: "e", Desc: "editor"},
+			ui.KeyHint{Key: "tab", Desc: "focus main"},
+			ui.KeyHint{Key: "esc", Desc: "close panel"},
+		)
+		return hints
 	}
 
 	// View-specific hints first
