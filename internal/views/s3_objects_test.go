@@ -188,3 +188,17 @@ func TestS3Objects_KeyMapAlwaysContainsAllHints(t *testing.T) {
 	assert.Contains(t, descs, "copy")
 	assert.Contains(t, descs, "move")
 }
+
+// --- Responsive columns ---
+
+func TestS3Objects_NarrowTierHidesColumns(t *testing.T) {
+	cols := s3ObjectColumns(ui.TierNarrow)
+	assert.Equal(t, 3, len(cols), "narrow tier should show 3 columns")
+	assert.Equal(t, "Size", cols[2].Title)
+}
+
+func TestS3Objects_WideTierShowsAllColumns(t *testing.T) {
+	cols := s3ObjectColumns(ui.TierWide)
+	assert.Equal(t, 5, len(cols), "wide tier should show 5 columns")
+	assert.Equal(t, "Class", cols[4].Title)
+}
