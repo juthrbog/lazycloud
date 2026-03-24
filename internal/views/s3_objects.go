@@ -103,32 +103,21 @@ func (s *S3Objects) ID() string {
 }
 
 func (s *S3Objects) KeyMap() []ui.KeyHint {
-	hints := []ui.KeyHint{
+	return []ui.KeyHint{
 		{Key: "enter", Desc: "view"},
 		{Key: "d", Desc: "describe"},
 		{Key: "w", Desc: "download"},
+		{Key: "c", Desc: "copy", Mode: ui.ModeReadWrite},
+		{Key: "m", Desc: "move", Mode: ui.ModeReadWrite},
+		{Key: "v", Desc: "versions"},
+		{Key: "u", Desc: "presign"},
+		{Key: "y", Desc: "copy path"},
+		{Key: "space", Desc: "select"},
+		{Key: "x", Desc: "delete", Mode: ui.ModeReadWrite},
+		{Key: "s/S", Desc: "sort"},
+		{Key: "/", Desc: "filter"},
+		{Key: "r", Desc: "refresh"},
 	}
-	if !ui.ReadOnly {
-		hints = append(hints,
-			ui.KeyHint{Key: "c", Desc: "copy"},
-			ui.KeyHint{Key: "m", Desc: "move"},
-		)
-	}
-	hints = append(hints,
-		ui.KeyHint{Key: "v", Desc: "versions"},
-		ui.KeyHint{Key: "u", Desc: "presign"},
-		ui.KeyHint{Key: "y", Desc: "copy path"},
-		ui.KeyHint{Key: "space", Desc: "select"},
-	)
-	if !ui.ReadOnly {
-		hints = append(hints, ui.KeyHint{Key: "x", Desc: "delete"})
-	}
-	hints = append(hints,
-		ui.KeyHint{Key: "s/S", Desc: "sort"},
-		ui.KeyHint{Key: "/", Desc: "filter"},
-		ui.KeyHint{Key: "r", Desc: "refresh"},
-	)
-	return hints
 }
 
 func (s *S3Objects) Title() string {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/config"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
@@ -349,4 +350,65 @@ func TestKeyHintsMainFocusedWithPanel(t *testing.T) {
 	}
 	assert.Contains(t, descs, "focus panel")
 	assert.NotContains(t, descs, "close panel")
+}
+
+// --- Registry sync ---
+
+// --- Width tiers ---
+
+func TestWidthTierNarrowNoPanel(t *testing.T) {
+	m := newTestModel(79, 40)
+	assert.False(t, m.canShowPanel())
+	assert.Equal(t, ui.TierNarrow, ui.GetWidthTier(m.width))
+}
+
+func TestWidthTierMediumNoPanel(t *testing.T) {
+	m := newTestModel(100, 40)
+	assert.False(t, m.canShowPanel())
+	assert.Equal(t, ui.TierMedium, ui.GetWidthTier(m.width))
+}
+
+func TestWidthTierWideShowsPanel(t *testing.T) {
+	m := newTestModel(140, 40)
+	assert.True(t, m.canShowPanel())
+	assert.Equal(t, ui.TierWide, ui.GetWidthTier(m.width))
+}
+
+// --- Command execution ---
+
+func TestExecuteCommandAlias(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// "q" is an alias for "quit"
+	_, cmd := m.executeCommand("q")
+	assert.NotNil(t, cmd, "alias 'q' should resolve to quit command")
+}
+
+func TestExecuteCommandNavAlias(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// "log" and "events" are aliases for "logs"
+	for _, alias := range []string{"log", "events"} {
+		_, cmd := m.executeCommand(alias)
+		assert.NotNil(t, cmd, "alias %q should resolve to logs nav command", alias)
+	}
+}
+
+func TestExecuteCommandUnknown(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	m, _ = m.executeCommand("nonexistent")
+	assert.True(t, m.toasts.HasActive(), "unknown command should show error toast")
+}
+
+// --- Registry sync ---
+
+func TestRegistryNavCommandsCoveredByResolveView(t *testing.T) {
+	m := newTestModel(140, 40)
+	for _, cmd := range registry.Commands {
+		if cmd.IsNav() {
+			view := m.resolveView(msg.NavigateMsg{ViewID: cmd.ViewID})
+			assert.NotNilf(t, view, "registry command %q has ViewID %q but resolveView returns nil", cmd.Name, cmd.ViewID)
+		}
+	}
 }

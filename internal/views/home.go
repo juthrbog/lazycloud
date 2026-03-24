@@ -5,30 +5,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
-
-type serviceFeature struct {
-	Name   string
-	ViewID string
-	Icon   ui.ServiceIcon
-}
-
-type serviceEntry struct {
-	Name     string
-	Icon     ui.ServiceIcon
-	Features []serviceFeature
-}
-
-var services = []serviceEntry{
-	{Name: "EC2", Icon: ui.IconEC2, Features: []serviceFeature{
-		{Name: "Instances", ViewID: "ec2_list", Icon: ui.IconEC2},
-		{Name: "AMIs", ViewID: "ami_list", Icon: ui.IconCloud},
-	}},
-	{Name: "S3", Icon: ui.IconS3, Features: []serviceFeature{
-		{Name: "Buckets", ViewID: "s3_list", Icon: ui.IconS3},
-	}},
-}
 
 // Home is the service selector dashboard.
 type Home struct {
@@ -55,7 +34,7 @@ func NewHome() *Home {
 	}
 
 	var rows []table.Row
-	for _, s := range services {
+	for _, s := range registry.Services {
 		rows = append(rows, table.Row{s.Icon.Icon(), s.Name})
 	}
 
@@ -99,7 +78,7 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if selected == nil {
 				return h, nil
 			}
-			for _, svc := range services {
+			for _, svc := range registry.Services {
 				if svc.Name == selected[1] {
 					return h, h.navigateService(svc)
 				}
@@ -114,7 +93,7 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 // navigateService either goes directly to the resource view (single feature)
 // or shows a feature picker popup (multiple features).
-func (h *Home) navigateService(svc serviceEntry) tea.Cmd {
+func (h *Home) navigateService(svc registry.Service) tea.Cmd {
 	if len(svc.Features) == 1 {
 		return func() tea.Msg {
 			return msg.NavigateMsg{ViewID: svc.Features[0].ViewID}
