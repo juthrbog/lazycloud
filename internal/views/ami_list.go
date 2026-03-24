@@ -45,7 +45,7 @@ func (a *AMIList) KeyMap() []ui.KeyHint {
 	hints := []ui.KeyHint{
 		{Key: "enter/d", Desc: "details"},
 		{Key: "y", Desc: "copy ID"},
-		{Key: "?", Desc: "search public"},
+		{Key: "p", Desc: "search public"},
 		{Key: "s/S", Desc: "sort"},
 		{Key: "/", Desc: "filter"},
 		{Key: "r", Desc: "refresh"},
@@ -205,7 +205,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case "/":
 			a.filter.Activate()
 			return a, nil
-		case "?":
+		case "p":
 			a.searchActive = true
 			a.search.Focus()
 			return a, nil
