@@ -11,16 +11,8 @@ func init() {
 	RebuildStyles()
 }
 
-func testTabs() []struct {
-	Title   string
-	Content string
-	Format  string
-} {
-	return []struct {
-		Title   string
-		Content string
-		Format  string
-	}{
+func testTabs() []TabInput {
+	return []TabInput{
 		{Title: "Info", Content: "key: value", Format: "text"},
 		{Title: "JSON", Content: `{"a": 1}`, Format: "json"},
 		{Title: "Tags", Content: "Name  my-server", Format: "text"},
@@ -59,11 +51,7 @@ func TestTabbedPanelOutOfRangeKey(t *testing.T) {
 }
 
 func TestTabbedPanelSingleTab(t *testing.T) {
-	tabs := []struct {
-		Title   string
-		Content string
-		Format  string
-	}{
+	tabs := []TabInput{
 		{Title: "Info", Content: "hello", Format: "text"},
 	}
 	tp := NewTabbedPanel("test", tabs)
@@ -114,4 +102,59 @@ func TestTabbedPanelLazyCreation(t *testing.T) {
 
 	// Tab 3 still nil
 	assert.Nil(t, tp.tabs[2].viewer)
+}
+
+func TestTabbedPanelPassesLinksToViewer(t *testing.T) {
+	tabs := []TabInput{
+		{
+			Title:   "Info",
+			Content: "line0\nline1\nline2",
+			Format:  "text",
+			Links: map[int]ContentLink{
+				1: {ViewID: "ami_list", Params: map[string]string{"id": "ami-123"}},
+			},
+		},
+	}
+	tp := NewTabbedPanel("test", tabs)
+	tp.SetSize(80, 24)
+
+	assert.NotNil(t, tp.tabs[0].viewer)
+	assert.True(t, tp.tabs[0].viewer.HasLinkAtCursor() == false) // cursor at line 0
+
+	// Move cursor to linked line
+	tp, _ = tp.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	assert.True(t, tp.tabs[0].viewer.HasLinkAtCursor())
+}
+
+func TestContentViewEnterOnLinkedLineEmitsMsg(t *testing.T) {
+	cv := NewContentView("test", "line0\nlinked\nline2", FormatText)
+	cv.SetSize(80, 24)
+	cv.SetLinks(map[int]ContentLink{
+		1: {ViewID: "ami_list", Params: map[string]string{"id": "ami-123"}},
+	})
+
+	// Move to linked line
+	cv, _ = cv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+
+	// Enter should emit ContentLinkActivatedMsg
+	cv, cmd := cv.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.NotNil(t, cmd)
+
+	result := cmd()
+	linkMsg, ok := result.(ContentLinkActivatedMsg)
+	assert.True(t, ok, "expected ContentLinkActivatedMsg, got %T", result)
+	assert.Equal(t, "ami_list", linkMsg.ViewID)
+	assert.Equal(t, "ami-123", linkMsg.Params["id"])
+}
+
+func TestContentViewEnterOnNonLinkedLineDoesNothing(t *testing.T) {
+	cv := NewContentView("test", "line0\nlinked\nline2", FormatText)
+	cv.SetSize(80, 24)
+	cv.SetLinks(map[int]ContentLink{
+		1: {ViewID: "ami_list"},
+	})
+
+	// Cursor at line 0 (not linked)
+	cv, cmd := cv.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Nil(t, cmd)
 }

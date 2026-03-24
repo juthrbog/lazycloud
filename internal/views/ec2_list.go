@@ -255,13 +255,15 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if d.Name != "" {
 			title = d.Name + " (" + d.InstanceID + ")"
 		}
+		infoContent, infoLinks := buildEC2InfoContentWithLinks(d)
 		tabs := []msg.TabContent{
-			{Title: "Info", Content: buildEC2InfoContent(d), Format: "text"},
+			{Title: "Info", Content: infoContent, Format: "text", Links: infoLinks},
 			{Title: "JSON", Content: d.DetailJSON(), Format: "json"},
 		}
 		if len(d.SecurityGroups) > 0 {
+			sgContent, sgLinks := buildSGContentWithLinks(d.SecurityGroups)
 			tabs = append(tabs, msg.TabContent{
-				Title: "Security Groups", Content: buildSGContent(d.SecurityGroups), Format: "text",
+				Title: "Security Groups", Content: sgContent, Format: "text", Links: sgLinks,
 			})
 		}
 		if len(d.Tags) > 0 {
@@ -527,42 +529,63 @@ func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row)
 	return rows, sortKeys
 }
 
-func buildEC2InfoContent(d *aws.InstanceDetail) string {
-	fields := []struct{ k, v string }{
-		{"Instance ID", d.InstanceID},
-		{"Name", d.Name},
-		{"State", d.State},
-		{"Type", d.InstanceType},
-		{"Platform", d.Platform},
-		{"Architecture", d.Architecture},
-		{"Private IP", d.PrivateIP},
-		{"Public IP", d.PublicIP},
-		{"Private DNS", d.PrivateDNS},
-		{"Public DNS", d.PublicDNS},
-		{"VPC", d.VpcID},
-		{"Subnet", d.SubnetID},
-		{"AZ", d.AvailabilityZone},
-		{"Key Name", d.KeyName},
-		{"AMI", d.AMI},
-		{"IAM Role", d.IAMRole},
-		{"Launch Time", d.LaunchTime},
-		{"Root Device", d.RootDeviceType + " (" + d.RootDeviceName + ")"},
+func buildEC2InfoContentWithLinks(d *aws.InstanceDetail) (string, []msg.TabLink) {
+	type field struct {
+		k, v   string
+		viewID string
+		params map[string]string
+	}
+	fields := []field{
+		{k: "Instance ID", v: d.InstanceID},
+		{k: "Name", v: d.Name},
+		{k: "State", v: d.State},
+		{k: "Type", v: d.InstanceType},
+		{k: "Platform", v: d.Platform},
+		{k: "Architecture", v: d.Architecture},
+		{k: "Private IP", v: d.PrivateIP},
+		{k: "Public IP", v: d.PublicIP},
+		{k: "Private DNS", v: d.PrivateDNS},
+		{k: "Public DNS", v: d.PublicDNS},
+		{k: "VPC", v: d.VpcID},
+		{k: "Subnet", v: d.SubnetID},
+		{k: "AZ", v: d.AvailabilityZone},
+		{k: "Key Name", v: d.KeyName},
+		{k: "AMI", v: d.AMI, viewID: "ami_list"},
+		{k: "IAM Role", v: d.IAMRole},
+		{k: "Launch Time", v: d.LaunchTime},
+		{k: "Root Device", v: d.RootDeviceType + " (" + d.RootDeviceName + ")"},
 	}
 	var b strings.Builder
+	var links []msg.TabLink
+	lineIdx := 0
 	for _, f := range fields {
 		if f.v != "" && f.v != " ()" {
 			b.WriteString(fmt.Sprintf("%-16s %s\n", f.k, f.v))
+			if f.viewID != "" {
+				links = append(links, msg.TabLink{
+					Line:   lineIdx,
+					ViewID: f.viewID,
+					Params: f.params,
+				})
+			}
+			lineIdx++
 		}
 	}
-	return b.String()
+	return b.String(), links
 }
 
-func buildSGContent(sgs []aws.SecurityGroupRef) string {
+func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink) {
 	var b strings.Builder
-	for _, sg := range sgs {
+	var links []msg.TabLink
+	for i, sg := range sgs {
 		b.WriteString(fmt.Sprintf("%-22s %s\n", sg.ID, sg.Name))
+		links = append(links, msg.TabLink{
+			Line:   i,
+			ViewID: "sg_detail",
+			Params: map[string]string{"id": sg.ID},
+		})
 	}
-	return b.String()
+	return b.String(), links
 }
 
 func buildTagsContent(tags map[string]string) string {

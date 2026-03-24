@@ -248,7 +248,7 @@ LazyCloud starts in **ReadOnly** mode by default. All mutating operations (creat
 
 ### Side Detail Panel
 
-When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) on an S3 object opens a side panel alongside the main view instead of replacing it. Press `tab` to toggle focus between the main view and panel. The focused pane is indicated by an accent-colored border. On narrow terminals, content opens full-screen as before.
+When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) opens a side panel alongside the main view. The panel supports **tabbed views** — EC2 instance detail shows Info, JSON, Security Groups, and Tags tabs (press `1-4` to switch). Lines marked with `→` are navigable: press `enter` to follow a cross-resource link (e.g., from an EC2 instance to its AMI). Press `tab` to toggle focus between the main view and panel. On narrow terminals, content opens full-screen.
 
 ### Adding a New AWS Service
 
@@ -256,9 +256,10 @@ To add a new service (e.g., Lambda):
 
 1. `internal/aws/lambda.go` — define a service interface and SDK-backed implementation (follow the `EC2Service` pattern)
 2. `internal/views/lambda_list.go` — view implementing `nav.View`, accepting the service interface
-3. Register the view ID in `app.go`'s `resolveView()` and add it to the `services` slice in `internal/views/home.go`
+3. `internal/registry/registry.go` — add a `Service` entry with features and `Command` entries
+4. `internal/app/app.go` — add a case in `resolveView()` for each new view ID
 
-If the service has multiple features (like EC2's Instances and AMIs), add each as a `serviceFeature` entry in `home.go`. A feature picker popup is shown automatically when a service has more than one feature.
+See `.ai/ARCHITECTURE.md` for the full checklist.
 
 ## Contributing
 

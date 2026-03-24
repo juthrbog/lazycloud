@@ -85,11 +85,20 @@ type RequestFeaturePickerMsg struct {
 	ViewIDs []string // corresponding view IDs
 }
 
+// TabLink maps a line in a tab's content to a navigation target.
+// When the user presses Enter on this line, a NavigateMsg is emitted.
+type TabLink struct {
+	Line   int               // 0-indexed line number in the content
+	ViewID string            // target view ID (e.g., "ami_list", "sg_detail")
+	Params map[string]string // navigation parameters
+}
+
 // TabContent describes one tab in a tabbed detail panel.
 type TabContent struct {
-	Title   string // tab label (e.g. "Info", "JSON", "Tags")
-	Content string // rendered content for this tab
-	Format  string // content format (maps to ui.ContentFormat, e.g. "json", "text")
+	Title   string    // tab label (e.g. "Info", "JSON", "Tags")
+	Content string    // rendered content for this tab
+	Format  string    // content format (maps to ui.ContentFormat, e.g. "json", "text")
+	Links   []TabLink // navigable lines within this tab's content
 }
 
 // TabbedContentMsg tells the app to open the detail panel with multiple tabs.
