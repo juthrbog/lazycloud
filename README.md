@@ -3,6 +3,7 @@
 [![CI](https://github.com/juthrbog/lazycloud/actions/workflows/ci.yml/badge.svg)](https://github.com/juthrbog/lazycloud/actions/workflows/ci.yml)
 [![Go](https://img.shields.io/github/go-mod/go-version/juthrbog/lazycloud)](https://go.dev)
 [![License](https://img.shields.io/github/license/juthrbog/lazycloud)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/juthrbog/lazycloud)](https://goreportcard.com/report/github.com/juthrbog/lazycloud)
 
 A terminal user interface (TUI) for browsing, managing, and interacting with AWS services and resources — without leaving your terminal. Built with Go and the [Charm](https://charm.sh) ecosystem, [inspired by](#inspired-by) tools like lazygit, k9s, and claws.
 
