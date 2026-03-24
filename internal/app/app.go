@@ -188,6 +188,15 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", msg.Context, msg.Err)
 		return m, nil
 
+	case ui.ContentLinkActivatedMsg:
+		// Cross-resource navigation from the detail panel
+		m.closePanel()
+		viewID := msg.ViewID
+		params := msg.Params
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: viewID, Params: params}
+		}
+
 	case appmsg.StatusMsg:
 		// Legacy — convert to toast
 		_, cmd := m.toasts.Add(msg.Text, ui.ToastInfo, 0)
@@ -444,19 +453,23 @@ func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
 }
 
 func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
-	tabStructs := make([]struct {
-		Title   string
-		Content string
-		Format  string
-	}, len(tabs))
+	tabInputs := make([]ui.TabInput, len(tabs))
 	for i, t := range tabs {
-		tabStructs[i] = struct {
-			Title   string
-			Content string
-			Format  string
-		}{Title: t.Title, Content: t.Content, Format: t.Format}
+		var links map[int]ui.ContentLink
+		if len(t.Links) > 0 {
+			links = make(map[int]ui.ContentLink)
+			for _, l := range t.Links {
+				links[l.Line] = ui.ContentLink{ViewID: l.ViewID, Params: l.Params}
+			}
+		}
+		tabInputs[i] = ui.TabInput{
+			Title:   t.Title,
+			Content: t.Content,
+			Format:  t.Format,
+			Links:   links,
+		}
 	}
-	tp := ui.NewTabbedPanel(title, tabStructs)
+	tp := ui.NewTabbedPanel(title, tabInputs)
 	m.panel = &tp
 	m.panelOpen = true
 	m.panelFocused = true
