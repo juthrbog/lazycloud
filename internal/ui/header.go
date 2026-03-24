@@ -49,12 +49,19 @@ func RenderHeader(data HeaderData) string {
 		modeBadge = s.HeaderStyle.Render(" RO ")
 	}
 
-	// Breadcrumbs
+	// Breadcrumbs — last segment is bold + bright to indicate current location
 	crumbParts := make([]string, len(data.Breadcrumbs))
 	for i, c := range data.Breadcrumbs {
-		crumbParts[i] = lipgloss.NewStyle().
-			Foreground(t.SubText).
-			Render(c)
+		if i == len(data.Breadcrumbs)-1 {
+			crumbParts[i] = lipgloss.NewStyle().
+				Foreground(t.BrightText).
+				Bold(true).
+				Render(c)
+		} else {
+			crumbParts[i] = lipgloss.NewStyle().
+				Foreground(t.SubText).
+				Render(c)
+		}
 	}
 	sep := lipgloss.NewStyle().Foreground(t.Muted).Render(" › ")
 	crumbs := strings.Join(crumbParts, sep)
