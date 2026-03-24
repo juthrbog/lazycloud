@@ -3,8 +3,6 @@
 package registry
 
 import (
-	"fmt"
-
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
@@ -49,7 +47,7 @@ var Commands = []Command{
 	{Name: "quit", Aliases: []string{"q", "qa", "qall"}, Description: "Exit LazyCloud"},
 	{Name: "home", Description: "Go to home screen"},
 	{Name: "ec2", Aliases: []string{"instances"}, Description: "EC2 instances", ViewID: "ec2_list"},
-	{Name: "amis", Description: "EC2 AMIs", ViewID: "ami_list"},
+	{Name: "ec2/amis", Aliases: []string{"amis"}, Description: "EC2 AMIs", ViewID: "ami_list"},
 	{Name: "s3", Aliases: []string{"buckets"}, Description: "S3 buckets", ViewID: "s3_list"},
 	{Name: "logs", Aliases: []string{"log", "events"}, Description: "Event log", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},
@@ -58,16 +56,17 @@ var Commands = []Command{
 	{Name: "profile", Description: "Switch profile"},
 }
 
-// PickerOptions builds the command palette options for the picker.
-func PickerOptions() []ui.PickerOption {
-	opts := make([]ui.PickerOption, len(Commands))
+// CommandBarEntries builds entries for the command bar component.
+func CommandBarEntries() []ui.CommandEntry {
+	entries := make([]ui.CommandEntry, len(Commands))
 	for i, c := range Commands {
-		opts[i] = ui.PickerOption{
-			Label: fmt.Sprintf("%-14s %s", c.Name, c.Description),
-			Value: c.Name,
+		entries[i] = ui.CommandEntry{
+			Name:        c.Name,
+			Aliases:     c.Aliases,
+			Description: c.Description,
 		}
 	}
-	return opts
+	return entries
 }
 
 // LookupCommand finds a command by name or alias. Returns nil if not found.
