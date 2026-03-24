@@ -11,6 +11,10 @@ LazyCloud is a terminal user interface (TUI) for interacting with AWS services, 
 - **License:** Apache 2.0 (same as k9s)
 - **Repository Name:** `lazycloud`
 
+**Companion docs** (also in `.ai/`):
+- [ARCHITECTURE.md](ARCHITECTURE.md) — service hierarchy, registry pattern, scaling strategy, width tiers
+- [THEMING.md](THEMING.md) — semantic color roles, focus/dimming, icon conventions, accessibility
+
 ## Architecture
 
 ### The Elm Architecture (Model-View-Update)
@@ -90,48 +94,68 @@ lazycloud/
 │   ├── nav/
 │   │   └── navigator.go           # Model stack with push/pop/cache
 │   │
+│   ├── registry/
+│   │   └── registry.go            # Shared service + command registry (single source of truth)
+│   │
 │   ├── aws/                       # AWS service layer (NO Bubble Tea imports)
 │   │   ├── client.go              # Shared AWS config/session setup
-│   │   ├── ec2.go                 # EC2 API calls (instances, security groups, etc.)
-│   │   ├── s3.go                  # S3 API calls (buckets, objects)
-│   │   ├── lambda.go              # Lambda API calls
-│   │   ├── ecs.go                 # ECS API calls (clusters, services, tasks)
-│   │   ├── iam.go                 # IAM API calls (users, roles, policies)
-│   │   ├── cloudwatch.go          # CloudWatch logs/metrics
-│   │   └── rds.go                 # RDS instances
+│   │   ├── ec2.go                 # EC2 API calls (instances, AMIs)
+│   │   ├── s3.go                  # S3 API calls (buckets, objects, versions)
+│   │   ├── profiles.go            # AWS profile/region helpers
+│   │   └── awstest/               # Mock services for testing
+│   │       ├── mock_ec2.go
+│   │       └── mock_s3.go
 │   │
 │   ├── ui/                        # Reusable TUI components
-│   │   ├── table.go               # Generic resource table (sortable, filterable)
+│   │   ├── table.go               # Generic resource table (sortable, filterable, multi-select)
+│   │   ├── contentview.go         # Syntax-highlighted scrollable viewer with yank/visual-select
 │   │   ├── detail.go              # Detail/preview pane (key-value display)
 │   │   ├── header.go              # Top bar: profile, region, breadcrumb
-│   │   ├── statusbar.go           # Bottom bar: contextual keybindings, errors
+│   │   ├── statusbar.go           # Bottom bar: contextual keybindings with mode filtering
+│   │   ├── layout.go              # Width tier constants (Narrow/Medium/Wide), MinTableRows
+│   │   ├── picker.go              # Popup selection dialog with fuzzy search
+│   │   ├── confirm.go             # Type-to-confirm dialog for destructive actions
 │   │   ├── filter.go              # Fuzzy filter/search input
-│   │   ├── confirm.go             # Confirmation dialog for destructive actions
 │   │   ├── spinner.go             # Loading indicator
-│   │   └── styles.go              # Lipgloss style definitions
+│   │   ├── toast.go               # Auto-dismissing notifications
+│   │   ├── icons.go               # Service icons (Nerd Fonts + Unicode fallbacks)
+│   │   ├── mode.go                # ReadOnly/ReadWrite mode flag
+│   │   ├── theme.go               # Color theme definitions (4 themes)
+│   │   └── styles.go              # Lipgloss style definitions derived from theme
 │   │
 │   ├── views/                     # Service-specific views (each is a Bubble Tea model)
-│   │   ├── home.go                # Service selector / dashboard
+│   │   ├── home.go                # Service selector / dashboard (reads from registry)
 │   │   ├── ec2_list.go            # EC2 instances list view
-│   │   ├── ec2_detail.go          # Single EC2 instance detail view
+│   │   ├── ami_list.go            # EC2 AMI browser (owned + public search)
 │   │   ├── s3_list.go             # S3 buckets list view
 │   │   ├── s3_objects.go          # Objects within a bucket
-│   │   ├── lambda_list.go         # Lambda functions list view
-│   │   ├── lambda_detail.go       # Single Lambda function detail
-│   │   ├── ecs_clusters.go        # ECS clusters list
-│   │   ├── ecs_services.go        # ECS services within a cluster
-│   │   ├── ecs_tasks.go           # ECS tasks within a service
-│   │   ├── iam_users.go           # IAM users list
-│   │   ├── iam_roles.go           # IAM roles list
-│   │   ├── rds_list.go            # RDS instances list
-│   │   └── cloudwatch_logs.go     # CloudWatch log groups/streams
+│   │   ├── s3_versions.go         # S3 object versions
+│   │   ├── content.go             # Generic content viewer (used by detail panels)
+│   │   └── eventlog.go            # In-app event log viewer
 │   │
 │   ├── msg/
 │   │   └── messages.go            # Shared message types
 │   │
-│   └── config/
-│       └── config.go              # AWS profile/region selection, app preferences
+│   ├── config/
+│   │   └── config.go              # TOML config management with precedence
+│   │
+│   ├── eventlog/
+│   │   └── eventlog.go            # Thread-safe event logging
+│   │
+│   └── version/
+│       └── version.go
 │
+├── .ai/                           # Architecture and design guidelines
+│   ├── DESIGN.md                  # This file — Bubble Tea patterns, v2 specifics, dev setup
+│   ├── ARCHITECTURE.md            # Service hierarchy, registry pattern, scaling strategy
+│   └── THEMING.md                 # Semantic colors, focus/dimming, icon conventions
+│
+├── services/aws/                  # Service documentation
+│   ├── s3.md
+│   └── ec2.md
+│
+├── Taskfile.yml                   # Task runner configuration
+├── docker-compose.yml             # LocalStack container config
 ├── go.mod
 ├── go.sum
 ├── LICENSE                        # Apache 2.0
@@ -364,21 +388,24 @@ return v
 
 ## Keybinding Conventions
 
-Follow vim-style keybindings consistent with lazygit/k9s:
+Follow vim-style keybindings consistent with lazygit/k9s. See the README for the full current list. Global keys:
 
-| Key                    | Action                             |
-| ---------------------- | ---------------------------------- |
-| `j` / `k` or `↑` / `↓` | Navigate up/down in lists          |
-| `enter`                | Drill into selected resource       |
-| `esc`                  | Go back to previous view           |
-| `/`                    | Open filter/search                 |
-| `r`                    | Refresh current view               |
-| `q`                    | Quit (with confirmation if needed) |
-| `?`                    | Show help / keybindings            |
-| `p`                    | Switch AWS profile                 |
-| `R`                    | Switch AWS region                  |
-| `y`                    | Copy resource ID/ARN to clipboard  |
-| `d`                    | Describe / show detail pane        |
+| Key               | Action                    |
+| ----------------- | ------------------------- |
+| `j`/`k` or arrows | Navigate up/down          |
+| `enter`           | Drill into resource       |
+| `esc`             | Go back / close panel     |
+| `/`               | Filter/search             |
+| `s`/`S`           | Sort / reverse sort       |
+| `r`               | Refresh                   |
+| `W`               | Toggle ReadOnly/ReadWrite |
+| `tab`             | Toggle panel focus        |
+| `L`               | Event log                 |
+| `P`               | Switch AWS profile        |
+| `R`               | Switch AWS region         |
+| `T`               | Switch theme              |
+| `:`               | Command palette           |
+| `q`               | Quit                      |
 
 ## Dependencies
 
