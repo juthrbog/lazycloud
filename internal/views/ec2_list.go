@@ -53,6 +53,7 @@ type EC2List struct {
 	err               error
 	width             int
 	height            int
+	widthTier         ui.WidthTier
 }
 
 func (e *EC2List) ID() string    { return "ec2_list" }
@@ -69,9 +70,16 @@ func (e *EC2List) KeyMap() []ui.KeyHint {
 	}
 }
 
-// NewEC2List creates the EC2 instance list view.
-func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
-	columns := []table.Column{
+func ec2Columns(tier ui.WidthTier) []table.Column {
+	if tier == ui.TierNarrow {
+		return []table.Column{
+			{Title: "Instance ID", Width: 21},
+			{Title: "Name", Width: 24},
+			{Title: "State", Width: 16},
+			{Title: "Type", Width: 14},
+		}
+	}
+	return []table.Column{
 		{Title: "Instance ID", Width: 21},
 		{Title: "Name", Width: 24},
 		{Title: "State", Width: 16},
@@ -81,8 +89,11 @@ func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
 		{Title: "AZ", Width: 14},
 		{Title: "Launched", Width: 12},
 	}
+}
 
-	t := ui.NewTable(columns, nil)
+// NewEC2List creates the EC2 instance list view.
+func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
+	t := ui.NewTable(ec2Columns(ui.TierMedium), nil)
 	return &EC2List{
 		ec2:       ec2,
 		awsClient: awsClient,
@@ -90,6 +101,7 @@ func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
 		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner("Loading EC2 instances..."),
 		loading:   true,
+		widthTier: ui.TierMedium,
 	}
 }
 
@@ -262,6 +274,17 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		e.width = m.Width
 		e.height = m.Height
+		newTier := ui.GetWidthTier(m.Width)
+		wasNarrow := e.widthTier == ui.TierNarrow
+		isNarrow := newTier == ui.TierNarrow
+		e.widthTier = newTier
+		if wasNarrow != isNarrow {
+			e.table.SetColumns(ec2Columns(newTier))
+			if len(e.instances) > 0 {
+				rows, sortKeys := e.buildRows(e.instances)
+				e.table.SetRowsWithSortKeys(rows, sortKeys)
+			}
+		}
 		e.table.SetSize(m.Width, m.Height-3)
 		e.filter.SetWidth(m.Width)
 		return e, nil
@@ -469,32 +492,29 @@ func (e *EC2List) terminateInstance(id string) tea.Cmd {
 func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row) {
 	rows := make([]table.Row, 0, len(instances))
 	sortKeys := make([]table.Row, 0, len(instances))
+	narrow := e.widthTier == ui.TierNarrow
 	for _, inst := range instances {
 		launched := ""
 		if !inst.LaunchTime.IsZero() {
 			launched = inst.LaunchTime.Format("2006-01-02")
 		}
-		rows = append(rows, table.Row{
-			inst.ID,
-			inst.Name,
-			ui.StateColor(inst.State),
-			inst.Type,
-			inst.PrivateIP,
-			inst.PublicIP,
-			inst.AvailabilityZone,
-			launched,
-		})
-		// Sort keys use plain state string (no ANSI codes) for correct sorting
-		sortKeys = append(sortKeys, table.Row{
-			inst.ID,
-			inst.Name,
-			inst.State,
-			inst.Type,
-			inst.PrivateIP,
-			inst.PublicIP,
-			inst.AvailabilityZone,
-			launched,
-		})
+		if narrow {
+			rows = append(rows, table.Row{
+				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
+			})
+			sortKeys = append(sortKeys, table.Row{
+				inst.ID, inst.Name, inst.State, inst.Type,
+			})
+		} else {
+			rows = append(rows, table.Row{
+				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
+				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
+			})
+			sortKeys = append(sortKeys, table.Row{
+				inst.ID, inst.Name, inst.State, inst.Type,
+				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
+			})
+		}
 	}
 	return rows, sortKeys
 }

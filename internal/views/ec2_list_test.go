@@ -190,6 +190,34 @@ func TestEC2List_KeyMapAlwaysContainsAllHints(t *testing.T) {
 	assert.Contains(t, descs, "manage")
 }
 
+// --- Responsive columns ---
+
+func TestEC2List_NarrowTierHidesColumns(t *testing.T) {
+	cols := ec2Columns(ui.TierNarrow)
+	assert.Equal(t, 4, len(cols), "narrow tier should show 4 columns")
+	assert.Equal(t, "Instance ID", cols[0].Title)
+	assert.Equal(t, "Type", cols[3].Title)
+}
+
+func TestEC2List_WideTierShowsAllColumns(t *testing.T) {
+	cols := ec2Columns(ui.TierWide)
+	assert.Equal(t, 8, len(cols), "wide tier should show 8 columns")
+	assert.Equal(t, "Launched", cols[7].Title)
+}
+
+func TestEC2List_TierChangeRebuildsRows(t *testing.T) {
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance})
+
+	// Resize to narrow
+	view.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
+	assert.Equal(t, ui.TierNarrow, view.widthTier)
+
+	// Resize back to medium
+	view.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
+	assert.Equal(t, ui.TierMedium, view.widthTier)
+}
+
 // --- actionsForState ---
 
 func TestEC2List_ActionsForState(t *testing.T) {

@@ -96,6 +96,7 @@ type S3Objects struct {
 	err               error
 	width             int
 	height            int
+	widthTier         ui.WidthTier
 }
 
 func (s *S3Objects) ID() string {
@@ -128,25 +129,35 @@ func (s *S3Objects) Title() string {
 	return path.Base(trimmed) + "/"
 }
 
-// NewS3Objects creates the S3 object browser view.
-func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
-	columns := []table.Column{
+func s3ObjectColumns(tier ui.WidthTier) []table.Column {
+	if tier == ui.TierNarrow {
+		return []table.Column{
+			{Title: "", Width: 3},
+			{Title: "Name", Width: 40},
+			{Title: "Size", Width: 10},
+		}
+	}
+	return []table.Column{
 		{Title: "", Width: 3},
 		{Title: "Name", Width: 40},
 		{Title: "Size", Width: 10},
 		{Title: "Modified", Width: 20},
 		{Title: "Class", Width: 14},
 	}
+}
 
-	t := ui.NewTable(columns, nil)
+// NewS3Objects creates the S3 object browser view.
+func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
+	t := ui.NewTable(s3ObjectColumns(ui.TierMedium), nil)
 	return &S3Objects{
 		s3:      s3,
 		bucket:  bucket,
 		prefix:  prefix,
 		table:   t,
 		filter:  ui.NewFilter(),
-		spinner: ui.NewSpinner("Loading objects..."),
-		loading: true,
+		spinner:   ui.NewSpinner("Loading objects..."),
+		loading:   true,
+		widthTier: ui.TierMedium,
 	}
 }
 
@@ -455,6 +466,16 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
+		newTier := ui.GetWidthTier(m.Width)
+		wasNarrow := s.widthTier == ui.TierNarrow
+		isNarrow := newTier == ui.TierNarrow
+		s.widthTier = newTier
+		if wasNarrow != isNarrow {
+			s.table.SetColumns(s3ObjectColumns(newTier))
+			if len(s.objects) > 0 || len(s.prefixes) > 0 {
+				s.buildTable()
+			}
+		}
 		s.table.SetSize(m.Width, m.Height-3)
 		s.filter.SetWidth(m.Width)
 		return s, nil
@@ -747,44 +768,36 @@ func (s *S3Objects) buildTable() {
 	s.entries = nil
 	var rows []table.Row
 	var sortKeys []table.Row
+	narrow := s.widthTier == ui.TierNarrow
 
 	for _, prefix := range s.prefixes {
 		name := prefix[len(s.prefix):]
 		s.entries = append(s.entries, s3TableEntry{isFolder: true, fullPath: prefix})
-		rows = append(rows, table.Row{
-			"📁",
-			name,
-			"-",
-			"",
-			"",
-		})
-		// Sort keys: "0" prefix ensures folders sort before files
-		sortKeys = append(sortKeys, table.Row{
-			"0",
-			name,
-			ui.SortKeyBytes(0),
-			"",
-			"",
-		})
+		if narrow {
+			rows = append(rows, table.Row{"📁", name, "-"})
+			sortKeys = append(sortKeys, table.Row{"0", name, ui.SortKeyBytes(0)})
+		} else {
+			rows = append(rows, table.Row{"📁", name, "-", "", ""})
+			sortKeys = append(sortKeys, table.Row{"0", name, ui.SortKeyBytes(0), "", ""})
+		}
 	}
 
 	for _, obj := range s.objects {
 		name := obj.Key[len(s.prefix):]
 		s.entries = append(s.entries, s3TableEntry{isFolder: false, fullPath: obj.Key})
-		rows = append(rows, table.Row{
-			"📄",
-			name,
-			aws.FormatBytes(obj.Size),
-			obj.LastModified.Format("2006-01-02 15:04:05"),
-			obj.StorageClass,
-		})
-		sortKeys = append(sortKeys, table.Row{
-			"1",
-			name,
-			ui.SortKeyBytes(obj.Size),
-			obj.LastModified.Format("2006-01-02 15:04:05"),
-			obj.StorageClass,
-		})
+		if narrow {
+			rows = append(rows, table.Row{"📄", name, aws.FormatBytes(obj.Size)})
+			sortKeys = append(sortKeys, table.Row{"1", name, ui.SortKeyBytes(obj.Size)})
+		} else {
+			rows = append(rows, table.Row{
+				"📄", name, aws.FormatBytes(obj.Size),
+				obj.LastModified.Format("2006-01-02 15:04:05"), obj.StorageClass,
+			})
+			sortKeys = append(sortKeys, table.Row{
+				"1", name, ui.SortKeyBytes(obj.Size),
+				obj.LastModified.Format("2006-01-02 15:04:05"), obj.StorageClass,
+			})
+		}
 	}
 
 	s.table.SetRowsWithSortKeys(rows, sortKeys)
