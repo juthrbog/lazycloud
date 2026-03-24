@@ -21,16 +21,16 @@ func TestEveryServiceFeatureHasNavCommand(t *testing.T) {
 	}
 }
 
-func TestPickerOptionsCount(t *testing.T) {
-	opts := PickerOptions()
-	assert.Equal(t, len(Commands), len(opts))
+func TestCommandBarEntriesCount(t *testing.T) {
+	entries := CommandBarEntries()
+	assert.Equal(t, len(Commands), len(entries))
 }
 
-func TestPickerOptionsValues(t *testing.T) {
-	opts := PickerOptions()
-	for i, opt := range opts {
-		assert.Equal(t, Commands[i].Name, opt.Value)
-		assert.Contains(t, opt.Label, Commands[i].Description)
+func TestCommandBarEntriesValues(t *testing.T) {
+	entries := CommandBarEntries()
+	for i, e := range entries {
+		assert.Equal(t, Commands[i].Name, e.Name)
+		assert.Equal(t, Commands[i].Description, e.Description)
 	}
 }
 
@@ -38,6 +38,12 @@ func TestLookupCommandByName(t *testing.T) {
 	cmd := LookupCommand("ec2")
 	assert.NotNil(t, cmd)
 	assert.Equal(t, "ec2_list", cmd.ViewID)
+}
+
+func TestLookupSubResourceCommand(t *testing.T) {
+	cmd := LookupCommand("ec2/amis")
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "ami_list", cmd.ViewID)
 }
 
 func TestLookupCommandByAlias(t *testing.T) {
@@ -52,6 +58,10 @@ func TestLookupCommandByAlias(t *testing.T) {
 	cmd = LookupCommand("instances")
 	assert.NotNil(t, cmd)
 	assert.Equal(t, "ec2", cmd.Name)
+
+	cmd = LookupCommand("amis")
+	assert.NotNil(t, cmd)
+	assert.Equal(t, "ec2/amis", cmd.Name)
 }
 
 func TestLookupCommandNotFound(t *testing.T) {
