@@ -451,6 +451,102 @@ func TestCollectAllKeyHintsHasCategories(t *testing.T) {
 	assert.True(t, categories[""], "should have empty category (Current View)")
 }
 
+// --- Command bar ---
+
+func TestColonOpensCommandBar(t *testing.T) {
+	m := newTestModel(140, 40)
+	assert.False(t, m.commandBar.Visible())
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: ':', Text: ":"})
+	m = result.(Model)
+
+	assert.True(t, m.commandBar.Visible())
+}
+
+func TestCommandBarResultNavigates(t *testing.T) {
+	m := newTestModel(140, 40)
+	initialDepth := m.nav.Depth()
+
+	// Simulate command bar result for "ec2"
+	result, cmd := m.Update(ui.CommandBarResultMsg{Value: "ec2"})
+	m = result.(Model)
+	require.NotNil(t, cmd)
+
+	// Execute the NavigateMsg cmd
+	navMsg := cmd()
+	result, _ = m.Update(navMsg)
+	m = result.(Model)
+
+	assert.Greater(t, m.nav.Depth(), initialDepth)
+}
+
+func TestCommandBarSubResourceNavigates(t *testing.T) {
+	m := newTestModel(140, 40)
+	initialDepth := m.nav.Depth()
+
+	// "ec2/amis" should navigate to ami_list
+	result, cmd := m.Update(ui.CommandBarResultMsg{Value: "ec2/amis"})
+	m = result.(Model)
+	require.NotNil(t, cmd)
+
+	navMsg := cmd()
+	result, _ = m.Update(navMsg)
+	m = result.(Model)
+
+	assert.Greater(t, m.nav.Depth(), initialDepth)
+	assert.Equal(t, "AMIs", m.nav.Current().Title())
+}
+
+func TestCommandBarAliasNavigates(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// "amis" alias should still work
+	result, cmd := m.Update(ui.CommandBarResultMsg{Value: "amis"})
+	m = result.(Model)
+	require.NotNil(t, cmd)
+
+	navMsg := cmd()
+	result, _ = m.Update(navMsg)
+	m = result.(Model)
+
+	assert.Equal(t, "AMIs", m.nav.Current().Title())
+}
+
+func TestCommandBarCancelledDoesNothing(t *testing.T) {
+	m := newTestModel(140, 40)
+	initialDepth := m.nav.Depth()
+
+	result, cmd := m.Update(ui.CommandBarResultMsg{Cancelled: true})
+	m = result.(Model)
+
+	assert.Equal(t, initialDepth, m.nav.Depth())
+	assert.Nil(t, cmd)
+}
+
+func TestCommandBarAddsHistory(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// Execute a command — this adds to history
+	result, _ := m.Update(ui.CommandBarResultMsg{Value: "ec2"})
+	m = result.(Model)
+
+	// Open command bar and press Up — should recall "ec2"
+	result, _ = m.Update(tea.KeyPressMsg{Code: ':', Text: ":"})
+	m = result.(Model)
+	assert.True(t, m.commandBar.Visible())
+
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m = result.(Model)
+
+	// Execute — should get "ec2" from history
+	result, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = result.(Model)
+	assert.NotNil(t, cmd)
+
+	msg := cmd().(ui.CommandBarResultMsg)
+	assert.Equal(t, "ec2", msg.Value)
+}
+
 // --- Registry sync ---
 
 func TestRegistryNavCommandsCoveredByResolveView(t *testing.T) {
