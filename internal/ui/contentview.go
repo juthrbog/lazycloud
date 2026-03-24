@@ -385,7 +385,7 @@ func syntaxHighlight(content, format string) string {
 	}
 	lexer = chroma.Coalesce(lexer)
 
-	style := styles.Get("catppuccin-mocha")
+	style := styles.Get(ActiveTheme.ChromaStyle)
 	if style == nil {
 		style = styles.Fallback
 	}
