@@ -34,8 +34,9 @@ type Model struct {
 	nav       *nav.Navigator
 	confirm   ui.Confirm
 	picker    ui.Picker
-	help      ui.HelpOverlay
-	toasts    ui.ToastManager
+	help       ui.HelpOverlay
+	commandBar ui.CommandBar
+	toasts     ui.ToastManager
 	width     int
 	height    int
 	err       string
@@ -71,8 +72,9 @@ func New(cfg config.Config) Model {
 		nav:       nav.New(home),
 		confirm:   ui.NewConfirm(),
 		picker:    ui.NewPicker(),
-		help:      ui.NewHelpOverlay(),
-		toasts:    ui.NewToastManager(),
+		help:       ui.NewHelpOverlay(),
+		commandBar: ui.NewCommandBar(),
+		toasts:     ui.NewToastManager(),
 		isDark:    true,
 	}
 }
@@ -106,6 +108,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.help.Visible() {
 		var cmd tea.Cmd
 		m.help, cmd = m.help.Update(teaMsg)
+		return m, cmd
+	}
+
+	// Command bar intercepts all input when visible
+	if m.commandBar.Visible() {
+		var cmd tea.Cmd
+		m.commandBar, cmd = m.commandBar.Update(teaMsg)
 		return m, cmd
 	}
 
@@ -236,8 +245,6 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch msg.ID {
-		case "command":
-			return m.executeCommand(msg.Value)
 		case "theme":
 			return m.applyTheme(msg.Value)
 		case "region":
@@ -248,6 +255,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.applyMode(msg.Value)
 		}
 		return m, nil
+
+	case ui.CommandBarResultMsg:
+		if msg.Cancelled {
+			return m, nil
+		}
+		m.commandBar.AddHistory(msg.Value)
+		return m.executeCommand(msg.Value)
 
 	case tea.KeyPressMsg:
 		// Tab toggles focus between main view and panel
@@ -308,7 +322,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd := m.pushView(views.NewEventLog())
 			return m, cmd
 		case ":":
-			m.picker.Show("command", "Command", registry.PickerOptions(), 0)
+			m.commandBar.Show(registry.CommandBarEntries(), m.width)
 			return m, nil
 		case "?":
 			hints := m.collectAllKeyHints()
@@ -669,12 +683,17 @@ func (m Model) View() tea.View {
 		Width:       m.width,
 	})
 
-	keys := m.currentKeyHints()
-	statusBar := ui.RenderStatusBar(ui.StatusBarData{
-		Keys:  keys,
-		Error: m.err,
-		Width: m.width,
-	})
+	var statusBar string
+	if m.commandBar.Visible() {
+		statusBar = m.commandBar.ViewInput(m.width)
+	} else {
+		keys := m.currentKeyHints()
+		statusBar = ui.RenderStatusBar(ui.StatusBarData{
+			Keys:  keys,
+			Error: m.err,
+			Width: m.width,
+		})
+	}
 
 	headerHeight := lipgloss.Height(header)
 	statusHeight := lipgloss.Height(statusBar)
@@ -751,6 +770,22 @@ func (m Model) View() tea.View {
 			dialog = m.confirm.View()
 		}
 		body = composeOverlay(body, dialog, m.width, m.height)
+	}
+
+	// Command bar suggestions above the input line
+	if m.commandBar.Visible() {
+		if suggestions := m.commandBar.ViewSuggestions(); suggestions != "" {
+			sugH := lipgloss.Height(suggestions)
+			y := m.height - sugH - 1
+			if y < 0 {
+				y = 0
+			}
+			comp := lipgloss.NewCompositor(
+				lipgloss.NewLayer(body).Z(0),
+				lipgloss.NewLayer(suggestions).X(0).Y(y).Z(1),
+			)
+			body = comp.Render()
+		}
 	}
 
 	// Overlay toasts in bottom-right

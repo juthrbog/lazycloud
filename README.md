@@ -91,7 +91,8 @@ task dev               # run against LocalStack
 | `P`               | Switch AWS profile        |
 | `R`               | Switch AWS region         |
 | `T`               | Switch theme              |
-| `:`               | Command palette           |
+| `:`               | Command bar               |
+| `?`               | Help overlay              |
 | `q`               | Quit                      |
 
 **Content Viewer / Side Panel**
@@ -110,7 +111,20 @@ These keys apply in the content viewer and when the side panel is focused (press
 | `tab`             | Focus main view     |
 | `esc`             | Close panel         |
 
-**Picker** (profile, region, theme, sort, feature selection, command palette)
+**Command Bar** (`:` to open)
+
+| Key               | Action                          |
+| ----------------- | ------------------------------- |
+| *type*            | Filter commands (fuzzy search)  |
+| `tab`             | Complete top suggestion          |
+| `↑`/`↓`           | Browse history / suggestions    |
+| `enter`           | Execute command                  |
+| `esc`             | Cancel                           |
+| `ctrl+u`          | Clear input                      |
+
+Supports sub-resource commands like `:ec2/amis` and aliases like `:instances`.
+
+**Picker** (profile, region, theme, sort, feature selection)
 
 | Key               | Action              |
 | ----------------- | ------------------- |
