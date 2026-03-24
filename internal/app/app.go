@@ -698,9 +698,18 @@ func (m Model) View() tea.View {
 			Width(pw - 2).
 			Height(contentHeight - 2)
 
+		mainContent := contentStr
+		panelContent := m.panel.View()
+		faint := lipgloss.NewStyle().Faint(true)
+		if m.panelFocused {
+			mainContent = faint.Render(mainContent)
+		} else {
+			panelContent = faint.Render(panelContent)
+		}
+
 		rendered = lipgloss.JoinHorizontal(lipgloss.Top,
-			mainBorder.Render(contentStr),
-			panelBorder.Render(m.panel.View()),
+			mainBorder.Render(mainContent),
+			panelBorder.Render(panelContent),
 		)
 	} else {
 		borderStyle := lipgloss.NewStyle().
