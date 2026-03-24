@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -249,20 +250,27 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detail == nil {
 			return e, nil
 		}
-		title := m.detail.InstanceID
-		if m.detail.Name != "" {
-			title = m.detail.Name + " (" + m.detail.InstanceID + ")"
+		d := m.detail
+		title := d.InstanceID
+		if d.Name != "" {
+			title = d.Name + " (" + d.InstanceID + ")"
 		}
-		content := m.detail.DetailJSON()
+		tabs := []msg.TabContent{
+			{Title: "Info", Content: buildEC2InfoContent(d), Format: "text"},
+			{Title: "JSON", Content: d.DetailJSON(), Format: "json"},
+		}
+		if len(d.SecurityGroups) > 0 {
+			tabs = append(tabs, msg.TabContent{
+				Title: "Security Groups", Content: buildSGContent(d.SecurityGroups), Format: "text",
+			})
+		}
+		if len(d.Tags) > 0 {
+			tabs = append(tabs, msg.TabContent{
+				Title: "Tags", Content: buildTagsContent(d.Tags), Format: "text",
+			})
+		}
 		return e, func() tea.Msg {
-			return msg.NavigateMsg{
-				ViewID: "content",
-				Params: map[string]string{
-					"title":   title,
-					"content": content,
-					"format":  "json",
-				},
-			}
+			return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
 		}
 
 	case msg.ErrorMsg:
@@ -517,6 +525,57 @@ func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row)
 		}
 	}
 	return rows, sortKeys
+}
+
+func buildEC2InfoContent(d *aws.InstanceDetail) string {
+	fields := []struct{ k, v string }{
+		{"Instance ID", d.InstanceID},
+		{"Name", d.Name},
+		{"State", d.State},
+		{"Type", d.InstanceType},
+		{"Platform", d.Platform},
+		{"Architecture", d.Architecture},
+		{"Private IP", d.PrivateIP},
+		{"Public IP", d.PublicIP},
+		{"Private DNS", d.PrivateDNS},
+		{"Public DNS", d.PublicDNS},
+		{"VPC", d.VpcID},
+		{"Subnet", d.SubnetID},
+		{"AZ", d.AvailabilityZone},
+		{"Key Name", d.KeyName},
+		{"AMI", d.AMI},
+		{"IAM Role", d.IAMRole},
+		{"Launch Time", d.LaunchTime},
+		{"Root Device", d.RootDeviceType + " (" + d.RootDeviceName + ")"},
+	}
+	var b strings.Builder
+	for _, f := range fields {
+		if f.v != "" && f.v != " ()" {
+			b.WriteString(fmt.Sprintf("%-16s %s\n", f.k, f.v))
+		}
+	}
+	return b.String()
+}
+
+func buildSGContent(sgs []aws.SecurityGroupRef) string {
+	var b strings.Builder
+	for _, sg := range sgs {
+		b.WriteString(fmt.Sprintf("%-22s %s\n", sg.ID, sg.Name))
+	}
+	return b.String()
+}
+
+func buildTagsContent(tags map[string]string) string {
+	keys := make([]string, 0, len(tags))
+	for k := range tags {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(fmt.Sprintf("%-24s %s\n", k, tags[k]))
+	}
+	return b.String()
 }
 
 func (e *EC2List) View() tea.View {
