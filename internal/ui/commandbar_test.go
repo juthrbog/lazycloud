@@ -182,6 +182,41 @@ func TestCommandBarEnterOnEmptyDismisses(t *testing.T) {
 	assert.True(t, msg.Cancelled)
 }
 
+func TestCommandBarEnterResolvesTopMatch(t *testing.T) {
+	c := NewCommandBar()
+	c.Show(testCommands(), 120)
+
+	// Type "qui" — partial match for "quit"
+	for _, ch := range "qui" {
+		c, _ = c.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
+	}
+
+	assert.True(t, len(c.filtered) > 0)
+	assert.Equal(t, "quit", c.commands[c.filtered[0]].Name)
+
+	c, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg := cmd().(CommandBarResultMsg)
+	assert.Equal(t, "quit", msg.Value)
+}
+
+func TestCommandBarEnterResolvesSelectedSuggestion(t *testing.T) {
+	c := NewCommandBar()
+	c.Show(testCommands(), 120)
+
+	// Type "ec" — matches "ec2" and "ec2/amis"
+	c, _ = c.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
+	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
+
+	// Down arrow to select second match ("ec2/amis")
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, 1, c.selected)
+
+	c, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	msg := cmd().(CommandBarResultMsg)
+	assert.Equal(t, "ec2/amis", msg.Value)
+}
+
 func TestCommandBarViewInputNotVisibleReturnsEmpty(t *testing.T) {
 	c := NewCommandBar()
 	assert.Equal(t, "", c.ViewInput(120))
