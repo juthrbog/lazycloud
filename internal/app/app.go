@@ -484,16 +484,22 @@ func (m *Model) closePanel() {
 	m.resizeViews()
 }
 
+// chromeHeight returns the vertical lines consumed by fixed layout chrome:
+// header (2: title bar + gradient) + status bar (1) + content border (2: top + bottom).
+func (m Model) chromeHeight() int {
+	return 5
+}
+
 func (m *Model) resizeViews() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	innerH := m.height - 5
+	innerH := m.height - m.chromeHeight()
 	if m.panelOpen && m.panel != nil {
 		pw := m.panelWidth()
-		mainW := m.width - pw - 3 // borders (2 each pane = 4) + gap, but JoinHorizontal handles it
+		mainW := m.width - pw - 3 // inner content width: total(m.width) - panel(pw) - gap(1) - main borders(2)
 		m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: mainW, Height: innerH})
-		m.panel.SetSize(pw-2, innerH-2) // subtract border from panel dimensions
+		m.panel.SetSize(pw-2, innerH)
 	} else {
 		m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: m.width - 2, Height: innerH})
 	}
@@ -783,14 +789,16 @@ func (m Model) View() tea.View {
 		mainBorder := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(mainBorderColor).
-			Width(mainW - 2).
-			Height(contentHeight - 2)
+			Width(mainW).
+			Height(contentHeight).
+			MaxHeight(contentHeight)
 
 		panelBorder := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(panelBorderColor).
-			Width(pw - 2).
-			Height(contentHeight - 2)
+			Width(pw).
+			Height(contentHeight).
+			MaxHeight(contentHeight)
 
 		mainContent := contentStr
 		panelContent := m.panel.View()
@@ -809,8 +817,9 @@ func (m Model) View() tea.View {
 		borderStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(t.Secondary).
-			Width(m.width - 2).
-			Height(contentHeight - 2)
+			Width(m.width).
+			Height(contentHeight).
+			MaxHeight(contentHeight)
 
 		rendered = borderStyle.Render(contentStr)
 	}
