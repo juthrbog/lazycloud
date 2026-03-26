@@ -102,6 +102,13 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			}
 			c.visible = false
 			value := c.input
+			if len(c.filtered) > 0 {
+				idx := 0
+				if c.selected >= 0 && c.selected < len(c.filtered) {
+					idx = c.selected
+				}
+				value = c.commands[c.filtered[idx]].Name
+			}
 			return c, func() tea.Msg {
 				return CommandBarResultMsg{Value: value}
 			}
