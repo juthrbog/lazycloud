@@ -364,6 +364,12 @@ func (cv ContentView) View() string {
 	header := titleText + "  " + formatBadge + posInfo + modeInfo + yankInfo
 
 	if cv.embedded {
+		// Drop title (tab bar already shows it); hide format badge for plain text
+		if cv.format != FormatText {
+			header = formatBadge + posInfo + modeInfo + yankInfo
+		} else {
+			header = posInfo + modeInfo + yankInfo
+		}
 		return header + "\n" + cv.viewport.View()
 	}
 
