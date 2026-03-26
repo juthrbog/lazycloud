@@ -79,6 +79,11 @@ func (t *Table) SetSize(w, h int) {
 	t.inner.SetHeight(h)
 }
 
+// Columns returns the current column definitions.
+func (t Table) Columns() []table.Column {
+	return t.columns
+}
+
 // SetColumns swaps the column set without recreating the table.
 // Clears rows and resets sort state since column indices may have changed.
 // Callers should call SetRows or SetRowsWithSortKeys after SetColumns.
