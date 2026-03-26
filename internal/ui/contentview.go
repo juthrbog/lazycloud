@@ -72,6 +72,7 @@ type ContentView struct {
 	width       int
 	height      int
 	yankMsg     string // transient "yanked N lines" feedback
+	embedded    bool   // true when inside TabbedPanel; hides footer
 }
 
 // NewContentView creates a content viewer with the given title, content, and format.
@@ -95,12 +96,26 @@ func NewContentView(title, content string, format ContentFormat) ContentView {
 	return cv
 }
 
+// SetEmbedded marks this ContentView as embedded inside a TabbedPanel,
+// hiding the footer (which duplicates the app-level status bar hints).
+func (cv *ContentView) SetEmbedded(v bool) {
+	cv.embedded = v
+}
+
+// chromeLines returns the number of non-viewport lines (header + optional footer).
+func (cv *ContentView) chromeLines() int {
+	if cv.embedded {
+		return 1 // header only
+	}
+	return 2 // header + footer
+}
+
 // SetSize sets the viewer dimensions.
 func (cv *ContentView) SetSize(w, h int) {
 	cv.width = w
 	cv.height = h
 	cv.viewport.SetWidth(w)
-	cv.viewport.SetHeight(h - 2)
+	cv.viewport.SetHeight(h - cv.chromeLines())
 	cv.renderContent()
 }
 
@@ -348,7 +363,11 @@ func (cv ContentView) View() string {
 
 	header := titleText + "  " + formatBadge + posInfo + modeInfo + yankInfo
 
-	// Footer
+	if cv.embedded {
+		return header + "\n" + cv.viewport.View()
+	}
+
+	// Footer (only shown in standalone mode, not when embedded in TabbedPanel)
 	hints := "j/k move  V visual  y yank  e editor  n lines  g/G top/bottom  esc back"
 	if len(cv.links) > 0 {
 		hints = "enter navigate  " + hints

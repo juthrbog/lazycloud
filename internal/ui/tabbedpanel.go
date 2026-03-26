@@ -73,6 +73,7 @@ func (tp *TabbedPanel) ensureViewer(idx int) {
 	}
 	tab := tp.tabs[idx]
 	cv := NewContentView(tab.title, tab.content, tab.format)
+	cv.SetEmbedded(true)
 	if len(tab.links) > 0 {
 		cv.SetLinks(tab.links)
 	}
@@ -82,9 +83,26 @@ func (tp *TabbedPanel) ensureViewer(idx int) {
 	tp.tabs[idx].viewer = &cv
 }
 
+// tabBarHeight returns the rendered height of the tab bar, accounting for
+// possible line wrapping at narrow panel widths.
+func (tp TabbedPanel) tabBarHeight() int {
+	if len(tp.tabs) == 0 {
+		return 0
+	}
+	bar := tp.renderTabBar()
+	if tp.width > 0 {
+		bar = lipgloss.NewStyle().Width(tp.width).Render(bar)
+	}
+	h := lipgloss.Height(bar)
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 // viewerHeight returns the height available for the content viewer (minus tab bar).
 func (tp TabbedPanel) viewerHeight() int {
-	h := tp.height - 1 // 1 line for tab bar
+	h := tp.height - tp.tabBarHeight()
 	if h < 1 {
 		h = 1
 	}
@@ -153,6 +171,9 @@ func (tp TabbedPanel) View() string {
 	}
 
 	tabBar := tp.renderTabBar()
+	if tp.width > 0 {
+		tabBar = lipgloss.NewStyle().Width(tp.width).Render(tabBar)
+	}
 
 	var content string
 	if tp.active < len(tp.tabs) && tp.tabs[tp.active].viewer != nil {
