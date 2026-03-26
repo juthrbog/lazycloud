@@ -1,5 +1,7 @@
 package ui
 
+import "charm.land/bubbles/v2/table"
+
 // WidthTier represents a terminal width category for responsive layout.
 type WidthTier int
 
@@ -24,3 +26,13 @@ func GetWidthTier(width int) WidthTier {
 // If the terminal is too short, hide the header or status bar before
 // shrinking the table below this threshold.
 const MinTableRows = 5
+
+// ColumnsFit reports whether the given columns fit within the available width,
+// accounting for the bubbles table's default cell padding (1 char each side).
+func ColumnsFit(cols []table.Column, width int) bool {
+	total := 0
+	for _, c := range cols {
+		total += c.Width + 2 // +2 for default Padding(0,1) left+right
+	}
+	return total <= width
+}

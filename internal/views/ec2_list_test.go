@@ -17,7 +17,7 @@ import (
 func newTestEC2List() (*EC2List, *awstest.MockEC2Service) {
 	m := new(awstest.MockEC2Service)
 	view := NewEC2List(m, nil) // nil awsClient — SSM not tested here
-	view.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	view.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 	return view, m
 }
 
@@ -213,9 +213,9 @@ func TestEC2List_TierChangeRebuildsRows(t *testing.T) {
 	view.Update(tea.WindowSizeMsg{Width: 60, Height: 24})
 	assert.Equal(t, ui.TierNarrow, view.widthTier)
 
-	// Resize back to medium
-	view.Update(tea.WindowSizeMsg{Width: 100, Height: 24})
-	assert.Equal(t, ui.TierMedium, view.widthTier)
+	// Resize back to wide (must be wide enough for medium columns + padding)
+	view.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
+	assert.Equal(t, ui.TierWide, view.widthTier)
 }
 
 // --- actionsForState ---

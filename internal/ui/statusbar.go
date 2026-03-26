@@ -31,6 +31,9 @@ type StatusBarData struct {
 }
 
 // RenderStatusBar renders the bottom bar with contextual keybindings.
+// Hints that don't fit the available width are progressively dropped from the
+// right (lowest priority), since currentKeyHints() orders view-specific hints
+// first and global hints last.
 func RenderStatusBar(data StatusBarData) string {
 	s := S
 
@@ -44,7 +47,8 @@ func RenderStatusBar(data StatusBarData) string {
 		return errMsg
 	}
 
-	var parts []string
+	// Filter by mode
+	var filtered []KeyHint
 	for _, k := range data.Keys {
 		if k.Mode == ModeReadWrite && ReadOnly {
 			continue
@@ -52,11 +56,11 @@ func RenderStatusBar(data StatusBarData) string {
 		if k.Mode == ModeReadOnly && !ReadOnly {
 			continue
 		}
-		hint := s.StatusKey.Render("<"+k.Key+">") + " " + s.StatusDesc.Render(k.Desc)
-		parts = append(parts, hint)
+		filtered = append(filtered, k)
 	}
 
-	bar := strings.Join(parts, "  ")
+	// Progressively drop hints from the right until they fit
+	bar := renderHints(s, filtered, data.Width)
 
 	barWidth := lipgloss.Width(bar)
 	if data.Width > barWidth {
@@ -65,4 +69,19 @@ func RenderStatusBar(data StatusBarData) string {
 	}
 
 	return bar
+}
+
+// renderHints renders as many hints as fit within maxWidth, dropping from the right.
+func renderHints(s Styles, hints []KeyHint, maxWidth int) string {
+	for n := len(hints); n > 0; n-- {
+		var parts []string
+		for _, k := range hints[:n] {
+			parts = append(parts, s.StatusKey.Render("<"+k.Key+">")+" "+s.StatusDesc.Render(k.Desc))
+		}
+		bar := strings.Join(parts, "  ")
+		if lipgloss.Width(bar) <= maxWidth || n == 1 {
+			return bar
+		}
+	}
+	return ""
 }
