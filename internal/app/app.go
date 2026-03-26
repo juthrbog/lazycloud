@@ -853,7 +853,7 @@ func (m Model) View() tea.View {
 			}
 			comp := lipgloss.NewCompositor(
 				lipgloss.NewLayer(body).Z(0),
-				lipgloss.NewLayer(suggestions).X(0).Y(y).Z(1),
+				lipgloss.NewLayer(suggestions).X(1).Y(y).Z(1),
 			)
 			body = comp.Render()
 		}
