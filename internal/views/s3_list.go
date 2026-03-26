@@ -48,6 +48,7 @@ type S3List struct {
 	err                 error
 	width               int
 	height              int
+	widthTier           ui.WidthTier
 }
 
 func (s *S3List) ID() string    { return "s3_list" }
@@ -64,14 +65,21 @@ func (s *S3List) KeyMap() []ui.KeyHint {
 	}
 }
 
-// NewS3List creates the S3 bucket list view.
-func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
-	columns := []table.Column{
+func s3BucketColumns(tier ui.WidthTier) []table.Column {
+	if tier == ui.TierNarrow {
+		return []table.Column{
+			{Title: "Bucket", Width: 40},
+		}
+	}
+	return []table.Column{
 		{Title: "Bucket", Width: 40},
 		{Title: "Created", Width: 22},
 	}
+}
 
-	t := ui.NewTable(columns, nil)
+// NewS3List creates the S3 bucket list view.
+func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
+	t := ui.NewTable(s3BucketColumns(ui.TierMedium), nil)
 	return &S3List{
 		s3:            s3,
 		defaultRegion: defaultRegion,
@@ -79,6 +87,7 @@ func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
 		filter:        ui.NewFilter(),
 		spinner:       ui.NewSpinner("Loading S3 buckets..."),
 		loading:       true,
+		widthTier:     ui.TierMedium,
 	}
 }
 
@@ -173,14 +182,7 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.loading = false
 		s.spinner.Hide()
 		s.buckets = m.buckets
-		var rows []table.Row
-		for _, b := range m.buckets {
-			rows = append(rows, table.Row{
-				b.Name,
-				b.CreationDate.Format("2006-01-02 15:04:05"),
-			})
-		}
-		s.table.SetRows(rows)
+		s.rebuildRows()
 		return s, nil
 
 	case msg.ErrorMsg:
@@ -192,6 +194,18 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
+		newTier := ui.GetWidthTier(m.Width)
+		s.widthTier = newTier
+
+		cols := s3BucketColumns(newTier)
+		if !ui.ColumnsFit(cols, m.Width) {
+			cols = s3BucketColumns(ui.TierNarrow)
+			s.widthTier = ui.TierNarrow
+		}
+		if len(cols) != len(s.table.Columns()) {
+			s.table.SetColumns(cols)
+			s.rebuildRows()
+		}
 		s.table.SetSize(m.Width, m.Height-3)
 		s.filter.SetWidth(m.Width)
 		return s, nil
@@ -340,6 +354,22 @@ func (s *S3List) deleteBucket(bucket string) tea.Cmd {
 		err := svc.EmptyAndDeleteBucket(context.Background(), bucket)
 		return s3BucketDeletedMsg{bucket: bucket, err: err}
 	}
+}
+
+func (s *S3List) rebuildRows() {
+	narrow := s.widthTier == ui.TierNarrow
+	var rows []table.Row
+	for _, b := range s.buckets {
+		if narrow {
+			rows = append(rows, table.Row{b.Name})
+		} else {
+			rows = append(rows, table.Row{
+				b.Name,
+				b.CreationDate.Format("2006-01-02 15:04:05"),
+			})
+		}
+	}
+	s.table.SetRows(rows)
 }
 
 func (s *S3List) View() tea.View {

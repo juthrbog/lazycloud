@@ -468,11 +468,15 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.width = m.Width
 		s.height = m.Height
 		newTier := ui.GetWidthTier(m.Width)
-		wasNarrow := s.widthTier == ui.TierNarrow
-		isNarrow := newTier == ui.TierNarrow
 		s.widthTier = newTier
-		if wasNarrow != isNarrow {
-			s.table.SetColumns(s3ObjectColumns(newTier))
+
+		cols := s3ObjectColumns(newTier)
+		if !ui.ColumnsFit(cols, m.Width) {
+			cols = s3ObjectColumns(ui.TierNarrow)
+			s.widthTier = ui.TierNarrow
+		}
+		if len(cols) != len(s.table.Columns()) {
+			s.table.SetColumns(cols)
 			if len(s.objects) > 0 || len(s.prefixes) > 0 {
 				s.buildTable()
 			}

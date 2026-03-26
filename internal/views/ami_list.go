@@ -162,13 +162,17 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = m.Width
 		a.height = m.Height
 		newTier := ui.GetWidthTier(m.Width)
-		wasNarrow := a.widthTier == ui.TierNarrow
-		isNarrow := newTier == ui.TierNarrow
 		a.widthTier = newTier
-		if wasNarrow != isNarrow {
-			a.table.SetColumns(amiColumns(newTier))
+
+		cols := amiColumns(newTier)
+		if !ui.ColumnsFit(cols, m.Width) {
+			cols = amiColumns(ui.TierNarrow)
+			a.widthTier = ui.TierNarrow
+		}
+		if len(cols) != len(a.table.Columns()) {
+			a.table.SetColumns(cols)
 			if len(a.amis) > 0 {
-				a.table.SetRows(buildAMIRows(a.amis, newTier))
+				a.table.SetRows(buildAMIRows(a.amis, a.widthTier))
 			}
 		}
 		a.table.SetSize(m.Width, m.Height-3)

@@ -16,7 +16,7 @@ import (
 func newTestAMIList() (*AMIList, *awstest.MockEC2Service) {
 	m := new(awstest.MockEC2Service)
 	view := NewAMIList(m)
-	view.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	view.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 	return view, m
 }
 

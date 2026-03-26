@@ -285,11 +285,15 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		e.width = m.Width
 		e.height = m.Height
 		newTier := ui.GetWidthTier(m.Width)
-		wasNarrow := e.widthTier == ui.TierNarrow
-		isNarrow := newTier == ui.TierNarrow
 		e.widthTier = newTier
-		if wasNarrow != isNarrow {
-			e.table.SetColumns(ec2Columns(newTier))
+
+		cols := ec2Columns(newTier)
+		if !ui.ColumnsFit(cols, m.Width) {
+			cols = ec2Columns(ui.TierNarrow)
+			e.widthTier = ui.TierNarrow
+		}
+		if len(cols) != len(e.table.Columns()) {
+			e.table.SetColumns(cols)
 			if len(e.instances) > 0 {
 				rows, sortKeys := e.buildRows(e.instances)
 				e.table.SetRowsWithSortKeys(rows, sortKeys)

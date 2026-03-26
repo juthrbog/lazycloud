@@ -28,9 +28,10 @@ type S3Versions struct {
 	table    ui.Table
 	spinner  ui.Spinner
 	loading  bool
-	err      error
-	width    int
-	height   int
+	err       error
+	width     int
+	height    int
+	widthTier ui.WidthTier
 }
 
 func (s *S3Versions) ID() string {
@@ -50,23 +51,33 @@ func (s *S3Versions) KeyMap() []ui.KeyHint {
 	}
 }
 
-// NewS3Versions creates the version list view for an S3 object.
-func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
-	columns := []table.Column{
+func s3VersionColumns(tier ui.WidthTier) []table.Column {
+	if tier == ui.TierNarrow {
+		return []table.Column{
+			{Title: "Version ID", Width: 36},
+			{Title: "Size", Width: 10},
+			{Title: "Latest", Width: 8},
+		}
+	}
+	return []table.Column{
 		{Title: "Version ID", Width: 36},
 		{Title: "Size", Width: 10},
 		{Title: "Modified", Width: 20},
 		{Title: "Latest", Width: 8},
 		{Title: "Delete Marker", Width: 14},
 	}
+}
 
-	t := ui.NewTable(columns, nil)
+// NewS3Versions creates the version list view for an S3 object.
+func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
+	t := ui.NewTable(s3VersionColumns(ui.TierMedium), nil)
 	return &S3Versions{
-		s3:      s3,
-		bucket:  bucket,
-		key:     key,
-		table:   t,
-		spinner: ui.NewSpinner("Loading versions..."),
+		s3:        s3,
+		bucket:    bucket,
+		key:       key,
+		table:     t,
+		spinner:   ui.NewSpinner("Loading versions..."),
+		widthTier: ui.TierMedium,
 		loading: true,
 	}
 }
@@ -98,33 +109,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.loading = false
 		s.spinner.Hide()
 		s.versions = m.versions
-		var rows []table.Row
-		var sortKeys []table.Row
-		for _, v := range m.versions {
-			latest := ""
-			if v.IsLatest {
-				latest = "✓"
-			}
-			delMarker := ""
-			if v.IsDeleteMarker {
-				delMarker = "✓"
-			}
-			rows = append(rows, table.Row{
-				v.VersionID,
-				aws.FormatBytes(v.Size),
-				v.LastModified.Format("2006-01-02 15:04:05"),
-				latest,
-				delMarker,
-			})
-			sortKeys = append(sortKeys, table.Row{
-				v.VersionID,
-				ui.SortKeyBytes(v.Size),
-				v.LastModified.Format("2006-01-02 15:04:05"),
-				latest,
-				delMarker,
-			})
-		}
-		s.table.SetRowsWithSortKeys(rows, sortKeys)
+		s.rebuildRows()
 		return s, nil
 
 	case ui.PickerResultMsg:
@@ -146,6 +131,18 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
+		newTier := ui.GetWidthTier(m.Width)
+		s.widthTier = newTier
+
+		cols := s3VersionColumns(newTier)
+		if !ui.ColumnsFit(cols, m.Width) {
+			cols = s3VersionColumns(ui.TierNarrow)
+			s.widthTier = ui.TierNarrow
+		}
+		if len(cols) != len(s.table.Columns()) {
+			s.table.SetColumns(cols)
+			s.rebuildRows()
+		}
 		s.table.SetSize(m.Width, m.Height-3)
 		return s, nil
 
@@ -194,6 +191,36 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	s.table, cmd = s.table.Update(m)
 	return s, cmd
+}
+
+func (s *S3Versions) rebuildRows() {
+	narrow := s.widthTier == ui.TierNarrow
+	var rows []table.Row
+	var sortKeys []table.Row
+	for _, v := range s.versions {
+		latest := ""
+		if v.IsLatest {
+			latest = "✓"
+		}
+		if narrow {
+			rows = append(rows, table.Row{v.VersionID, aws.FormatBytes(v.Size), latest})
+			sortKeys = append(sortKeys, table.Row{v.VersionID, ui.SortKeyBytes(v.Size), latest})
+		} else {
+			delMarker := ""
+			if v.IsDeleteMarker {
+				delMarker = "✓"
+			}
+			rows = append(rows, table.Row{
+				v.VersionID, aws.FormatBytes(v.Size),
+				v.LastModified.Format("2006-01-02 15:04:05"), latest, delMarker,
+			})
+			sortKeys = append(sortKeys, table.Row{
+				v.VersionID, ui.SortKeyBytes(v.Size),
+				v.LastModified.Format("2006-01-02 15:04:05"), latest, delMarker,
+			})
+		}
+	}
+	s.table.SetRowsWithSortKeys(rows, sortKeys)
 }
 
 func (s *S3Versions) View() tea.View {
