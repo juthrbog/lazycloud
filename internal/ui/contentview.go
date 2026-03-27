@@ -15,8 +15,7 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/atotto/clipboard"
-	"github.com/muesli/reflow/wordwrap"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // ContentFormat identifies the content type.
@@ -237,13 +236,11 @@ func (cv *ContentView) yankSelection() tea.Cmd {
 	cv.visualMode = false
 	cv.yankMsg = fmt.Sprintf("%d line(s) yanked", count)
 
-	err := clipboard.WriteAll(text)
-	if err != nil {
-		cv.yankMsg = "yank failed: " + err.Error()
-	}
-
 	cv.renderContent()
-	return func() tea.Msg { return YankedMsg{Lines: count} }
+	return tea.Batch(
+		tea.SetClipboard(text),
+		func() tea.Msg { return YankedMsg{Lines: count} },
+	)
 }
 
 func (cv *ContentView) ensureCursorVisible() {
@@ -488,7 +485,7 @@ func (cv *ContentView) renderContent() {
 
 	// ANSI-aware word wrap (skip when wrap is off — viewport handles horizontal scroll)
 	if width > 0 && !cv.wrapOff {
-		content = wordwrap.String(content, width-2)
+		content = ansi.Wordwrap(content, width-2, "")
 	}
 
 	cv.viewport.SoftWrap = !cv.wrapOff
