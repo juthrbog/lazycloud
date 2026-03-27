@@ -784,7 +784,7 @@ func (m Model) View() tea.View {
 	var footer string
 	if footerText != "" {
 		gradLine := ui.RenderGradientLine(m.width)
-		footer = gradLine + "\n" + ui.S.Muted.Render(" "+footerText)
+		footer = gradLine + "\n" + ui.S.StatusDesc.Render(" "+footerText)
 	}
 
 	headerHeight := lipgloss.Height(header)
