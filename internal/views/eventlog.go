@@ -37,6 +37,7 @@ type EventLog struct {
 
 func (e *EventLog) ID() string    { return "eventlog" }
 func (e *EventLog) Title() string { return "Event Log" }
+func (e *EventLog) Footer() string    { return "" }
 func (e *EventLog) KeyMap() []ui.KeyHint {
 	return []ui.KeyHint{
 		{Key: "1-4", Desc: "severity"},

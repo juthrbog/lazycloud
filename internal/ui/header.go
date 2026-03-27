@@ -83,7 +83,7 @@ func RenderHeader(data HeaderData) string {
 	}
 
 	// Add a thin gradient line below the header
-	gradLine := renderGradientLine(data.Width)
+	gradLine := RenderGradientLine(data.Width)
 
 	return bar + "\n" + gradLine
 }
@@ -124,15 +124,15 @@ func truncateBreadcrumbs(crumbs []string, sep string, t Theme, maxWidth int) str
 	return lipgloss.NewStyle().Foreground(t.BrightText).Bold(true).Render(crumbs[len(crumbs)-1])
 }
 
-// renderGradientLine creates a thin horizontal gradient line.
-func renderGradientLine(width int) string {
+// RenderGradientLine creates a thin horizontal gradient line.
+func RenderGradientLine(width int) string {
 	if width <= 0 {
 		return ""
 	}
 	colors := lipgloss.Blend1D(width, ActiveTheme.GradientFrom, ActiveTheme.GradientTo)
 	var b strings.Builder
 	for _, c := range colors {
-		b.WriteString(lipgloss.NewStyle().Foreground(c).Render("▀"))
+		b.WriteString(lipgloss.NewStyle().Foreground(c).Background(ActiveTheme.Base).Render("▄"))
 	}
 	return b.String()
 }

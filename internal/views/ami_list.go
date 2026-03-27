@@ -326,6 +326,20 @@ func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []table.Row {
 	return rows
 }
 
+func (a *AMIList) Footer() string {
+	filtered, total := a.table.RowCount()
+	var footer string
+	if a.ownedMode {
+		footer = fmt.Sprintf("%d/%d AMIs (owned)", filtered, total)
+	} else {
+		footer = fmt.Sprintf("%d/%d results for %q", filtered, total, a.lastQuery)
+	}
+	if a.spinner.Visible() {
+		footer += "  " + a.spinner.View()
+	}
+	return footer
+}
+
 func (a *AMIList) View() tea.View {
 	var content string
 	if a.loading && len(a.amis) == 0 {
@@ -339,17 +353,6 @@ func (a *AMIList) View() tea.View {
 		} else if a.filter.Active() {
 			content = a.filter.View() + "\n" + content
 		}
-		filtered, total := a.table.RowCount()
-		var status string
-		if a.ownedMode {
-			status = fmt.Sprintf("\n %d/%d AMIs (owned)", filtered, total)
-		} else {
-			status = fmt.Sprintf("\n %d/%d results for %q", filtered, total, a.lastQuery)
-		}
-		if a.spinner.Visible() {
-			status += "  " + a.spinner.View()
-		}
-		content += status
 	}
 	return tea.NewView(content)
 }
