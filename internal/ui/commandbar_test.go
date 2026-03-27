@@ -116,11 +116,10 @@ func TestCommandBarTabCompletesSelectedSuggestion(t *testing.T) {
 	c := NewCommandBar()
 	c.Show(testCommands(), 120)
 
-	// Type "ec", then Down to select ec2/amis, then Tab
+	// Type "ec", then Down to select ec2/amis (skips implicit top highlight), then Tab
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
-	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})  // select ec2
-	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})  // select ec2/amis
+	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // select ec2/amis (first Down skips implicit ec2)
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
 	assert.Equal(t, "ec2/amis", c.input)
@@ -207,8 +206,7 @@ func TestCommandBarEnterResolvesSelectedSuggestion(t *testing.T) {
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 
-	// Down arrow to select second match ("ec2/amis")
-	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	// Down arrow to select second match ("ec2/amis") — first Down skips implicit top highlight
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	assert.Equal(t, 1, c.selected)
 

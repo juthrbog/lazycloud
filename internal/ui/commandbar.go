@@ -165,7 +165,9 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 				c.rebuildFiltered()
 			} else if c.selected >= 0 && c.selected < len(c.filtered)-1 {
 				c.selected++
-			} else if c.selected == -1 && len(c.filtered) > 0 {
+			} else if c.selected == -1 && len(c.filtered) > 1 {
+				c.selected = 1 // skip implicit top highlight
+			} else if c.selected == -1 && len(c.filtered) == 1 {
 				c.selected = 0
 			}
 			return c, nil
@@ -248,10 +250,16 @@ func (c CommandBar) ViewSuggestions() string {
 		limit = maxSuggestions
 	}
 
+	// Default to top match when no manual selection (matches Enter behavior)
+	effectiveSelected := c.selected
+	if effectiveSelected < 0 && len(c.filtered) > 0 {
+		effectiveSelected = 0
+	}
+
 	var b strings.Builder
 	for i := 0; i < limit; i++ {
 		entry := c.commands[c.filtered[i]]
-		if i == c.selected {
+		if i == effectiveSelected {
 			b.WriteString(indicatorSelected + selectedNameStyle.Render(entry.Name) + selectedDescStyle.Render(entry.Description))
 		} else {
 			b.WriteString(indicatorNormal + nameStyle.Render(entry.Name) + descStyle.Render(entry.Description))
