@@ -213,12 +213,12 @@ func (c CommandBar) ViewInput(width int) string {
 	if !c.visible {
 		return ""
 	}
-	t := ActiveTheme
+	s := S
 
-	prefix := lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Render(":")
-	inputText := lipgloss.NewStyle().Foreground(t.Text).Render(c.input)
-	cursor := lipgloss.NewStyle().Foreground(t.Accent).Render("█")
-	hint := lipgloss.NewStyle().Foreground(t.Muted).Render("  tab complete  ↑↓ history  enter execute  esc cancel")
+	prefix := s.FilterPrompt.Render(":")
+	inputText := lipgloss.NewStyle().Foreground(ActiveTheme.Text).Render(c.input)
+	cursor := s.CommandCursor.Render("█")
+	hint := s.Muted.Render("  tab complete  ↑↓ history  enter execute  esc cancel")
 
 	bar := prefix + inputText + cursor + hint
 
@@ -236,13 +236,13 @@ func (c CommandBar) ViewSuggestions() string {
 	if !c.visible || len(c.filtered) == 0 {
 		return ""
 	}
-	t := ActiveTheme
+	s := S
 
-	nameStyle := lipgloss.NewStyle().Foreground(t.Text).Width(16)
-	descStyle := lipgloss.NewStyle().Foreground(t.Muted)
-	selectedNameStyle := lipgloss.NewStyle().Foreground(t.BrightText).Bold(true).Width(16)
-	selectedDescStyle := lipgloss.NewStyle().Foreground(t.Text)
-	indicatorSelected := lipgloss.NewStyle().Foreground(t.Accent).Render("▸ ")
+	nameStyle := s.SuggestionName
+	descStyle := s.SuggestionDesc
+	selectedNameStyle := s.SuggestionSelected
+	selectedDescStyle := lipgloss.NewStyle().Foreground(ActiveTheme.Text)
+	indicatorSelected := s.CommandCursor.Render("▸ ")
 	indicatorNormal := "  "
 
 	limit := len(c.filtered)
@@ -271,7 +271,7 @@ func (c CommandBar) ViewSuggestions() string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Secondary).
+		BorderForeground(ActiveTheme.Secondary).
 		Padding(0, 1)
 
 	return box.Render(b.String())

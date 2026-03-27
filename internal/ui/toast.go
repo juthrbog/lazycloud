@@ -115,7 +115,7 @@ func (tm ToastManager) HasActive() bool {
 // View renders the toast stack as a bordered block.
 // Skips expired toasts that haven't been cleaned up yet.
 func (tm ToastManager) View(width int) string {
-	t := ActiveTheme
+	s := S
 	now := time.Now()
 	var lines []string
 
@@ -130,13 +130,13 @@ func (tm ToastManager) View(width int) string {
 		switch toast.Level {
 		case ToastSuccess:
 			icon = "✓"
-			style = lipgloss.NewStyle().Foreground(t.Success)
+			style = s.Success
 		case ToastError:
 			icon = "✗"
-			style = lipgloss.NewStyle().Foreground(t.Error)
+			style = s.Error
 		default:
 			icon = "●"
-			style = lipgloss.NewStyle().Foreground(t.Primary)
+			style = s.Info
 		}
 
 		line := style.Render(fmt.Sprintf(" %s %s ", icon, toast.Text))
@@ -151,7 +151,7 @@ func (tm ToastManager) View(width int) string {
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Secondary).
+		BorderForeground(ActiveTheme.Secondary).
 		Padding(0, 1)
 
 	return box.Render(content)

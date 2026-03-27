@@ -5,7 +5,6 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 // ConfirmResultMsg is emitted when the user responds to a confirmation dialog.
@@ -95,31 +94,18 @@ func (c Confirm) View() string {
 	if !c.visible {
 		return ""
 	}
-	t := ActiveTheme
+	s := S
 
-	msgStyle := lipgloss.NewStyle().
-		Foreground(t.Warning).
-		Bold(true)
-
-	hintStyle := lipgloss.NewStyle().
-		Foreground(t.Muted)
-
-	errStyle := lipgloss.NewStyle().
-		Foreground(t.Error)
-
-	content := msgStyle.Render(c.message) + "\n\n"
+	content := s.ModeIndicator.Render(c.message) + "\n\n"
 	content += c.input.View() + "\n"
 
 	if c.err != "" {
-		content += errStyle.Render(c.err) + "\n"
+		content += s.Error.Render(c.err) + "\n"
 	}
 
-	content += "\n" + hintStyle.Render("type 'confirm' + enter to proceed  esc cancel")
+	content += "\n" + s.Muted.Render("type 'confirm' + enter to proceed  esc cancel")
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Error).
-		Padding(0, 1)
+	box := s.DialogErrorBorder
 
 	return box.Render(content)
 }

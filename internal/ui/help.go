@@ -91,29 +91,21 @@ func (h HelpOverlay) View() string {
 	if !h.visible {
 		return ""
 	}
-	t := ActiveTheme
-
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(t.Primary)
-	filterStyle := lipgloss.NewStyle().Foreground(t.Accent)
-	dimStyle := lipgloss.NewStyle().Foreground(t.Muted)
+	s := S
 
 	var header strings.Builder
-	header.WriteString(titleStyle.Render("Keybindings"))
+	header.WriteString(s.Title.Render("Keybindings"))
 
 	if h.filter != "" {
-		header.WriteString("  " + filterStyle.Render("/ "+h.filter))
+		header.WriteString("  " + s.FilterPrompt.Render("/ "+h.filter))
 	} else {
-		header.WriteString("  " + dimStyle.Render("type to filter"))
+		header.WriteString("  " + s.Muted.Render("type to filter"))
 	}
 	header.WriteString("\n\n")
 
-	footer := "\n" + dimStyle.Render("j/k scroll  ? close  esc close")
+	footer := "\n" + s.Muted.Render("j/k scroll  ? close  esc close")
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Primary).
-		Padding(0, 1).
-		Width(h.boxWidth())
+	box := s.DialogBorder.Width(h.boxWidth())
 
 	return box.Render(header.String() + h.viewport.View() + footer)
 }
@@ -145,19 +137,12 @@ func (h HelpOverlay) contentHeight() int {
 
 // renderContent builds the grouped, filtered hint content.
 func (h HelpOverlay) renderContent() string {
-	t := ActiveTheme
+	s := S
 
-	groupStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(t.Accent)
-	keyStyle := lipgloss.NewStyle().
-		Foreground(t.Primary).
-		Width(14)
-	descStyle := lipgloss.NewStyle().
-		Foreground(t.Text)
-	rwBadge := lipgloss.NewStyle().
-		Foreground(t.Warning).
-		Bold(true)
+	groupStyle := s.HelpGroupHeader
+	keyStyle := s.HelpKeyColumn
+	descStyle := lipgloss.NewStyle().Foreground(ActiveTheme.Text)
+	rwBadge := s.ReadWriteBadge
 
 	// Group hints by category
 	type group struct {
@@ -221,7 +206,7 @@ func (h HelpOverlay) renderContent() string {
 	}
 
 	if b.Len() == 0 {
-		return lipgloss.NewStyle().Foreground(t.Muted).Render("  no matches")
+		return s.Muted.Render("  no matches")
 	}
 
 	return b.String()
