@@ -8,7 +8,6 @@ import (
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/atotto/clipboard"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
@@ -240,10 +239,10 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			selected := a.table.SelectedRow()
 			if selected != nil {
 				id := selected[0]
-				_ = clipboard.WriteAll(id)
-				return a, func() tea.Msg {
-					return msg.ToastSuccess("Copied: " + id)
-				}
+				return a, tea.Batch(
+					tea.SetClipboard(id),
+					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
+				)
 			}
 		case "r":
 			a.loading = true

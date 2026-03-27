@@ -11,7 +11,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
-	"github.com/atotto/clipboard"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
@@ -453,10 +452,10 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case s3PresignedURLMsg:
-		_ = clipboard.WriteAll(m.url)
-		return s, func() tea.Msg {
-			return msg.ToastSuccess("Presigned URL copied: " + path.Base(m.key))
-		}
+		return s, tea.Batch(
+			tea.SetClipboard(m.url),
+			func() tea.Msg { return msg.ToastSuccess("Presigned URL copied: " + path.Base(m.key)) },
+		)
 
 	case msg.ErrorMsg:
 		s.loading = false
@@ -591,10 +590,10 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return s, nil
 			}
 			arn := fmt.Sprintf("s3://%s/%s", s.bucket, entry.fullPath)
-			_ = clipboard.WriteAll(arn)
-			return s, func() tea.Msg {
-				return msg.ToastSuccess("Copied: " + arn)
-			}
+			return s, tea.Batch(
+				tea.SetClipboard(arn),
+				func() tea.Msg { return msg.ToastSuccess("Copied: " + arn) },
+			)
 		case "space", " ":
 			s.table.ToggleSelect()
 			return s, nil

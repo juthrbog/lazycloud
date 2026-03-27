@@ -15,7 +15,6 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -237,13 +236,11 @@ func (cv *ContentView) yankSelection() tea.Cmd {
 	cv.visualMode = false
 	cv.yankMsg = fmt.Sprintf("%d line(s) yanked", count)
 
-	err := clipboard.WriteAll(text)
-	if err != nil {
-		cv.yankMsg = "yank failed: " + err.Error()
-	}
-
 	cv.renderContent()
-	return func() tea.Msg { return YankedMsg{Lines: count} }
+	return tea.Batch(
+		tea.SetClipboard(text),
+		func() tea.Msg { return YankedMsg{Lines: count} },
+	)
 }
 
 func (cv *ContentView) ensureCursorVisible() {

@@ -9,7 +9,6 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
-	"github.com/atotto/clipboard"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
@@ -343,10 +342,10 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			selected := e.table.SelectedRow()
 			if selected != nil {
 				id := selected[0]
-				_ = clipboard.WriteAll(id)
-				return e, func() tea.Msg {
-					return msg.ToastSuccess("Copied: " + id)
-				}
+				return e, tea.Batch(
+					tea.SetClipboard(id),
+					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
+				)
 			}
 		case "m":
 			if ui.ReadOnly {
