@@ -85,7 +85,7 @@ func RenderHeader(data HeaderData) string {
 	// Add a thin gradient line below the header
 	gradLine := RenderGradientLine(data.Width)
 
-	return bar + "\n" + gradLine
+	return bar + "\n\n" + gradLine
 }
 
 // renderBreadcrumbs renders the full breadcrumb trail.
