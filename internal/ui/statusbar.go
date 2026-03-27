@@ -76,7 +76,11 @@ func renderHints(s Styles, hints []KeyHint, maxWidth int) string {
 	for n := len(hints); n > 0; n-- {
 		var parts []string
 		for _, k := range hints[:n] {
-			parts = append(parts, s.StatusKey.Render("<"+k.Key+">")+" "+s.StatusDesc.Render(k.Desc))
+			keyLabel := "<" + k.Key + ">"
+			if strings.ContainsAny(k.Key, "<>") {
+				keyLabel = k.Key // already contains angle brackets, don't double-wrap
+			}
+			parts = append(parts, s.StatusKey.Render(keyLabel)+" "+s.StatusDesc.Render(k.Desc))
 		}
 		bar := strings.Join(parts, "  ")
 		if lipgloss.Width(bar) <= maxWidth || n == 1 {
