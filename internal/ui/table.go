@@ -45,7 +45,7 @@ func NewTable(columns []table.Column, rows []table.Row) Table {
 	theme := ActiveTheme
 	st := table.DefaultStyles()
 	st.Header = st.Header.
-		BorderStyle(lipgloss.NormalBorder()).
+		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(theme.Secondary).
 		BorderBottom(true).
 		Bold(true).
