@@ -82,7 +82,8 @@ func renderHints(s Styles, hints []KeyHint, maxWidth int) string {
 			}
 			parts = append(parts, s.StatusKey.Render(keyLabel)+" "+s.StatusDesc.Render(k.Desc))
 		}
-		bar := strings.Join(parts, "  ")
+		sep := " " + s.Muted.Render("·") + " "
+		bar := strings.Join(parts, sep)
 		if lipgloss.Width(bar) <= maxWidth || n == 1 {
 			return bar
 		}

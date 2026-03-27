@@ -113,7 +113,8 @@ func NewStyles(t Theme) Styles {
 		StatusKey: lipgloss.NewStyle().
 			Bold(true).
 			Foreground(t.Accent).
-			Background(t.Surface),
+			Background(t.Surface).
+			Padding(0, 1),
 
 		StatusDesc: lipgloss.NewStyle().
 			Foreground(t.SubText).
