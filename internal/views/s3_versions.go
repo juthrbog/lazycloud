@@ -223,6 +223,10 @@ func (s *S3Versions) rebuildRows() {
 	s.table.SetRowsWithSortKeys(rows, sortKeys)
 }
 
+func (s *S3Versions) Footer() string {
+	return fmt.Sprintf("%d versions  s3://%s/%s", len(s.versions), s.bucket, s.key)
+}
+
 func (s *S3Versions) View() tea.View {
 	var content string
 	if s.loading {
@@ -231,7 +235,6 @@ func (s *S3Versions) View() tea.View {
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
 	} else {
 		content = s.table.View()
-		content += fmt.Sprintf("\n %d versions  s3://%s/%s", len(s.versions), s.bucket, s.key)
 	}
 	return tea.NewView(content)
 }

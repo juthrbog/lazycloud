@@ -372,6 +372,11 @@ func (s *S3List) rebuildRows() {
 	s.table.SetRows(rows)
 }
 
+func (s *S3List) Footer() string {
+	filtered, total := s.table.RowCount()
+	return fmt.Sprintf("%d/%d buckets", filtered, total)
+}
+
 func (s *S3List) View() tea.View {
 	var content string
 	if s.loading {
@@ -383,8 +388,6 @@ func (s *S3List) View() tea.View {
 		if s.filter.Active() {
 			content = s.filter.View() + "\n" + content
 		}
-		filtered, total := s.table.RowCount()
-		content += fmt.Sprintf("\n %d/%d buckets", filtered, total)
 	}
 
 	if s.creating && s.createInput.Active() {

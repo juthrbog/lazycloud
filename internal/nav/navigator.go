@@ -12,6 +12,7 @@ type View interface {
 	ID() string          // unique identifier for caching, e.g. "ec2_list"
 	Title() string       // human-readable title for breadcrumb display
 	KeyMap() []ui.KeyHint // view-specific keybindings for status bar display
+	Footer() string       // resource count / context info for footer line
 }
 
 // Navigator manages a stack of views with caching.

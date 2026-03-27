@@ -512,9 +512,10 @@ func (m *Model) closePanel() {
 }
 
 // chromeHeight returns the vertical lines consumed by fixed layout chrome:
-// header (2: title bar + gradient) + status bar (1) + content border (2: top + bottom).
+// header (2: title bar + gradient) + status bar (1) + content border (2: top + bottom)
+// + footer (2: gradient line + text).
 func (m Model) chromeHeight() int {
-	return 5
+	return 7
 }
 
 func (m *Model) resizeViews() {
@@ -778,9 +779,18 @@ func (m Model) View() tea.View {
 		})
 	}
 
+	// Build footer line (gradient + resource count)
+	footerText := m.nav.Current().Footer()
+	var footer string
+	if footerText != "" {
+		gradLine := ui.RenderGradientLine(m.width)
+		footer = gradLine + "\n" + ui.S.Muted.Render(" "+footerText)
+	}
+
 	headerHeight := lipgloss.Height(header)
 	statusHeight := lipgloss.Height(statusBar)
-	contentHeight := m.height - headerHeight - statusHeight
+	footerHeight := lipgloss.Height(footer)
+	contentHeight := m.height - headerHeight - statusHeight - footerHeight
 
 	// Ensure minimum table height by hiding chrome
 	minContent := ui.MinTableRows + 2 // +2 for border
@@ -853,7 +863,7 @@ func (m Model) View() tea.View {
 	}
 	contentStr = rendered
 
-	body := lipgloss.JoinVertical(lipgloss.Left, header, contentStr, statusBar)
+	body := lipgloss.JoinVertical(lipgloss.Left, header, contentStr, footer, statusBar)
 
 	// Help overlay
 	if m.help.Visible() {

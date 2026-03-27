@@ -697,6 +697,18 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	return s, cmd
 }
 
+func (s *S3Objects) Footer() string {
+	filtered, total := s.table.RowCount()
+	footer := fmt.Sprintf("%d/%d items  s3://%s/%s", filtered, total, s.bucket, s.prefix)
+	if s.loading {
+		footer += fmt.Sprintf("  (loading... %d items so far)", total)
+	}
+	if sel := s.table.SelectionCount(); sel > 0 {
+		footer += fmt.Sprintf("  (%d selected)", sel)
+	}
+	return footer
+}
+
 func (s *S3Objects) View() tea.View {
 	var content string
 	if len(s.objects) == 0 && len(s.prefixes) == 0 && s.loading {
@@ -709,16 +721,6 @@ func (s *S3Objects) View() tea.View {
 		if s.filter.Active() {
 			content = s.filter.View() + "\n" + content
 		}
-
-		filtered, total := s.table.RowCount()
-		status := fmt.Sprintf("\n %d/%d items  s3://%s/%s", filtered, total, s.bucket, s.prefix)
-		if s.loading {
-			status += fmt.Sprintf("  (loading... %d items so far)", total)
-		}
-		if sel := s.table.SelectionCount(); sel > 0 {
-			status += fmt.Sprintf("  (%d selected)", sel)
-		}
-		content += status
 	}
 
 	// Copy/move destination input

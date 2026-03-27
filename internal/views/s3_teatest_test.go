@@ -48,16 +48,16 @@ func TestTeatest_S3ListFilter(t *testing.T) {
 
 	// Wait for all buckets to load
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return bytes.Contains(bts, []byte("3/3 buckets"))
+		return bytes.Contains(bts, []byte("gamma-bucket"))
 	}, teatest.WithDuration(5*time.Second))
 
 	// Activate filter and type
 	tm.Send(keyPress('/'))
 	tm.Type("alpha")
 
-	// Verify filter narrows results
+	// Verify filter narrows results — only alpha-bucket visible
 	teatest.WaitFor(t, tm.Output(), func(bts []byte) bool {
-		return bytes.Contains(bts, []byte("1/3 buckets"))
+		return bytes.Contains(bts, []byte("alpha")) && !bytes.Contains(bts, []byte("gamma"))
 	}, teatest.WithDuration(3*time.Second))
 
 	if err := tm.Quit(); err != nil {

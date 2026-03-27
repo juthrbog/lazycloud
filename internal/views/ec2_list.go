@@ -604,6 +604,15 @@ func buildTagsContent(tags map[string]string) string {
 	return b.String()
 }
 
+func (e *EC2List) Footer() string {
+	filtered, total := e.table.RowCount()
+	footer := fmt.Sprintf("%d/%d instances", filtered, total)
+	if e.spinner.Visible() {
+		footer += "  " + e.spinner.View()
+	}
+	return footer
+}
+
 func (e *EC2List) View() tea.View {
 	var content string
 	if e.loading && len(e.instances) == 0 {
@@ -616,12 +625,6 @@ func (e *EC2List) View() tea.View {
 		if e.filter.Active() {
 			content = e.filter.View() + "\n" + content
 		}
-		filtered, total := e.table.RowCount()
-		status := fmt.Sprintf("\n %d/%d instances", filtered, total)
-		if e.spinner.Visible() {
-			status += "  " + e.spinner.View()
-		}
-		content += status
 	}
 	return tea.NewView(content)
 }

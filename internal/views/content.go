@@ -17,6 +17,7 @@ type ContentViewer struct {
 
 func (c *ContentViewer) ID() string    { return c.id }
 func (c *ContentViewer) Title() string { return c.name }
+func (c *ContentViewer) Footer() string    { return "" }
 func (c *ContentViewer) KeyMap() []ui.KeyHint {
 	return []ui.KeyHint{
 		{Key: "j/k", Desc: "move"},
