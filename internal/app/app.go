@@ -321,8 +321,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showThemePicker()
 			return m, nil
 		case "P":
-			m.showProfilePicker()
-			return m, nil
+			return m, m.showProfilePicker()
 		case "R":
 			m.showRegionPicker()
 			return m, nil
@@ -417,8 +416,7 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 		m.showRegionPicker()
 		return m, nil
 	case "profile":
-		m.showProfilePicker()
-		return m, nil
+		return m, m.showProfilePicker()
 	default:
 		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
@@ -575,11 +573,11 @@ var awsRegions = []string{
 	"af-south-1",
 }
 
-func (m *Model) showProfilePicker() {
+func (m *Model) showProfilePicker() tea.Cmd {
 	profiles := aws.ListProfiles()
 	if len(profiles) == 0 {
-		m.toasts.Add("No profiles found in ~/.aws/config", ui.ToastError, 0)
-		return
+		_, cmd := m.toasts.Add("No profiles found in ~/.aws/config", ui.ToastError, 0)
+		return cmd
 	}
 
 	current := m.config.AWS.Profile
@@ -594,6 +592,7 @@ func (m *Model) showProfilePicker() {
 		options = append(options, ui.PickerOption{Label: label, Value: p})
 	}
 	m.picker.Show("profile", "Select Profile", options, currentIdx)
+	return nil
 }
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {

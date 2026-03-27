@@ -44,10 +44,22 @@ func NewToastManager() ToastManager {
 	return ToastManager{maxVisible: 3}
 }
 
+// defaultDuration returns a level-appropriate duration for toasts.
+func defaultDuration(level ToastLevel) time.Duration {
+	switch level {
+	case ToastError:
+		return 6 * time.Second
+	case ToastSuccess:
+		return 3 * time.Second
+	default:
+		return 4 * time.Second
+	}
+}
+
 // Add creates a new toast and returns its ID and a dismiss command.
 func (tm *ToastManager) Add(text string, level ToastLevel, duration time.Duration) (int, tea.Cmd) {
 	if duration == 0 {
-		duration = 4 * time.Second
+		duration = defaultDuration(level)
 	}
 
 	id := tm.nextID
