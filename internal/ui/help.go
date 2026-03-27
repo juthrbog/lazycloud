@@ -112,7 +112,7 @@ func (h HelpOverlay) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.Primary).
-		Padding(1, 3).
+		Padding(0, 1).
 		Width(h.boxWidth())
 
 	return box.Render(header.String() + h.viewport.View() + footer)

@@ -233,7 +233,7 @@ func (p Picker) View() string {
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.Primary).
-		Padding(1, 3)
+		Padding(0, 1)
 
 	return box.Render(b.String())
 }
