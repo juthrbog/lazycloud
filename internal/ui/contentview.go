@@ -73,6 +73,7 @@ type ContentView struct {
 	height      int
 	yankMsg     string // transient "yanked N lines" feedback
 	embedded    bool   // true when inside TabbedPanel; hides footer
+	wrapOff     bool   // when true, disable word wrap and enable horizontal scroll
 }
 
 // NewContentView creates a content viewer with the given title, content, and format.
@@ -147,6 +148,13 @@ func (cv *ContentView) SetContent(title, content string, format ContentFormat) {
 	} else {
 		cv.format = format
 	}
+	cv.renderContent()
+}
+
+// ToggleWrap toggles word wrapping. When off, the viewport enables
+// horizontal scrolling via h/l keys and ANSI-aware line clipping.
+func (cv *ContentView) ToggleWrap() {
+	cv.wrapOff = !cv.wrapOff
 	cv.renderContent()
 }
 
@@ -325,6 +333,20 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 		case "n":
 			cv.ToggleLineNumbers()
 			return cv, nil
+
+		// Word wrap toggle
+		case "w":
+			cv.ToggleWrap()
+			return cv, nil
+
+		// Horizontal scroll (when wrap is off, forward to viewport)
+		case "h", "left", "l", "right":
+			if cv.wrapOff {
+				var cmd tea.Cmd
+				cv.viewport, cmd = cv.viewport.Update(msg)
+				return cv, cmd
+			}
+			return cv, nil
 		}
 	}
 
@@ -361,14 +383,24 @@ func (cv ContentView) View() string {
 		yankInfo = "  " + lipgloss.NewStyle().Foreground(t.Accent).Render(cv.yankMsg)
 	}
 
-	header := titleText + "  " + formatBadge + posInfo + modeInfo + yankInfo
+	wrapInfo := ""
+	if cv.wrapOff {
+		wrapInfo = "  " + lipgloss.NewStyle().Foreground(t.Info).Render("nowrap")
+		if cv.viewport.XOffset() > 0 {
+			wrapInfo += lipgloss.NewStyle().Foreground(t.Muted).Render(
+				fmt.Sprintf("  Col %d", cv.viewport.XOffset()),
+			)
+		}
+	}
+
+	header := titleText + "  " + formatBadge + posInfo + modeInfo + yankInfo + wrapInfo
 
 	if cv.embedded {
 		// Drop title (tab bar already shows it); hide format badge for plain text
 		if cv.format != FormatText {
-			header = formatBadge + posInfo + modeInfo + yankInfo
+			header = formatBadge + posInfo + modeInfo + yankInfo + wrapInfo
 		} else {
-			header = posInfo + modeInfo + yankInfo
+			header = posInfo + modeInfo + yankInfo + wrapInfo
 		}
 		return header + "\n" + cv.viewport.View()
 	}
@@ -458,11 +490,12 @@ func (cv *ContentView) renderContent() {
 
 	content := b.String()
 
-	// ANSI-aware word wrap
-	if width > 0 {
+	// ANSI-aware word wrap (skip when wrap is off — viewport handles horizontal scroll)
+	if width > 0 && !cv.wrapOff {
 		content = wordwrap.String(content, width-2)
 	}
 
+	cv.viewport.SoftWrap = !cv.wrapOff
 	cv.viewport.SetContent(content)
 }
 
