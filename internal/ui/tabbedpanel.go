@@ -185,21 +185,15 @@ func (tp TabbedPanel) View() string {
 
 // renderTabBar renders the horizontal tab strip.
 func (tp TabbedPanel) renderTabBar() string {
-	t := ActiveTheme
-
-	activeStyle := lipgloss.NewStyle().
-		Foreground(t.Accent).
-		Bold(true)
-	inactiveStyle := lipgloss.NewStyle().
-		Foreground(t.Muted)
+	s := S
 
 	var parts []string
 	for i, tab := range tp.tabs {
 		label := strconv.Itoa(i+1) + ":" + tab.title
 		if i == tp.active {
-			parts = append(parts, activeStyle.Render(label))
+			parts = append(parts, s.TabActive.Render(label))
 		} else {
-			parts = append(parts, inactiveStyle.Render(label))
+			parts = append(parts, s.TabInactive.Render(label))
 		}
 	}
 

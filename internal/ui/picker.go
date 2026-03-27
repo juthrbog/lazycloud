@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 )
 
 // PickerResultMsg is emitted when the user selects an option or cancels.
@@ -175,30 +174,14 @@ func (p Picker) View() string {
 	if !p.visible {
 		return ""
 	}
-	t := ActiveTheme
+	s := S
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(t.Primary)
-
-	filterStyle := lipgloss.NewStyle().
-		Foreground(t.Accent)
-
-	normalStyle := lipgloss.NewStyle().
-		Foreground(t.Text).
-		Padding(0, 2)
-
-	selectedStyle := lipgloss.NewStyle().
-		Foreground(t.BrightText).
-		Background(t.Overlay).
-		Bold(true).
-		Padding(0, 2)
-
-	dimStyle := lipgloss.NewStyle().
-		Foreground(t.Muted)
-
-	hintStyle := lipgloss.NewStyle().
-		Foreground(t.Muted)
+	titleStyle := s.Title
+	filterStyle := s.FilterPrompt
+	normalStyle := s.PickerOption
+	selectedStyle := s.PickerOptionSelected
+	dimStyle := s.Muted
+	hintStyle := s.Muted
 
 	var b strings.Builder
 	b.WriteString(titleStyle.Render(p.title) + "\n")
@@ -230,10 +213,5 @@ func (p Picker) View() string {
 
 	b.WriteString("\n" + hintStyle.Render("↑↓ navigate  enter select  ctrl+x clear  esc cancel"))
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Primary).
-		Padding(0, 1)
-
-	return box.Render(b.String())
+	return s.DialogBorder.Render(b.String())
 }

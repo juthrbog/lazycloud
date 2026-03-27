@@ -35,12 +35,43 @@ type Styles struct {
 	Error   lipgloss.Style
 	Warning lipgloss.Style
 	Success lipgloss.Style
+	Info    lipgloss.Style
 
 	// Filter
 	FilterPrompt lipgloss.Style
 
 	// Content border
 	ContentBorder lipgloss.Style
+
+	// Tabs
+	TabActive   lipgloss.Style
+	TabInactive lipgloss.Style
+
+	// Content view
+	FormatBadge   lipgloss.Style
+	LineNumber    lipgloss.Style
+	LinkIndicator lipgloss.Style
+	PositionInfo  lipgloss.Style
+	ModeIndicator lipgloss.Style
+
+	// Dialogs
+	DialogBorder      lipgloss.Style
+	DialogErrorBorder lipgloss.Style
+
+	// Picker / suggestions
+	PickerOption         lipgloss.Style
+	PickerOptionSelected lipgloss.Style
+	SuggestionName       lipgloss.Style
+	SuggestionDesc       lipgloss.Style
+	SuggestionSelected   lipgloss.Style
+
+	// Help overlay
+	HelpGroupHeader lipgloss.Style
+	HelpKeyColumn   lipgloss.Style
+	ReadWriteBadge  lipgloss.Style
+
+	// Command bar
+	CommandCursor lipgloss.Style
 
 	// General
 	Muted lipgloss.Style
@@ -119,6 +150,7 @@ func NewStyles(t Theme) Styles {
 		Error:   lipgloss.NewStyle().Foreground(t.Error),
 		Warning: lipgloss.NewStyle().Foreground(t.Warning),
 		Success: lipgloss.NewStyle().Foreground(t.Success),
+		Info:    lipgloss.NewStyle().Foreground(t.Info),
 
 		// Filter
 		FilterPrompt: lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
@@ -127,6 +159,50 @@ func NewStyles(t Theme) Styles {
 		ContentBorder: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(t.Secondary),
+
+		// Tabs
+		TabActive:   lipgloss.NewStyle().Foreground(t.Accent).Bold(true),
+		TabInactive: lipgloss.NewStyle().Foreground(t.Muted),
+
+		// Content view
+		FormatBadge: lipgloss.NewStyle().
+			Foreground(t.BrightText).
+			Background(t.Secondary).
+			Padding(0, 1),
+		LineNumber:    lipgloss.NewStyle().Foreground(t.Muted),
+		LinkIndicator: lipgloss.NewStyle().Foreground(t.Info),
+		PositionInfo:  lipgloss.NewStyle().Foreground(t.Muted),
+		ModeIndicator: lipgloss.NewStyle().Foreground(t.Warning).Bold(true),
+
+		// Dialogs
+		DialogBorder: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Primary).
+			Padding(0, 1),
+		DialogErrorBorder: lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(t.Error).
+			Padding(0, 1),
+
+		// Picker / suggestions
+		PickerOption: lipgloss.NewStyle().
+			Foreground(t.Text).Padding(0, 2),
+		PickerOptionSelected: lipgloss.NewStyle().
+			Foreground(t.BrightText).Background(t.Overlay).Bold(true).Padding(0, 2),
+		SuggestionName: lipgloss.NewStyle().
+			Foreground(t.Text).Width(16),
+		SuggestionDesc: lipgloss.NewStyle().
+			Foreground(t.Muted),
+		SuggestionSelected: lipgloss.NewStyle().
+			Foreground(t.BrightText).Bold(true).Width(16),
+
+		// Help overlay
+		HelpGroupHeader: lipgloss.NewStyle().Bold(true).Foreground(t.Accent),
+		HelpKeyColumn:   lipgloss.NewStyle().Foreground(t.Primary).Width(14),
+		ReadWriteBadge:  lipgloss.NewStyle().Foreground(t.Warning).Bold(true),
+
+		// Command bar
+		CommandCursor: lipgloss.NewStyle().Foreground(t.Accent),
 
 		// General
 		Muted: lipgloss.NewStyle().Foreground(t.Muted),

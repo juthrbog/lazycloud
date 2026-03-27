@@ -356,38 +356,34 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 
 // View renders the content viewer.
 func (cv ContentView) View() string {
-	t := ActiveTheme
+	s := S
 
 	// Title bar
-	titleText := S.Title.Render(cv.title)
-	formatBadge := lipgloss.NewStyle().
-		Foreground(t.BrightText).
-		Background(t.Secondary).
-		Padding(0, 1).
-		Render(string(cv.format))
+	titleText := s.Title.Render(cv.title)
+	formatBadge := s.FormatBadge.Render(string(cv.format))
 
-	posInfo := lipgloss.NewStyle().Foreground(t.Muted).Render(
+	posInfo := s.PositionInfo.Render(
 		fmt.Sprintf(" Ln %d/%d  %.0f%%", cv.cursor+1, cv.lineCount(), cv.viewport.ScrollPercent()*100),
 	)
 
 	modeInfo := ""
 	if cv.visualMode {
 		lo, hi := cv.selectionRange()
-		modeInfo = lipgloss.NewStyle().Foreground(t.Warning).Bold(true).Render(
+		modeInfo = s.ModeIndicator.Render(
 			fmt.Sprintf("  VISUAL (%d lines)", hi-lo+1),
 		)
 	}
 
 	yankInfo := ""
 	if cv.yankMsg != "" {
-		yankInfo = "  " + lipgloss.NewStyle().Foreground(t.Accent).Render(cv.yankMsg)
+		yankInfo = "  " + s.CommandCursor.Render(cv.yankMsg)
 	}
 
 	wrapInfo := ""
 	if cv.wrapOff {
-		wrapInfo = "  " + lipgloss.NewStyle().Foreground(t.Info).Render("nowrap")
+		wrapInfo = "  " + s.Info.Render("nowrap")
 		if cv.viewport.XOffset() > 0 {
-			wrapInfo += lipgloss.NewStyle().Foreground(t.Muted).Render(
+			wrapInfo += s.PositionInfo.Render(
 				fmt.Sprintf("  Col %d", cv.viewport.XOffset()),
 			)
 		}
@@ -410,7 +406,7 @@ func (cv ContentView) View() string {
 	if len(cv.links) > 0 {
 		hints = "enter navigate  " + hints
 	}
-	footer := lipgloss.NewStyle().Foreground(t.Muted).Render(hints)
+	footer := s.Muted.Render(hints)
 
 	return header + "\n" + cv.viewport.View() + "\n" + footer
 }
@@ -426,7 +422,7 @@ func (cv *ContentView) renderContent() {
 	hLines := strings.Split(highlighted, "\n")
 
 	t := ActiveTheme
-	numStyle := lipgloss.NewStyle().Foreground(t.Muted)
+	numStyle := S.LineNumber
 	numWidth := len(fmt.Sprintf("%d", len(hLines)))
 
 	// Calculate the width available for line content (full width minus gutter)
@@ -441,7 +437,7 @@ func (cv *ContentView) renderContent() {
 
 	cursorStyle := lipgloss.NewStyle().Background(t.Overlay).Width(lineWidth)
 	selectStyle := lipgloss.NewStyle().Background(t.Secondary).Width(lineWidth)
-	linkPrefix := lipgloss.NewStyle().Foreground(t.Info).Render("→ ")
+	linkPrefix := S.LinkIndicator.Render("→ ")
 	linkPrefixWidth := lipgloss.Width(linkPrefix)
 
 	lo, hi := cv.selectionRange()
