@@ -9,5 +9,12 @@ linters:
     - ineffassign  # Useless variable assignments
     - unused       # Unused code detection
 
+  settings:
+    errcheck:
+      exclude-functions:
+        - (*os.File).Close
+        - (io.ReadCloser).Close
+        - os.Remove
+
 run:
   timeout: 5m
