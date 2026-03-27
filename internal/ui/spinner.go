@@ -3,6 +3,7 @@ package ui
 import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Spinner wraps a bubbles spinner with show/hide and a label.
@@ -15,6 +16,7 @@ type Spinner struct {
 // NewSpinner creates a Spinner with the given label.
 func NewSpinner(label string) Spinner {
 	s := spinner.New(spinner.WithSpinner(spinner.Dot))
+	s.Style = lipgloss.NewStyle().Foreground(ActiveTheme.Accent)
 	return Spinner{
 		inner:   s,
 		label:   label,
@@ -58,5 +60,5 @@ func (s Spinner) View() string {
 	if !s.visible {
 		return ""
 	}
-	return s.inner.View() + " " + s.label
+	return s.inner.View() + " " + S.Muted.Render(s.label)
 }
