@@ -405,11 +405,11 @@ func (svc *S3ServiceImpl) DownloadObject(ctx context.Context, bucket, key, destP
 	}
 	defer output.Body.Close()
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { //nolint:gosec // download dir needs user+group access
 		return fmt.Errorf("creating directory: %w", err)
 	}
 
-	f, err := os.Create(destPath)
+	f, err := os.Create(destPath) //nolint:gosec // destPath is user-chosen download destination
 	if err != nil {
 		return fmt.Errorf("creating file: %w", err)
 	}

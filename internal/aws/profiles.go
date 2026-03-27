@@ -61,7 +61,7 @@ func parseConfigFile(path string, profilePrefix bool) []string {
 		return nil
 	}
 
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path is from os.UserHomeDir, not user input
 	if err != nil {
 		return nil
 	}

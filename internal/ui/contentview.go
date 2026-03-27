@@ -188,16 +188,16 @@ func (cv ContentView) OpenInEditorCmd() tea.Cmd {
 	}
 
 	if _, err := tmpFile.WriteString(cv.raw); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
+		tmpFile.Close()  //nolint:gosec // best-effort cleanup on write error
+		os.Remove(tmpFile.Name()) //nolint:gosec // best-effort cleanup
 		return func() tea.Msg { return EditorFinishedMsg{Err: err} }
 	}
-	tmpFile.Close()
+	tmpFile.Close() //nolint:gosec // file is flushed by OS on close; error is non-critical for temp file
 
 	editor := getEditor()
-	c := exec.Command(editor, tmpFile.Name())
+	c := exec.Command(editor, tmpFile.Name()) //nolint:gosec // editor is from $EDITOR env, standard pattern
 	return tea.ExecProcess(c, func(err error) tea.Msg {
-		os.Remove(tmpFile.Name())
+		os.Remove(tmpFile.Name()) //nolint:gosec // best-effort temp file cleanup
 		return EditorFinishedMsg{Err: err}
 	})
 }
