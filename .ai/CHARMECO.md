@@ -749,7 +749,77 @@ comp := lipgloss.NewCompositor(
 
 ---
 
-## 9. Patterns Summary
+## 9. Styling Capabilities (LipGloss v2)
+
+### Border Types
+
+| Function | Style | Characters |
+|----------|-------|------------|
+| `RoundedBorder()` | Rounded corners | `╭╮╰╯─│` |
+| `NormalBorder()` | Square corners | `┌┐└┘─│` |
+| `ThickBorder()` | Heavy weight | `┏┓┗┛━┃` |
+| `DoubleBorder()` | Double lines | `╔╗╚╝═║` |
+| `HiddenBorder()` | Invisible (preserves layout) | spaces |
+| `BlockBorder()` | Solid blocks | `█` |
+| `OuterHalfBlockBorder()` | Half blocks (outer) | `▀▄▌▐▛▜▙▟` |
+| `InnerHalfBlockBorder()` | Half blocks (inner) | `▄▀▐▌▗▖▝▘` |
+
+Per-side control: `BorderTop(bool)`, `BorderRight(bool)`, etc.
+Per-side colors: `BorderTopForeground(color)`, `BorderForegroundBlend(colors...)`.
+
+### Text Decoration
+
+All return `Style` for chaining:
+- `Bold(bool)`, `Italic(bool)`, `Faint(bool)`, `Reverse(bool)`, `Blink(bool)`
+- `Underline(bool)`, `UnderlineStyle(UnderlineSingle|Double|Curly|Dotted|Dashed)`
+- `Strikethrough(bool)`
+- `Transform(func(string) string)` — custom text transformation at render time
+- `Hyperlink(url string)` — terminal-supported clickable links
+
+### Color System
+
+```go
+lipgloss.Color("#ff00ff")      // Hex color
+lipgloss.Color("5")            // ANSI 16-color
+lipgloss.Color("134")          // ANSI 256-color
+lipgloss.RGBColor{R: 255}     // Direct RGB
+lipgloss.NoColor{}             // Transparent/default
+```
+
+**Adaptive colors:**
+```go
+hasDark := lipgloss.HasDarkBackground(stdin, stdout)
+ld := lipgloss.LightDark(hasDark)
+c := ld(lightColor, darkColor)  // Picks based on terminal background
+```
+
+**Terminal capability detection:**
+```go
+cp := lipgloss.Complete(colorprofile.TrueColor)
+c := cp(ansi4Color, ansi256Color, trueColor)
+```
+
+**Color manipulation:**
+- `Darken(c, 0.2)`, `Lighten(c, 0.2)`, `Alpha(c, 0.5)`, `Complementary(c)`
+
+**Gradients:**
+- `Blend1D(steps, color1, color2, ...)` — linear gradient (CIELAB color space)
+- `Blend2D(w, h, angle, color1, color2, ...)` — 2D gradient with rotation
+
+### Inline Mode
+
+`Inline(true)` renders as a single line, disabling margins, padding, and
+borders. Useful for styling inline text without changing dimensions:
+
+```go
+badge := lipgloss.NewStyle().Inline(true).
+    Background(accentColor).Padding(0, 1).
+    MaxWidth(20).Render("badge text")
+```
+
+---
+
+## 10. Patterns Summary
 
 ### The Golden Rules
 
