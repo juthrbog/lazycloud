@@ -3,6 +3,7 @@ package ui
 import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Spinner wraps a bubbles spinner with show/hide and a label.
@@ -58,5 +59,7 @@ func (s Spinner) View() string {
 	if !s.visible {
 		return ""
 	}
-	return s.inner.View() + " " + s.label
+	// Apply theme at render time so colors update on theme switch
+	s.inner.Style = lipgloss.NewStyle().Foreground(ActiveTheme.Primary)
+	return s.inner.View() + " " + S.Muted.Render(s.label)
 }
