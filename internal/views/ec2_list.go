@@ -563,7 +563,7 @@ func buildEC2InfoContentWithLinks(d *aws.InstanceDetail) (string, []msg.TabLink)
 	lineIdx := 0
 	for _, f := range fields {
 		if f.v != "" && f.v != " ()" {
-			b.WriteString(fmt.Sprintf("%-16s %s\n", f.k, f.v))
+			fmt.Fprintf(&b, "%-16s %s\n", f.k, f.v)
 			if f.viewID != "" {
 				links = append(links, msg.TabLink{
 					Line:   lineIdx,
@@ -581,7 +581,7 @@ func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink)
 	var b strings.Builder
 	var links []msg.TabLink
 	for i, sg := range sgs {
-		b.WriteString(fmt.Sprintf("%-22s %s\n", sg.ID, sg.Name))
+		fmt.Fprintf(&b, "%-22s %s\n", sg.ID, sg.Name)
 		links = append(links, msg.TabLink{
 			Line:   i,
 			ViewID: "sg_detail",
@@ -599,7 +599,7 @@ func buildTagsContent(tags map[string]string) string {
 	sort.Strings(keys)
 	var b strings.Builder
 	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("%-24s %s\n", k, tags[k]))
+		fmt.Fprintf(&b, "%-24s %s\n", k, tags[k])
 	}
 	return b.String()
 }
