@@ -60,6 +60,6 @@ func (s Spinner) View() string {
 		return ""
 	}
 	// Apply theme at render time so colors update on theme switch
-	s.inner.Style = lipgloss.NewStyle().Foreground(ActiveTheme.Accent)
+	s.inner.Style = lipgloss.NewStyle().Foreground(ActiveTheme.Primary)
 	return s.inner.View() + " " + S.Muted.Render(s.label)
 }
