@@ -303,11 +303,48 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Global keys — work regardless of focus state
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "q":
+			if m.panelOpen {
+				m.closePanel()
+				return m, nil
+			}
+			if m.nav.Depth() <= 1 {
+				return m, tea.Quit
+			}
+			m.nav.Pop()
+			return m, nil
+		case "T":
+			m.showThemePicker()
+			return m, nil
+		case "P":
+			m.showProfilePicker()
+			return m, nil
+		case "R":
+			m.showRegionPicker()
+			return m, nil
+		case "W":
+			m.showModePicker()
+			return m, nil
+		case "L":
+			eventlog.Debug(eventlog.CatUI, "Event log opened")
+			cmd := m.pushView(views.NewEventLog())
+			return m, cmd
+		case ":":
+			m.commandBar.Show(registry.CommandBarEntries(), m.width)
+			return m, nil
+		case "?":
+			hints := m.collectAllKeyHints()
+			m.help.Show(hints, m.width, m.height)
+			return m, nil
+		}
+
 		// Panel-focused key handling
 		if m.panelOpen && m.panelFocused && m.panel != nil {
 			switch msg.String() {
-			case "ctrl+c":
-				return m, tea.Quit
 			case "esc":
 				m.closePanel()
 				return m, nil
@@ -333,46 +370,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		// Context-specific esc when panel is not focused
 		switch msg.String() {
-		case "ctrl+c":
-			return m, tea.Quit
-		case "q":
-			if m.panelOpen {
-				m.closePanel()
-				return m, nil
-			}
-			if m.nav.Depth() <= 1 {
-				return m, tea.Quit
-			}
-			m.nav.Pop()
-			return m, nil
 		case "esc":
-			// Delegate esc to child first — it may need to dismiss a filter
+			// Delegate to child — it may need to dismiss a filter
 			cmd := m.nav.UpdateCurrent(teaMsg)
 			return m, cmd
-		case "T":
-			m.showThemePicker()
-			return m, nil
-		case "P":
-			m.showProfilePicker()
-			return m, nil
-		case "R":
-			m.showRegionPicker()
-			return m, nil
-		case "W":
-			m.showModePicker()
-			return m, nil
-		case "L":
-			eventlog.Debug(eventlog.CatUI, "Event log opened")
-			cmd := m.pushView(views.NewEventLog())
-			return m, cmd
-		case ":":
-			m.commandBar.Show(registry.CommandBarEntries(), m.width)
-			return m, nil
-		case "?":
-			hints := m.collectAllKeyHints()
-			m.help.Show(hints, m.width, m.height)
-			return m, nil
 		}
 	}
 
