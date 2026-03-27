@@ -69,7 +69,7 @@ func Load(path string) (Config, error) {
 		path = DefaultPath()
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // config path is from DefaultPath() or CLI flag, not user input
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -95,7 +95,7 @@ func WriteDefault(path string) error {
 		return nil // file exists, don't overwrite
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 
@@ -123,7 +123,7 @@ nerd_fonts = true
 # Path to debug log file (empty = no logging)
 # file = "/tmp/lazycloud.log"
 `
-	return os.WriteFile(path, []byte(contents), 0o644)
+	return os.WriteFile(path, []byte(contents), 0o600)
 }
 
 // ApplyEnv overlays environment variables onto the config.

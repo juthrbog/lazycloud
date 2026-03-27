@@ -62,7 +62,7 @@ func (c *Client) SSMSessionCmd(instanceID, label string) *exec.Cmd {
 	awsCmd := strings.Join(fullArgs, " ")
 	banner := fmt.Sprintf("\033[1;36m── SSM Session: %s ──\033[0m\n", label)
 	shell := fmt.Sprintf("printf '%s' && %s", banner, awsCmd)
-	return exec.Command("sh", "-c", shell)
+	return exec.Command("sh", "-c", shell) //nolint:gosec // SSM session command is constructed from trusted AWS SDK args
 }
 
 // SSMPluginAvailable returns true if the session-manager-plugin is installed.

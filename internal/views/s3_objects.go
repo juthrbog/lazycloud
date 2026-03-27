@@ -902,7 +902,7 @@ func buildS3InfoContent(meta *aws.ObjectMeta) string {
 	var b strings.Builder
 	for _, f := range fields {
 		if f.v != "" {
-			b.WriteString(fmt.Sprintf("%-16s %s\n", f.k, f.v))
+			fmt.Fprintf(&b, "%-16s %s\n", f.k, f.v)
 		}
 	}
 	return b.String()
@@ -916,7 +916,7 @@ func buildS3MetadataContent(metadata map[string]string) string {
 	sort.Strings(keys)
 	var b strings.Builder
 	for _, k := range keys {
-		b.WriteString(fmt.Sprintf("%-24s %s\n", k, metadata[k]))
+		fmt.Fprintf(&b, "%-24s %s\n", k, metadata[k])
 	}
 	return b.String()
 }

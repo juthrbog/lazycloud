@@ -796,13 +796,11 @@ func (m Model) View() tea.View {
 	minContent := ui.MinTableRows + 2 // +2 for border
 	if contentHeight < minContent && headerHeight > 0 {
 		header = ""
-		headerHeight = 0
-		contentHeight = m.height - statusHeight
+		contentHeight = m.height - statusHeight - footerHeight
 	}
 	if contentHeight < minContent && statusHeight > 0 {
 		statusBar = ""
-		statusHeight = 0
-		contentHeight = m.height
+		contentHeight = m.height - footerHeight
 	}
 	if contentHeight < 0 {
 		contentHeight = 0
@@ -1041,11 +1039,8 @@ func (m Model) currentKeyHints() []ui.KeyHint {
 func (m Model) collectAllKeyHints() []ui.KeyHint {
 	var hints []ui.KeyHint
 
-	// View-specific hints
-	for _, h := range m.nav.Current().KeyMap() {
-		// Leave Category empty — rendered as "Current View"
-		hints = append(hints, h)
-	}
+	// View-specific hints (Category empty — rendered as "Current View")
+	hints = append(hints, m.nav.Current().KeyMap()...)
 
 	// Navigation hints
 	if m.panelOpen {
