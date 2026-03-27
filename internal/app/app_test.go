@@ -53,7 +53,7 @@ func TestPanelWidth(t *testing.T) {
 	assert.Equal(t, 80, m.panelWidth()) // capped at 80
 
 	m.width = 80
-	assert.Equal(t, 40, m.panelWidth()) // min 40 (80 * 40% = 32, clamped to 40)
+	assert.Equal(t, 32, m.panelWidth()) // 80 * 40% = 32 (above min 30)
 }
 
 // --- NavigateMsg routing ---

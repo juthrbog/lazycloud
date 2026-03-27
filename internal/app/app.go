@@ -21,8 +21,10 @@ import (
 
 // Side panel constants.
 const (
-	panelMinWidth = 40
-	panelMaxWidth = 80
+	panelMinWidth     = 30
+	panelMaxWidth     = 80
+	panelMinMainWidth = 30 // minimum width for main view when panel is open
+	panelResizeStep   = 5  // columns per resize keystroke
 )
 
 // Model is the root application model — message router and layout compositor.
@@ -43,9 +45,10 @@ type Model struct {
 	isDark    bool
 
 	// Side detail panel
-	panel        *ui.TabbedPanel
-	panelOpen    bool
-	panelFocused bool
+	panel              *ui.TabbedPanel
+	panelOpen          bool
+	panelFocused       bool
+	panelWidthOverride int // 0 = use default 40% calculation
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -310,6 +313,18 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "e":
 				return m, m.panel.OpenInEditorCmd()
+			case "<":
+				m.panelWidthOverride = m.panelWidth() + panelResizeStep
+				m.resizeViews()
+				return m, nil
+			case ">":
+				m.panelWidthOverride = m.panelWidth() - panelResizeStep
+				m.resizeViews()
+				return m, nil
+			case "=":
+				m.panelWidthOverride = 0
+				m.resizeViews()
+				return m, nil
 			default:
 				// Forward scroll/visual/yank keys to panel
 				updated, cmd := m.panel.Update(msg)
@@ -436,6 +451,17 @@ func (m Model) canShowPanel() bool {
 }
 
 func (m Model) panelWidth() int {
+	if m.panelWidthOverride > 0 {
+		maxW := m.width - panelMinMainWidth - 3 // gap + main borders
+		w := m.panelWidthOverride
+		if w < panelMinWidth {
+			w = panelMinWidth
+		}
+		if w > maxW {
+			w = maxW
+		}
+		return w
+	}
 	w := m.width * 40 / 100
 	if w < panelMinWidth {
 		w = panelMinWidth
@@ -963,9 +989,12 @@ func (m Model) currentKeyHints() []ui.KeyHint {
 		hints = append(hints,
 			ui.KeyHint{Key: "j/k", Desc: "scroll"},
 			ui.KeyHint{Key: "g/G", Desc: "top/bottom"},
+			ui.KeyHint{Key: "h/l", Desc: "scroll horiz"},
 			ui.KeyHint{Key: "V", Desc: "visual"},
 			ui.KeyHint{Key: "y", Desc: "yank"},
+			ui.KeyHint{Key: "w", Desc: "wrap"},
 			ui.KeyHint{Key: "e", Desc: "editor"},
+			ui.KeyHint{Key: "</>/=", Desc: "resize/reset"},
 			ui.KeyHint{Key: "tab", Desc: "focus main"},
 			ui.KeyHint{Key: "esc", Desc: "close panel"},
 		)
@@ -1019,9 +1048,12 @@ func (m Model) collectAllKeyHints() []ui.KeyHint {
 		panelHints := []ui.KeyHint{
 			{Key: "j/k", Desc: "scroll", Category: "Panel"},
 			{Key: "g/G", Desc: "top/bottom", Category: "Panel"},
+			{Key: "h/l", Desc: "scroll horizontally", Category: "Panel"},
 			{Key: "V", Desc: "visual select", Category: "Panel"},
 			{Key: "y", Desc: "yank to clipboard", Category: "Panel"},
+			{Key: "w", Desc: "toggle word wrap", Category: "Panel"},
 			{Key: "e", Desc: "open in editor", Category: "Panel"},
+			{Key: "</>/=", Desc: "resize/reset panel", Category: "Panel"},
 			{Key: "esc", Desc: "close panel", Category: "Panel"},
 		}
 		hints = append(hints, panelHints...)
