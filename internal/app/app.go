@@ -505,7 +505,6 @@ func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
 
 func (m *Model) closePanel() {
 	m.panel = nil
-	m.panelWidthOverride = 0
 	m.panelOpen = false
 	m.panelFocused = false
 	m.resizeViews()
