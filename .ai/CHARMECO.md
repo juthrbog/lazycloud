@@ -771,20 +771,47 @@ Per-side colors: `BorderTopForeground(color)`, `BorderForegroundBlend(colors...)
 
 All return `Style` for chaining:
 - `Bold(bool)`, `Italic(bool)`, `Faint(bool)`, `Reverse(bool)`, `Blink(bool)`
-- `Underline(bool)`, `UnderlineStyle(UnderlineSingle|Double|Curly|Dotted|Dashed)`
 - `Strikethrough(bool)`
 - `Transform(func(string) string)` — custom text transformation at render time
-- `Hyperlink(url string)` — terminal-supported clickable links
+- `Hyperlink(url string, params ...string)` — OSC 8 clickable links in supported terminals
+
+### Underline Styles
+
+Five variants via `UnderlineStyle()`:
+- `UnderlineSingle` — standard underline
+- `UnderlineDouble` — double line
+- `UnderlineCurly` — wavy/curly underline (great for error indicators)
+- `UnderlineDotted` — dotted underline
+- `UnderlineDashed` — dashed underline
+
+`UnderlineColor(c)` colors the underline independently of text foreground.
+`Underline(true)` is shorthand for `UnderlineStyle(UnderlineSingle)`.
+
+### StyleRanges — Partial Text Styling
+
+```go
+lipgloss.StyleRanges(text,
+    lipgloss.NewRange(0, 5, lipgloss.NewStyle().Bold(true)),
+    lipgloss.NewRange(6, 11, lipgloss.NewStyle().Foreground(accent)),
+)
+```
+
+Applies different styles to different character ranges of a single string,
+preserving existing ANSI styles. Useful for search-match highlighting or
+inline syntax coloring without splitting the string.
 
 ### Color System
 
 ```go
-lipgloss.Color("#ff00ff")      // Hex color
+lipgloss.Color("#ff00ff")      // Hex color (TrueColor)
 lipgloss.Color("5")            // ANSI 16-color
 lipgloss.Color("134")          // ANSI 256-color
-lipgloss.RGBColor{R: 255}     // Direct RGB
+lipgloss.RGBColor{R: 255}     // Direct RGB struct
 lipgloss.NoColor{}             // Transparent/default
 ```
+
+Named constants: `Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`,
+`Cyan`, `White`, plus `BrightBlack` through `BrightWhite`.
 
 **Adaptive colors:**
 ```go
@@ -800,11 +827,50 @@ c := cp(ansi4Color, ansi256Color, trueColor)
 ```
 
 **Color manipulation:**
-- `Darken(c, 0.2)`, `Lighten(c, 0.2)`, `Alpha(c, 0.5)`, `Complementary(c)`
+- `Darken(c, 0.2)` / `Lighten(c, 0.2)` — adjust brightness
+- `Alpha(c, 0.5)` — adjust alpha channel
+- `Complementary(c)` — 180° hue shift on the color wheel
 
-**Gradients:**
-- `Blend1D(steps, color1, color2, ...)` — linear gradient (CIELAB color space)
-- `Blend2D(w, h, angle, color1, color2, ...)` — 2D gradient with rotation
+### Gradients
+
+**1D gradient:**
+```go
+colors := lipgloss.Blend1D(steps, color1, color2, color3)
+```
+Linear interpolation in CIELAB perceptual color space. Supports multiple
+color stops. Returns `[]color.Color` — one per step.
+
+**2D gradient:**
+```go
+colors := lipgloss.Blend2D(width, height, angle, color1, color2)
+```
+Returns row-major color grid with rotation angle (0=left-right, 90=top-bottom).
+
+**Gradient text (per-character coloring):**
+```go
+text := "LazyCloud"
+colors := lipgloss.Blend1D(len([]rune(text)), gradFrom, gradTo)
+var b strings.Builder
+for i, ch := range text {
+    b.WriteString(lipgloss.NewStyle().Foreground(colors[i]).Render(string(ch)))
+}
+```
+For grapheme-correct rendering (emoji, combining characters), use
+`rivo/uniseg` to iterate grapheme clusters instead of runes.
+
+**Gradient borders:**
+```go
+style.BorderForegroundBlend(color1, color2, color3, color4, color1)
+```
+Flows a gradient clockwise around the entire border perimeter. Start and
+end colors should match for a seamless loop.
+
+```go
+style.BorderForegroundBlendOffset(n)
+```
+Rotates the gradient starting position by N cells from the top-left.
+Incrementing this per frame in a `tea.Tick` loop creates animated rainbow
+borders.
 
 ### Inline Mode
 
@@ -816,6 +882,39 @@ badge := lipgloss.NewStyle().Inline(true).
     Background(accentColor).Padding(0, 1).
     MaxWidth(20).Render("badge text")
 ```
+
+### Visual Tricks with Unicode
+
+**Half-block "pixels"** — 2 vertical pixels per terminal cell:
+```go
+// Top half = background color, bottom half = foreground color
+lipgloss.NewStyle().Foreground(bottomColor).Background(topColor).Render("▄")
+```
+Used by the header/footer gradient lines. Also enables "pixel art" at
+double vertical resolution.
+
+**Braille characters** (U+2800–U+28FF) — each character is a 2×4 dot
+matrix, enabling 160×80 "pixel" resolution in an 80×20 terminal.
+Libraries: `exrook/drawille-go`.
+
+### FIGlet / Large Text
+
+For splash screens or hero text, use FIGlet fonts via Go libraries:
+- `github.com/common-nighthawk/go-figure` — includes built-in fonts,
+  color support, and scroll/dance animations
+- `github.com/mbndr/figlet4go` — port of FIGlet with CLI + API
+
+Combine with per-character gradient coloring for colorful large text.
+
+### Reference: How Charm Crush Styles
+
+Crush (Charm's AI coding agent) demonstrates production-grade lipgloss
+usage:
+- **Monolithic Styles struct** (~700 lines) passed through the entire app
+- **Semantic color palette** via `charmtone` (Charple, Dolly, Pepper, etc.)
+- **Gradient text** via `Blend1D` + `uniseg` grapheme iteration
+- **Glyph constants** for consistent icon usage (CheckIcon, SpinnerIcon, etc.)
+- **Terminal capability detection** for TrueColor/256/ANSI profile adaptation
 
 ---
 
