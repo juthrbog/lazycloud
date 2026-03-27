@@ -16,7 +16,6 @@ type Spinner struct {
 // NewSpinner creates a Spinner with the given label.
 func NewSpinner(label string) Spinner {
 	s := spinner.New(spinner.WithSpinner(spinner.Dot))
-	s.Style = lipgloss.NewStyle().Foreground(ActiveTheme.Accent)
 	return Spinner{
 		inner:   s,
 		label:   label,
@@ -60,5 +59,7 @@ func (s Spinner) View() string {
 	if !s.visible {
 		return ""
 	}
+	// Apply theme at render time so colors update on theme switch
+	s.inner.Style = lipgloss.NewStyle().Foreground(ActiveTheme.Accent)
 	return s.inner.View() + " " + S.Muted.Render(s.label)
 }
