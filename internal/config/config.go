@@ -123,7 +123,7 @@ nerd_fonts = true
 # Path to debug log file (empty = no logging)
 # file = "/tmp/lazycloud.log"
 `
-	return os.WriteFile(path, []byte(contents), 0o644)
+	return os.WriteFile(path, []byte(contents), 0o600)
 }
 
 // ApplyEnv overlays environment variables onto the config.

@@ -1,0 +1,15 @@
+linters:
+  enable:
+    - gosec        # Go security checker (CWE-mapped vulnerability patterns)
+    - govet        # Go vet with additional checks
+    - staticcheck  # Advanced static analysis
+    - errcheck     # Unchecked error returns
+    - ineffassign  # Useless variable assignments
+    - unused       # Unused code detection
+
+run:
+  timeout: 5m
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
