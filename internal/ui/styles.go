@@ -112,15 +112,12 @@ func NewStyles(t Theme) Styles {
 
 		StatusKey: lipgloss.NewStyle().
 			Bold(true).
-			Foreground(t.Accent).
-			Background(t.Surface),
+			Foreground(t.Accent),
 
 		StatusDesc: lipgloss.NewStyle().
-			Foreground(t.SubText).
-			Background(t.Surface),
+			Foreground(t.SubText),
 
-		StatusBarBase: lipgloss.NewStyle().
-			Background(t.Surface),
+		StatusBarBase: lipgloss.NewStyle(),
 
 		// Table
 		TableHeader: lipgloss.NewStyle().
