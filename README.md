@@ -1,63 +1,71 @@
-# LazyCloud
+<h1 align="center">LazyCloud</h1>
 
-[![CI](https://github.com/juthrbog/lazycloud/actions/workflows/ci.yml/badge.svg)](https://github.com/juthrbog/lazycloud/actions/workflows/ci.yml)
-[![Go](https://img.shields.io/github/go-mod/go-version/juthrbog/lazycloud)](https://go.dev)
-[![License](https://img.shields.io/github/license/juthrbog/lazycloud)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/juthrbog/lazycloud)](https://goreportcard.com/report/github.com/juthrbog/lazycloud)
-[![Supported by LocalStack](https://img.shields.io/badge/supported%20by-LocalStack-blue)](https://www.localstack.cloud/)
+<p align="center">
+  A terminal UI for browsing and managing AWS resources
+</p>
 
-A terminal user interface (TUI) for browsing, managing, and interacting with AWS services and resources — without leaving your terminal. Built with Go and the [Charm](https://charm.sh) ecosystem, [inspired by](#inspired-by) tools like lazygit, k9s, and claws.
+<p align="center">
+  <a href="https://github.com/juthrbog/lazycloud/actions/workflows/ci.yml"><img src="https://github.com/juthrbog/lazycloud/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/github/go-mod/go-version/juthrbog/lazycloud" alt="Go"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/juthrbog/lazycloud" alt="License"></a>
+  <a href="https://goreportcard.com/report/github.com/juthrbog/lazycloud"><img src="https://goreportcard.com/badge/github.com/juthrbog/lazycloud" alt="Go Report Card"></a>
+  <a href="https://www.localstack.cloud/"><img src="https://img.shields.io/badge/supported%20by-LocalStack-blue" alt="Supported by LocalStack"></a>
+</p>
 
 <!-- Record with: vhs demo/s3.tape -->
-<!-- ![LazyCloud Demo](demo/s3.gif) -->
+<!-- <p align="center"><img src="demo/s3.gif" alt="LazyCloud Demo" width="800"></p> -->
 
-## Supporters
-
-<a href="https://www.localstack.cloud/">
-  <img src="https://raw.githubusercontent.com/localstack/branding/main/Web%20Logos%20(RGB)/SVG/Horizontal/localstack-logo-horizontal-color.svg" alt="Supported by LocalStack" width="200">
-</a>
-
-LazyCloud is supported by [LocalStack](https://www.localstack.cloud/) through their Open Source program. LocalStack provides a local AWS cloud stack used for development and integration testing.
+Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by [lazygit](https://github.com/jesseduffield/lazygit), [k9s](https://github.com/derailed/k9s), and [claws](https://github.com/clawscli/claws).
 
 ## Features
 
-- Browse and manage AWS resources from your terminal
-- **ReadOnly/ReadWrite mode** — defaults to ReadOnly, blocking all mutations regardless of IAM permissions
-- Stack-based navigation with drill-down into resource details
-- **Side detail panel** — metadata and content preview opens alongside the main view on wide terminals (≥120 cols)
+- Browse and manage AWS resources without leaving your terminal
+- **ReadOnly by default** — mutations blocked regardless of IAM permissions until you press `W`
+- Drill-down navigation with a side detail panel on wide terminals (≥120 cols)
 - Filterable, sortable tables with vim-style keybindings
-- Syntax-highlighted content viewer with visual line selection and yank to clipboard
-- In-app event log for troubleshooting without leaving the TUI
-- Multiple AWS profile and region support with fuzzy-search pickers
-- 4 color themes (Catppuccin, Dracula, Nord, Tokyo Night) — switchable at runtime
-- Nerd Font icons with Unicode fallbacks
-- Open resources in `$EDITOR` directly from the TUI
-- TOML config file with XDG base directory support
+- Multi-select with bulk actions (start/stop/delete across selections)
+- Syntax-highlighted content viewer with visual selection and yank
+- In-app event log, command bar, and fuzzy-search pickers
+- Multiple AWS profiles and regions — switch at runtime
+- 4 color themes (Catppuccin, Dracula, Nord, Tokyo Night)
+- TOML config with XDG support, Nerd Font icons with Unicode fallbacks
 - LocalStack integration for local development
+
+## Supported Services
+
+| Service | Description |
+|---------|-------------|
+| [S3](services/aws/s3.md) | Buckets, objects, versions, presigned URLs, copy/move, create/delete |
+| [EC2](services/aws/ec2.md) | Instances, AMIs, start/stop/reboot/terminate, SSM connect, public AMI search |
 
 ## Getting Started
 
 ### Install from releases
 
-Download the latest binary from the [Releases](https://github.com/juthrbog/lazycloud/releases) page, extract it, and add it to your `PATH`.
+Download the latest binary from the [Releases](https://github.com/juthrbog/lazycloud/releases) page.
 
 ### Build from source
 
 ```bash
-# Build
 go build -o lazycloud .
+./lazycloud
+```
 
-# Run against your default AWS profile
+### Quick start
+
+```bash
+# Default AWS profile
 ./lazycloud
 
-# Specify a profile and region
+# Specify profile and region
 ./lazycloud --profile staging --region us-west-2
 
 # Run against LocalStack
 ./lazycloud --endpoint http://localhost:4566
 ```
 
-### With Taskfile
+<details>
+<summary>Using Taskfile</summary>
 
 ```bash
 task deps              # download Go dependencies
@@ -67,90 +75,45 @@ task localstack:seed   # populate LocalStack with test data
 task dev               # run against LocalStack
 ```
 
+</details>
+
 ### CLI Flags
 
-| Flag              | Description                                                         |
-| ----------------- | ------------------------------------------------------------------- |
-| `--profile`       | AWS profile (falls back to `AWS_PROFILE`)                           |
-| `--region`        | AWS region (falls back to `AWS_REGION`)                             |
-| `--endpoint`      | Endpoint override for LocalStack (falls back to `AWS_ENDPOINT_URL`) |
-| `--theme`         | Color theme: `catppuccin`, `dracula`, `nord`, `tokyonight`          |
-| `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs                 |
-| `--config`        | Path to config file (default: `~/.config/lazycloud/config.toml`)    |
-| `--log`           | Path to debug log file                                              |
-| `--read-write`    | Start in ReadWrite mode (default: ReadOnly)                         |
-| `--init-config`   | Write default config file and exit                                  |
-| `--version`       | Print version and exit                                              |
+| Flag | Description |
+|------|-------------|
+| `--profile` | AWS profile (falls back to `AWS_PROFILE`) |
+| `--region` | AWS region (falls back to `AWS_REGION`) |
+| `--endpoint` | Endpoint override for LocalStack (falls back to `AWS_ENDPOINT_URL`) |
+| `--theme` | Color theme: `catppuccin`, `dracula`, `nord`, `tokyonight` |
+| `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs |
+| `--config` | Path to config file (default: `~/.config/lazycloud/config.toml`) |
+| `--log` | Path to debug log file |
+| `--read-write` | Start in ReadWrite mode (default: ReadOnly) |
+| `--init-config` | Write default config file and exit |
+| `--version` | Print version and exit |
 
-### Keybindings
+## Keybindings
 
-**Global**
+| Key | Action |
+|-----|--------|
+| `j`/`k` or arrows | Navigate |
+| `enter` | Drill into resource |
+| `esc` | Go back / clear selection |
+| `/` | Filter |
+| `space` | Multi-select |
+| `s`/`S` | Sort / reverse sort |
+| `r` | Refresh |
+| `W` | Toggle ReadOnly/ReadWrite |
+| `tab` | Toggle panel focus |
+| `:` | Command bar |
+| `?` | Help overlay (full keybinding reference) |
+| `q` | Quit / back |
 
-| Key               | Action                    |
-| ----------------- | ------------------------- |
-| `j`/`k` or arrows | Navigate up/down          |
-| `enter`           | Drill into resource       |
-| `esc`             | Go back / close panel     |
-| `/`               | Filter/search             |
-| `s`               | Sort by column (picker)   |
-| `S`               | Reverse sort direction    |
-| `r`               | Refresh                   |
-| `W`               | Toggle ReadOnly/ReadWrite |
-| `tab`             | Toggle panel focus        |
-| `L`               | Event log                 |
-| `P`               | Switch AWS profile        |
-| `R`               | Switch AWS region         |
-| `T`               | Switch theme              |
-| `:`               | Command bar               |
-| `?`               | Help overlay              |
-| `q`               | Quit                      |
-
-**Content Viewer / Side Panel**
-
-These keys apply in the content viewer and when the side panel is focused (press `tab` to toggle focus).
-
-| Key               | Action              |
-| ----------------- | ------------------- |
-| `j`/`k`           | Move cursor         |
-| `g`/`G`           | Jump to top/bottom  |
-| `ctrl+d`/`ctrl+u` | Half-page down/up   |
-| `V`               | Visual line select  |
-| `y`               | Yank to clipboard   |
-| `e`               | Open in `$EDITOR`   |
-| `n`               | Toggle line numbers |
-| `tab`             | Focus main view     |
-| `esc`             | Close panel         |
-
-**Command Bar** (`:` to open)
-
-| Key               | Action                          |
-| ----------------- | ------------------------------- |
-| *type*            | Filter commands (fuzzy search)  |
-| `tab`             | Complete top suggestion          |
-| `↑`/`↓`           | Browse history / suggestions    |
-| `enter`           | Execute command                  |
-| `esc`             | Cancel                           |
-| `ctrl+u`          | Clear input                      |
-
-Supports sub-resource commands like `:ec2/amis` and aliases like `:instances`.
-
-**Picker** (profile, region, theme, sort, feature selection)
-
-| Key               | Action              |
-| ----------------- | ------------------- |
-| `↑`/`↓`           | Navigate options    |
-| `enter`           | Select              |
-| `esc`             | Cancel              |
-| `ctrl+x`          | Clear/reset         |
-| *type*            | Fuzzy filter        |
-
-The picker ranks matches by relevance: prefix matches first, then substring, then fuzzy.
-
-Selecting a service with multiple features (e.g. EC2 → Instances / AMIs) opens a feature picker popup rather than navigating to an intermediate view.
+Press `?` in-app for the complete list including view-specific and panel keybindings. See [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md) for the keybinding system architecture.
 
 ## Configuration
 
-LazyCloud uses a TOML config file. Generate the default config with:
+Generate the default config:
 
 ```bash
 ./lazycloud --init-config
@@ -172,103 +135,32 @@ nerd_fonts = true       # false for plain Unicode fallbacks
 # file = "/tmp/lazycloud.log"
 ```
 
-Settings are applied in order of precedence: **config file < env vars < CLI flags**.
-
-Use `--config path` to specify a custom config file location.
-
-## Supported Services
-
-Only **AWS** is supported at this time. Other cloud providers may be added in the future.
-
-### AWS
-
-| Service                    | Status      | Description                                                                                                                        |
-| -------------------------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| [S3](services/aws/s3.md)   | Implemented | Browse buckets, navigate objects, preview/download files, copy/move, versioning, presigned URLs, create/delete buckets and objects |
-| [EC2](services/aws/ec2.md) | Implemented | Browse instances and AMIs, view details, start/stop/reboot/terminate, SSM session connect, color-coded state, public AMI search   |
+Precedence: **config file < env vars < CLI flags**.
 
 ## Tech Stack
 
-- **Language:** Go
-- **TUI Framework:** [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) (`charm.land/bubbletea/v2`)
-- **Styling:** [Lip Gloss v2](https://github.com/charmbracelet/lipgloss) (`charm.land/lipgloss/v2`)
-- **Components:** [Bubbles v2](https://github.com/charmbracelet/bubbles) (`charm.land/bubbles/v2`)
-- **Syntax Highlighting:** [Chroma](https://github.com/alecthomas/chroma)
-- **Config:** [TOML](https://github.com/pelletier/go-toml)
-- **AWS SDK:** [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2)
-- **Testing:** [testify](https://github.com/stretchr/testify) + [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest)
-- **Task Runner:** [Taskfile](https://taskfile.dev)
-- **Local AWS:** [LocalStack](https://github.com/localstack/localstack)
+[Bubble Tea v2](https://github.com/charmbracelet/bubbletea) | [Lip Gloss v2](https://github.com/charmbracelet/lipgloss) | [Bubbles v2](https://github.com/charmbracelet/bubbles) | [Chroma](https://github.com/alecthomas/chroma) | [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2) | [testify](https://github.com/stretchr/testify) | [Taskfile](https://taskfile.dev) | [LocalStack](https://github.com/localstack/localstack)
+
+## Architecture
+
+LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture/) via Bubble Tea. Views are pushed onto a navigation stack, AWS calls happen in `tea.Cmd` goroutines, and the root model routes messages between views, overlays, and the side panel.
+
+```
+internal/aws/        Service interfaces + SDK implementations
+internal/views/      Bubble Tea view models (one per resource type)
+internal/ui/         Shared components (table, filter, picker, toast, panel)
+internal/app/        Root model — message router, layout, view factory
+internal/nav/        Stack-based navigator with view caching
+```
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime patterns, scaling strategy, and the guide for adding new services.
 
 ## Testing
 
 ```bash
-task test              # run all unit + integration tests
-task test:integration  # run integration tests against LocalStack
+go test ./...              # unit tests
+task test:integration      # integration tests against LocalStack
 ```
-
-Tests use [testify](https://github.com/stretchr/testify) for assertions and mocking, and [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest) for interaction-level tests that exercise the full BubbleTea program lifecycle. Shared mocks (`MockS3Service`, `MockEC2Service`) in `internal/aws/awstest/` enable testing views without AWS credentials.
-
-## Architecture & Patterns
-
-LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture/) (Model-View-Update) via Bubble Tea. Here are the key patterns used throughout the project:
-
-### Layer Separation
-
-```
-internal/aws/           Service interfaces (S3Service, EC2Service) + SDK implementations. No UI imports.
-internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
-internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
-internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
-internal/app/           Root model — message router, layout compositor, view factory, side panel.
-internal/nav/           Stack-based navigator with view caching.
-internal/msg/           Shared message types for the event loop.
-internal/config/        TOML config with layered precedence (file < env < flags).
-internal/eventlog/      Thread-safe ring buffer for in-app event logging.
-```
-
-### Navigator (View Stack)
-
-Views are pushed onto a stack when drilling into resources and popped on `esc`. Each view implements the `nav.View` interface (`ID()`, `Title()`, `KeyMap()`). Views are cached by ID so navigating back preserves scroll position and filter state.
-
-### Message Flow
-
-All side effects (AWS API calls, clipboard, file I/O) happen in `tea.Cmd` goroutines that return messages. Views never mutate state directly — they emit messages like `NavigateMsg`, `ToastMsg`, or `RequestConfirmMsg` that the app routes.
-
-### Progressive Loading
-
-Large S3 listings use command chaining: each page fetch returns a message, the handler appends data and returns a command for the next page. The table updates after each page so users see results within ~200ms.
-
-### Overlay Compositing
-
-Pickers, confirm dialogs, and toasts render on top of existing content using Lipgloss's Canvas/Layer system. The background view stays visible around the overlay.
-
-### Contextual Keybindings
-
-Each view declares its own `KeyMap()`. The status bar merges view-specific hints with global hints, so available actions update automatically as you navigate.
-
-### Toast Notifications
-
-Transient feedback (copy, download, delete) uses auto-dismissing toasts rendered in the bottom-right via Compositor overlay. Each toast gets a `time.Sleep` goroutine that sends a dismiss message after 4 seconds.
-
-### Access Mode
-
-LazyCloud starts in **ReadOnly** mode by default. All mutating operations (create, delete, copy, move) are blocked at the UI level regardless of your AWS IAM permissions. Press `W` to switch to ReadWrite mode, which then falls back to normal IAM permission checks. The current mode is shown as an `RO`/`RW` badge in the header.
-
-### Side Detail Panel
-
-When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) opens a side panel alongside the main view. The panel supports **tabbed views** — EC2 instance detail shows Info, JSON, Security Groups, and Tags tabs (press `1-4` to switch). Lines marked with `→` are navigable: press `enter` to follow a cross-resource link (e.g., from an EC2 instance to its AMI). Press `tab` to toggle focus between the main view and panel. On narrow terminals, content opens full-screen.
-
-### Adding a New AWS Service
-
-To add a new service (e.g., Lambda):
-
-1. `internal/aws/lambda.go` — define a service interface and SDK-backed implementation (follow the `EC2Service` pattern)
-2. `internal/views/lambda_list.go` — view implementing `nav.View`, accepting the service interface
-3. `internal/registry/registry.go` — add a `Service` entry with features and `Command` entries
-4. `internal/app/app.go` — add a case in `resolveView()` for each new view ID
-
-See `docs/ARCHITECTURE.md` for the full checklist.
 
 ## Contributing
 
@@ -280,6 +172,14 @@ LazyCloud is in early development and not yet accepting contributions. This may 
 - [lazydocker](https://github.com/jesseduffield/lazydocker) — Docker TUI
 - [k9s](https://github.com/derailed/k9s) — Kubernetes TUI
 - [claws](https://github.com/clawscli/claws) — AWS TUI
+
+## Supporters
+
+<a href="https://www.localstack.cloud/">
+  <img src="https://raw.githubusercontent.com/localstack/branding/main/Web%20Logos%20(RGB)/SVG/Horizontal/localstack-logo-horizontal-color.svg" alt="Supported by LocalStack" width="200">
+</a>
+
+Supported by [LocalStack](https://www.localstack.cloud/) through their Open Source program.
 
 ## License
 
