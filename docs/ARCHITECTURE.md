@@ -1,3 +1,57 @@
+# Architecture
+
+LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture/) (Model-View-Update) via Bubble Tea.
+
+## Package Layout
+
+```
+internal/aws/           Service interfaces (S3Service, EC2Service) + SDK implementations. No UI imports.
+internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
+internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
+internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
+internal/app/           Root model — message router, layout compositor, view factory, side panel.
+internal/nav/           Stack-based navigator with view caching.
+internal/msg/           Shared message types for the event loop.
+internal/config/        TOML config with layered precedence (file < env < flags).
+internal/eventlog/      Thread-safe ring buffer for in-app event logging.
+```
+
+## Runtime Patterns
+
+### Navigator (View Stack)
+
+Views are pushed onto a stack when drilling into resources and popped on `esc`. Each view implements the `nav.View` interface (`ID()`, `Title()`, `KeyMap()`). Views are cached by ID so navigating back preserves scroll position and filter state.
+
+### Message Flow
+
+All side effects (AWS API calls, clipboard, file I/O) happen in `tea.Cmd` goroutines that return messages. Views never mutate state directly — they emit messages like `NavigateMsg`, `ToastMsg`, or `RequestConfirmMsg` that the app routes.
+
+### Progressive Loading
+
+Large S3 listings use command chaining: each page fetch returns a message, the handler appends data and returns a command for the next page. The table updates after each page so users see results within ~200ms.
+
+### Overlay Compositing
+
+Pickers, confirm dialogs, and toasts render on top of existing content using Lipgloss's Canvas/Layer system. The background view stays visible around the overlay.
+
+### Contextual Keybindings
+
+Each view declares its own `KeyMap()` using `key.Binding` structs. The status bar merges view-specific hints with global hints, so available actions update automatically as you navigate. See [KEYBINDINGS.md](KEYBINDINGS.md) for the full dispatch system.
+
+### Toast Notifications
+
+Transient feedback (copy, download, delete) uses auto-dismissing toasts rendered in the bottom-right via Compositor overlay. Each toast gets a `time.Sleep` goroutine that sends a dismiss message after 4 seconds.
+
+### Access Mode
+
+LazyCloud starts in **ReadOnly** mode by default. All mutating operations (create, delete, copy, move) are blocked at the UI level regardless of your AWS IAM permissions. Press `W` to switch to ReadWrite mode, which then falls back to normal IAM permission checks. The current mode is shown as an `RO`/`RW` badge in the header.
+
+### Side Detail Panel
+
+When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) opens a side panel alongside the main view. The panel supports **tabbed views** — EC2 instance detail shows Info, JSON, Security Groups, and Tags tabs (press `1-4` to switch). Lines marked with `→` are navigable: press `enter` to follow a cross-resource link (e.g., from an EC2 instance to its AMI). Press `tab` to toggle focus between the main view and panel. On narrow terminals, content opens full-screen.
+
+---
+
 # Architecture Guidelines
 
 ## Service Sub-Navigation Tree
