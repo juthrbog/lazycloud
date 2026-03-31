@@ -11,6 +11,14 @@ A terminal user interface (TUI) for browsing, managing, and interacting with AWS
 <!-- Record with: vhs demo/s3.tape -->
 <!-- ![LazyCloud Demo](demo/s3.gif) -->
 
+## Supporters
+
+<a href="https://www.localstack.cloud/">
+  <img src="https://raw.githubusercontent.com/localstack/branding/main/Web%20Logos%20(RGB)/SVG/Horizontal/localstack-logo-horizontal-color.svg" alt="Supported by LocalStack" width="200">
+</a>
+
+LazyCloud is supported by [LocalStack](https://www.localstack.cloud/) through their Open Source program. LocalStack provides a local AWS cloud stack used for development and integration testing.
+
 ## Features
 
 - Browse and manage AWS resources from your terminal
@@ -272,14 +280,6 @@ LazyCloud is in early development and not yet accepting contributions. This may 
 - [lazydocker](https://github.com/jesseduffield/lazydocker) — Docker TUI
 - [k9s](https://github.com/derailed/k9s) — Kubernetes TUI
 - [claws](https://github.com/clawscli/claws) — AWS TUI
-
-## Supporters
-
-<a href="https://www.localstack.cloud/">
-  <img src="https://raw.githubusercontent.com/localstack/branding/main/Web%20Logos%20(RGB)/SVG/Horizontal/localstack-logo-horizontal-color.svg" alt="Supported by LocalStack" width="200">
-</a>
-
-LazyCloud is supported by [LocalStack](https://www.localstack.cloud/) through their Open Source program. LocalStack provides a local AWS cloud stack used for development and integration testing.
 
 ## License
 
