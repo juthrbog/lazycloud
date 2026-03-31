@@ -106,7 +106,7 @@ var defaultS3ObjectsKeyMap = s3ObjectsKeyMap{
 	Versions:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "versions")),
 	Presign:     key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "presign")),
 	CopyPath:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy path")),
-	Select:      key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "select")),
+	Select:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
 	Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete")),
 	DeleteAll:   key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "delete all")),
 	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
