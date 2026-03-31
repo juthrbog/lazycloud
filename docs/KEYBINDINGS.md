@@ -76,6 +76,23 @@ collectAllKeyHints()       --> help overlay (? key)
 
 `currentKeyHints()` is context-sensitive (panel focused vs main view). `collectAllKeyHints()` returns everything with categories for the help overlay.
 
+## Built-in Table Navigation
+
+The bubbles `table` component provides these keybindings by default. They are not defined in our KeyMap structs — they come from the upstream `table.DefaultKeyMap()` and apply to all table-based views.
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Line down |
+| `k` / `↑` | Line up |
+| `f` / `pgdown` | Page down |
+| `b` / `pgup` | Page up |
+| `d` / `ctrl+d` | Half page down |
+| `u` / `ctrl+u` | Half page up |
+| `g` / `home` | Go to top |
+| `G` / `end` | Go to bottom |
+
+Note: `space` was removed from the default PageDown binding in `NewTable()` so views can use it for multi-select.
+
 ## What Uses String-Based Dispatch
 
 Modal UI components that intercept all input when visible and don't expose hints:
