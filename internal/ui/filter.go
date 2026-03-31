@@ -3,6 +3,7 @@ package ui
 import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // FilterChangedMsg is emitted when the filter text changes.
@@ -10,24 +11,43 @@ type FilterChangedMsg struct {
 	Text string
 }
 
-// Filter provides an inline search input activated by "/".
+// Filter provides an inline search input activated by a keybinding.
 type Filter struct {
 	input  textinput.Model
+	prompt string
 	active bool
 	width  int
 }
 
-// NewFilter creates an inactive filter.
+// NewFilter creates an inactive filter with the default "/" prompt.
 func NewFilter() Filter {
+	return NewFilterWithPrompt("/", "filter...")
+}
+
+// NewFilterWithPrompt creates an inactive filter with a custom prompt and placeholder.
+func NewFilterWithPrompt(prompt, placeholder string) Filter {
 	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.Placeholder = "filter..."
-	return Filter{input: ti}
+	ti.Prompt = prompt + " "
+	ti.Placeholder = placeholder
+	f := Filter{input: ti, prompt: prompt}
+	f.applyStyles()
+	return f
+}
+
+// applyStyles sets theme-aware styles on the textinput.
+func (f *Filter) applyStyles() {
+	t := ActiveTheme
+	s := textinput.DefaultDarkStyles()
+	s.Focused.Prompt = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	s.Focused.Text = lipgloss.NewStyle().Foreground(t.BrightText)
+	s.Focused.Placeholder = lipgloss.NewStyle().Foreground(t.Muted)
+	f.input.SetStyles(s)
 }
 
 // Activate shows and focuses the filter input.
 func (f *Filter) Activate() {
 	f.active = true
+	f.applyStyles()
 	f.input.Focus()
 }
 
@@ -52,6 +72,11 @@ func (f Filter) Active() bool {
 // Value returns the current filter text.
 func (f Filter) Value() string {
 	return f.input.Value()
+}
+
+// SetValue sets the filter text.
+func (f *Filter) SetValue(v string) {
+	f.input.SetValue(v)
 }
 
 // SetWidth sets the filter input width.
@@ -88,9 +113,11 @@ func (f Filter) Update(msg tea.Msg) (Filter, tea.Cmd) {
 }
 
 // View renders the filter input. Returns "" when inactive.
-func (f Filter) View() string {
+func (f *Filter) View() string {
 	if !f.active {
 		return ""
 	}
-	return S.FilterPrompt.Render("/") + " " + f.input.View()
+	// Re-apply styles so theme changes are reflected immediately.
+	f.applyStyles()
+	return S.FilterBar.Width(f.width).Render(f.input.View())
 }

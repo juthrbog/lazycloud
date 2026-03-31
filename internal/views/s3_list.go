@@ -319,7 +319,8 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			s.creating = true
-			s.createInput = ui.NewFilter()
+			s.createInput = ui.NewFilterWithPrompt("new bucket", "bucket-name")
+			s.createInput.SetWidth(s.width)
 			s.createInput.Activate()
 			return s, nil
 		case key.Matches(m, s.keys.Delete):
@@ -420,7 +421,7 @@ func (s *S3List) View() tea.View {
 	}
 
 	if s.creating && s.createInput.Active() {
-		content += "\n New bucket name: " + s.createInput.View()
+		content += "\n" + s.createInput.View()
 	}
 
 	return tea.NewView(content)
