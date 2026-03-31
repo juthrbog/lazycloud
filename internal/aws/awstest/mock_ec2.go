@@ -46,6 +46,26 @@ func (m *MockEC2Service) TerminateInstance(ctx context.Context, instanceID strin
 	return args.Error(0)
 }
 
+func (m *MockEC2Service) StartInstances(ctx context.Context, ids []string) error {
+	args := m.Called(ctx, ids)
+	return args.Error(0)
+}
+
+func (m *MockEC2Service) StopInstances(ctx context.Context, ids []string) error {
+	args := m.Called(ctx, ids)
+	return args.Error(0)
+}
+
+func (m *MockEC2Service) RebootInstances(ctx context.Context, ids []string) error {
+	args := m.Called(ctx, ids)
+	return args.Error(0)
+}
+
+func (m *MockEC2Service) TerminateInstances(ctx context.Context, ids []string) error {
+	args := m.Called(ctx, ids)
+	return args.Error(0)
+}
+
 func (m *MockEC2Service) ListOwnedAMIs(ctx context.Context) ([]aws.AMI, error) {
 	args := m.Called(ctx)
 	return args.Get(0).([]aws.AMI), args.Error(1)

@@ -21,6 +21,10 @@ type EC2Service interface {
 	StopInstance(ctx context.Context, instanceID string) error
 	RebootInstance(ctx context.Context, instanceID string) error
 	TerminateInstance(ctx context.Context, instanceID string) error
+	StartInstances(ctx context.Context, ids []string) error
+	StopInstances(ctx context.Context, ids []string) error
+	RebootInstances(ctx context.Context, ids []string) error
+	TerminateInstances(ctx context.Context, ids []string) error
 	ListOwnedAMIs(ctx context.Context) ([]AMI, error)
 	SearchAMIs(ctx context.Context, query string) ([]AMI, error)
 }
@@ -210,6 +214,42 @@ func (svc *EC2ServiceImpl) TerminateInstance(ctx context.Context, instanceID str
 	ec2c := svc.client.EC2Client()
 	_, err := ec2c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: []string{instanceID},
+	})
+	return err
+}
+
+// StartInstances starts multiple stopped EC2 instances.
+func (svc *EC2ServiceImpl) StartInstances(ctx context.Context, ids []string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.StartInstances(ctx, &ec2.StartInstancesInput{
+		InstanceIds: ids,
+	})
+	return err
+}
+
+// StopInstances stops multiple running EC2 instances.
+func (svc *EC2ServiceImpl) StopInstances(ctx context.Context, ids []string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.StopInstances(ctx, &ec2.StopInstancesInput{
+		InstanceIds: ids,
+	})
+	return err
+}
+
+// RebootInstances reboots multiple running EC2 instances.
+func (svc *EC2ServiceImpl) RebootInstances(ctx context.Context, ids []string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.RebootInstances(ctx, &ec2.RebootInstancesInput{
+		InstanceIds: ids,
+	})
+	return err
+}
+
+// TerminateInstances terminates multiple EC2 instances. This is irreversible.
+func (svc *EC2ServiceImpl) TerminateInstances(ctx context.Context, ids []string) error {
+	ec2c := svc.client.EC2Client()
+	_, err := ec2c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
+		InstanceIds: ids,
 	})
 	return err
 }

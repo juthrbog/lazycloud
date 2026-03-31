@@ -64,7 +64,7 @@ func TestEC2List_ManageRunningInstance(t *testing.T) {
 	picker, ok := result.(msg.RequestActionPickerMsg)
 	require.True(t, ok, "expected RequestActionPickerMsg, got %T", result)
 	assert.Equal(t, []string{"Stop", "Reboot", "Terminate"}, picker.Options)
-	assert.Equal(t, "i-running", view.pendingInstanceID)
+	assert.Equal(t, []string{"i-running"}, view.pendingInstanceIDs)
 }
 
 func TestEC2List_ManageStoppedInstance(t *testing.T) {
@@ -96,7 +96,7 @@ func TestEC2List_ManageTerminatedInstance(t *testing.T) {
 	result := cmd()
 	toast, ok := result.(msg.ToastMsg)
 	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Contains(t, toast.Text, "No actions available")
+	assert.Contains(t, toast.Text, "No common actions")
 }
 
 // --- Picker result handling ---
@@ -104,7 +104,7 @@ func TestEC2List_ManageTerminatedInstance(t *testing.T) {
 func TestEC2List_StopTriggersConfirm(t *testing.T) {
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
-	view.pendingInstanceID = "i-running"
+	view.pendingInstanceIDs = []string{"i-running"}
 
 	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
 	require.NotNil(t, cmd)
@@ -113,13 +113,13 @@ func TestEC2List_StopTriggersConfirm(t *testing.T) {
 	confirm, ok := result.(msg.RequestConfirmMsg)
 	require.True(t, ok, "expected RequestConfirmMsg, got %T", result)
 	assert.Equal(t, "ec2_stop", confirm.Action)
-	assert.Contains(t, confirm.Message, "i-running")
+	assert.Contains(t, confirm.Message, "1 instance(s)")
 }
 
 func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
-	view.pendingInstanceID = "i-running"
+	view.pendingInstanceIDs = []string{"i-running"}
 
 	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 2, Value: "Terminate"})
 	require.NotNil(t, cmd)
@@ -133,9 +133,9 @@ func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
 func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
 	view, mockSvc := newTestEC2List()
 	loadInstances(view, []aws.Instance{testStoppedInstance})
-	view.pendingInstanceID = "i-stopped"
+	view.pendingInstanceIDs = []string{"i-stopped"}
 
-	mockSvc.On("StartInstance", mock.Anything, "i-stopped").Return(nil)
+	mockSvc.On("StartInstances", mock.Anything, []string{"i-stopped"}).Return(nil)
 
 	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Start"})
 	require.NotNil(t, cmd)
@@ -160,7 +160,28 @@ func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
 			batchCmd()
 		}
 	}
-	mockSvc.AssertCalled(t, "StartInstance", mock.Anything, "i-stopped")
+	mockSvc.AssertCalled(t, "StartInstances", mock.Anything, []string{"i-stopped"})
+}
+
+// --- Multi-select ---
+
+func TestEC2List_SpaceTogglesSelect(t *testing.T) {
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance, testStoppedInstance})
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Equal(t, 1, view.table.SelectionCount())
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Equal(t, 0, view.table.SelectionCount())
+}
+
+func TestEC2List_FooterShowsSelectionCount(t *testing.T) {
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance, testStoppedInstance})
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Contains(t, view.Footer(), "1 selected")
 }
 
 // --- KeyMap ---

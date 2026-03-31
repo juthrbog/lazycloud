@@ -137,6 +137,29 @@ func TestS3List_DeleteTriggersConfirm(t *testing.T) {
 	assert.Contains(t, confirm.Message, "test-bucket")
 }
 
+// --- Multi-select ---
+
+func TestS3List_SpaceTogglesSelect(t *testing.T) {
+	view, _ := newTestS3List()
+	loadBuckets(view)
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Equal(t, 1, view.table.SelectionCount())
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Equal(t, 0, view.table.SelectionCount())
+}
+
+func TestS3List_FooterShowsSelectionCount(t *testing.T) {
+	view, _ := newTestS3List()
+	loadBuckets(view)
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Contains(t, view.Footer(), "1 selected")
+}
+
+// --- KeyMap ---
+
 func TestS3List_KeyMapMutatingHintsAreReadWriteOnly(t *testing.T) {
 	view, _ := newTestS3List()
 	hints := view.KeyMap()
