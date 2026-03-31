@@ -113,9 +113,11 @@ func (f Filter) Update(msg tea.Msg) (Filter, tea.Cmd) {
 }
 
 // View renders the filter input. Returns "" when inactive.
-func (f Filter) View() string {
+func (f *Filter) View() string {
 	if !f.active {
 		return ""
 	}
+	// Re-apply styles so theme changes are reflected immediately.
+	f.applyStyles()
 	return S.FilterBar.Width(f.width).Render(f.input.View())
 }
