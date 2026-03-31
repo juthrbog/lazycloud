@@ -125,6 +125,7 @@ func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
 }
 
 func (s *S3List) Init() tea.Cmd {
+	s.table.DeselectAll()
 	if !s.loading {
 		return nil
 	}
@@ -282,6 +283,10 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(m, s.keys.Esc):
+			if s.table.SelectionCount() > 0 {
+				s.table.DeselectAll()
+				return s, nil
+			}
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
 		case key.Matches(m, s.keys.Sort):
 			columns, currentCol := s.table.SortColumnNames()

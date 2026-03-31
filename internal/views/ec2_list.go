@@ -140,6 +140,7 @@ func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
 }
 
 func (e *EC2List) Init() tea.Cmd {
+	e.table.DeselectAll()
 	if !e.loading {
 		return nil
 	}
@@ -354,6 +355,10 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(m, e.keys.Esc):
+			if e.table.SelectionCount() > 0 {
+				e.table.DeselectAll()
+				return e, nil
+			}
 			return e, func() tea.Msg { return msg.NavigateBackMsg{} }
 		case key.Matches(m, e.keys.Sort):
 			columns, currentCol := e.table.SortColumnNames()
