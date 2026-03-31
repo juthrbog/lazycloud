@@ -4,6 +4,7 @@
 [![Go](https://img.shields.io/github/go-mod/go-version/juthrbog/lazycloud)](https://go.dev)
 [![License](https://img.shields.io/github/license/juthrbog/lazycloud)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/juthrbog/lazycloud)](https://goreportcard.com/report/github.com/juthrbog/lazycloud)
+[![Supported by LocalStack](https://img.shields.io/badge/supported%20by-LocalStack-blue)](https://www.localstack.cloud/)
 
 A terminal user interface (TUI) for browsing, managing, and interacting with AWS services and resources — without leaving your terminal. Built with Go and the [Charm](https://charm.sh) ecosystem, [inspired by](#inspired-by) tools like lazygit, k9s, and claws.
 
@@ -271,6 +272,14 @@ LazyCloud is in early development and not yet accepting contributions. This may 
 - [lazydocker](https://github.com/jesseduffield/lazydocker) — Docker TUI
 - [k9s](https://github.com/derailed/k9s) — Kubernetes TUI
 - [claws](https://github.com/clawscli/claws) — AWS TUI
+
+## Supporters
+
+<a href="https://www.localstack.cloud/">
+  <img src="https://raw.githubusercontent.com/localstack/branding/main/Web%20Logos%20(RGB)/SVG/Horizontal/localstack-logo-horizontal-color.svg" alt="Supported by LocalStack" width="200">
+</a>
+
+LazyCloud is supported by [LocalStack](https://www.localstack.cloud/) through their Open Source program. LocalStack provides a local AWS cloud stack used for development and integration testing.
 
 ## License
 
