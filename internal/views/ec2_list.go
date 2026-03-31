@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -39,8 +40,35 @@ type ec2InstanceMutatedMsg struct {
 	err        error
 }
 
+type ec2ListKeyMap struct {
+	Esc         key.Binding
+	Details     key.Binding
+	Describe    key.Binding
+	Connect     key.Binding
+	Manage      key.Binding
+	CopyID      key.Binding
+	Sort        key.Binding
+	SortReverse key.Binding
+	Filter      key.Binding
+	Refresh     key.Binding
+}
+
+var defaultEC2ListKeyMap = ec2ListKeyMap{
+	Esc:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Details:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/d", "details")),
+	Describe:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
+	Connect:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "connect (SSM)")),
+	Manage:      key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "manage")),
+	CopyID:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy ID")),
+	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
+	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
+	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+}
+
 // EC2List displays all EC2 instances.
 type EC2List struct {
+	keys              ec2ListKeyMap
 	ec2               aws.EC2Service
 	awsClient         *aws.Client
 	table             ui.Table
@@ -58,16 +86,18 @@ type EC2List struct {
 
 func (e *EC2List) ID() string    { return "ec2_list" }
 func (e *EC2List) Title() string { return "EC2 Instances" }
-func (e *EC2List) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
-		{Key: "enter/d", Desc: "details"},
-		{Key: "o", Desc: "connect (SSM)"},
-		{Key: "m", Desc: "manage", Mode: ui.ModeReadWrite},
-		{Key: "y", Desc: "copy ID"},
-		{Key: "s/S", Desc: "sort"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
+func (e *EC2List) KeyMap() []ui.HintBinding {
+	hints := []ui.HintBinding{
+		{Binding: e.keys.Details},
+		{Binding: e.keys.Connect},
+		{Binding: e.keys.Manage, Mode: ui.ModeReadWrite},
+		{Binding: e.keys.CopyID},
+		{Binding: e.keys.Sort},
+		{Binding: e.keys.Filter},
+		{Binding: e.keys.Refresh},
 	}
+	ui.ApplyModeAll(hints)
+	return hints
 }
 
 func ec2Columns(tier ui.WidthTier) []table.Column {
@@ -95,6 +125,7 @@ func ec2Columns(tier ui.WidthTier) []table.Column {
 func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
 	t := ui.NewTable(ec2Columns(ui.TierMedium), nil)
 	return &EC2List{
+		keys:      defaultEC2ListKeyMap,
 		ec2:       ec2,
 		awsClient: awsClient,
 		table:     t,
@@ -313,32 +344,32 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return e, cmd
 		}
 
-		switch m.String() {
-		case "esc":
+		switch {
+		case key.Matches(m, e.keys.Esc):
 			return e, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case "s":
+		case key.Matches(m, e.keys.Sort):
 			columns, currentCol := e.table.SortColumnNames()
 			return e, func() tea.Msg {
 				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
 			}
-		case "S":
+		case key.Matches(m, e.keys.SortReverse):
 			e.table.SortReverse()
 			return e, nil
-		case "/":
+		case key.Matches(m, e.keys.Filter):
 			e.filter.Activate()
 			return e, nil
-		case "r":
+		case key.Matches(m, e.keys.Refresh):
 			e.loading = true
 			e.err = nil
 			e.spinner.Show("Loading EC2 instances...")
 			return e, tea.Batch(e.spinner.Tick(), e.fetchInstances())
-		case "enter", "d":
+		case key.Matches(m, e.keys.Details, e.keys.Describe):
 			selected := e.table.SelectedRow()
 			if selected != nil {
 				instanceID := selected[0]
 				return e, e.fetchDetail(instanceID)
 			}
-		case "y":
+		case key.Matches(m, e.keys.CopyID):
 			selected := e.table.SelectedRow()
 			if selected != nil {
 				id := selected[0]
@@ -347,7 +378,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
 				)
 			}
-		case "m":
+		case key.Matches(m, e.keys.Manage):
 			if ui.ReadOnly {
 				return e, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
@@ -375,7 +406,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					Options: actions,
 				}
 			}
-		case "o":
+		case key.Matches(m, e.keys.Connect):
 			selected := e.table.SelectedRow()
 			if selected == nil {
 				return e, nil

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -9,8 +10,19 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
+type homeKeyMap struct {
+	Select key.Binding
+	Filter key.Binding
+}
+
+var defaultHomeKeyMap = homeKeyMap{
+	Select: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
+	Filter: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+}
+
 // Home is the service selector dashboard.
 type Home struct {
+	keys   homeKeyMap
 	table  ui.Table
 	filter ui.Filter
 	width  int
@@ -20,10 +32,10 @@ type Home struct {
 func (h *Home) ID() string    { return "home" }
 func (h *Home) Title() string { return "Services" }
 func (h *Home) Footer() string    { return "" }
-func (h *Home) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
-		{Key: "enter", Desc: "select"},
-		{Key: "/", Desc: "filter"},
+func (h *Home) KeyMap() []ui.HintBinding {
+	return []ui.HintBinding{
+		{Binding: h.keys.Select},
+		{Binding: h.keys.Filter},
 	}
 }
 
@@ -41,6 +53,7 @@ func NewHome() *Home {
 
 	t := ui.NewTable(columns, rows)
 	return &Home{
+		keys:   defaultHomeKeyMap,
 		table:  t,
 		filter: ui.NewFilter(),
 	}
@@ -70,11 +83,11 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return h, cmd
 		}
 
-		switch m.String() {
-		case "/":
+		switch {
+		case key.Matches(m, h.keys.Filter):
 			h.filter.Activate()
 			return h, nil
-		case "enter":
+		case key.Matches(m, h.keys.Select):
 			selected := h.table.SelectedRow()
 			if selected == nil {
 				return h, nil

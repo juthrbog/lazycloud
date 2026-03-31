@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -21,8 +22,33 @@ type amiListLoadedMsg struct {
 	query string // non-empty when this is a search result
 }
 
+type amiListKeyMap struct {
+	Esc          key.Binding
+	Details      key.Binding
+	Describe     key.Binding
+	CopyID       key.Binding
+	SearchPublic key.Binding
+	Sort         key.Binding
+	SortReverse  key.Binding
+	Filter       key.Binding
+	Refresh      key.Binding
+}
+
+var defaultAMIListKeyMap = amiListKeyMap{
+	Esc:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Details:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/d", "details")),
+	Describe:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
+	CopyID:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy ID")),
+	SearchPublic: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "search public")),
+	Sort:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
+	SortReverse:  key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
+	Filter:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+}
+
 // AMIList displays EC2 AMIs.
 type AMIList struct {
+	keys         amiListKeyMap
 	ec2          aws.EC2Service
 	table        ui.Table
 	amis         []aws.AMI
@@ -41,17 +67,17 @@ type AMIList struct {
 
 func (a *AMIList) ID() string    { return "ami_list" }
 func (a *AMIList) Title() string { return "AMIs" }
-func (a *AMIList) KeyMap() []ui.KeyHint {
-	hints := []ui.KeyHint{
-		{Key: "enter/d", Desc: "details"},
-		{Key: "y", Desc: "copy ID"},
-		{Key: "p", Desc: "search public"},
-		{Key: "s/S", Desc: "sort"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
+func (a *AMIList) KeyMap() []ui.HintBinding {
+	hints := []ui.HintBinding{
+		{Binding: a.keys.Details},
+		{Binding: a.keys.CopyID},
+		{Binding: a.keys.SearchPublic},
+		{Binding: a.keys.Sort},
+		{Binding: a.keys.Filter},
+		{Binding: a.keys.Refresh},
 	}
 	if !a.ownedMode {
-		hints = append(hints, ui.KeyHint{Key: "r", Desc: "back to owned"})
+		hints = append(hints, ui.HintBinding{Binding: a.keys.Refresh})
 	}
 	return hints
 }
@@ -83,6 +109,7 @@ func NewAMIList(ec2 aws.EC2Service) *AMIList {
 	ti.Placeholder = "search public AMIs..."
 
 	return &AMIList{
+		keys:      defaultAMIListKeyMap,
 		ec2:       ec2,
 		table:     ui.NewTable(columns, nil),
 		filter:    ui.NewFilter(),
@@ -217,25 +244,25 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return a, cmd
 		}
 
-		switch m.String() {
-		case "esc":
+		switch {
+		case key.Matches(m, a.keys.Esc):
 			return a, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case "s":
+		case key.Matches(m, a.keys.Sort):
 			columns, currentCol := a.table.SortColumnNames()
 			return a, func() tea.Msg {
 				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
 			}
-		case "S":
+		case key.Matches(m, a.keys.SortReverse):
 			a.table.SortReverse()
 			return a, nil
-		case "/":
+		case key.Matches(m, a.keys.Filter):
 			a.filter.Activate()
 			return a, nil
-		case "p":
+		case key.Matches(m, a.keys.SearchPublic):
 			a.searchActive = true
 			a.search.Focus()
 			return a, nil
-		case "y":
+		case key.Matches(m, a.keys.CopyID):
 			selected := a.table.SelectedRow()
 			if selected != nil {
 				id := selected[0]
@@ -244,14 +271,14 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
 				)
 			}
-		case "r":
+		case key.Matches(m, a.keys.Refresh):
 			a.loading = true
 			a.err = nil
 			a.ownedMode = true
 			a.lastQuery = ""
 			a.spinner.Show("Loading AMIs...")
 			return a, tea.Batch(a.spinner.Tick(), a.fetchOwned())
-		case "enter", "d":
+		case key.Matches(m, a.keys.Details, a.keys.Describe):
 			selected := a.table.SelectedRow()
 			if selected == nil {
 				return a, nil

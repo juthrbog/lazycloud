@@ -167,7 +167,7 @@ func TestS3Objects_KeyMapMutatingHintsAreReadWriteOnly(t *testing.T) {
 	rwDescs := []string{"delete", "copy", "move"}
 	for _, h := range hints {
 		for _, rw := range rwDescs {
-			if h.Desc == rw {
+			if h.Help().Desc == rw {
 				assert.Equal(t, ui.ModeReadWrite, h.Mode, "%q hint should require ReadWrite mode", rw)
 			}
 		}
@@ -180,7 +180,7 @@ func TestS3Objects_KeyMapAlwaysContainsAllHints(t *testing.T) {
 
 	descs := make([]string, len(hints))
 	for i, h := range hints {
-		descs[i] = h.Desc
+		descs[i] = h.Help().Desc
 	}
 	assert.Contains(t, descs, "view")
 	assert.Contains(t, descs, "download")

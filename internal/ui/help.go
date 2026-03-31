@@ -14,7 +14,7 @@ type HelpOverlay struct {
 	viewport viewport.Model
 	visible  bool
 	filter   string
-	hints    []KeyHint
+	hints    []HintBinding
 	width    int
 	height   int
 }
@@ -25,7 +25,7 @@ func NewHelpOverlay() HelpOverlay {
 }
 
 // Show opens the help overlay with the given hints.
-func (h *HelpOverlay) Show(hints []KeyHint, width, height int) {
+func (h *HelpOverlay) Show(hints []HintBinding, width, height int) {
 	h.hints = hints
 	h.width = width
 	h.height = height
@@ -147,7 +147,7 @@ func (h HelpOverlay) renderContent() string {
 	// Group hints by category
 	type group struct {
 		name  string
-		hints []KeyHint
+		hints []HintBinding
 	}
 
 	orderMap := map[string]int{
@@ -157,12 +157,13 @@ func (h HelpOverlay) renderContent() string {
 		"Global":     3,
 	}
 
-	groups := make(map[string][]KeyHint)
+	groups := make(map[string][]HintBinding)
 	for _, hint := range h.hints {
+		help := hint.Help()
 		if h.filter != "" {
 			lower := strings.ToLower(h.filter)
-			if !strings.Contains(strings.ToLower(hint.Key), lower) &&
-				!strings.Contains(strings.ToLower(hint.Desc), lower) &&
+			if !strings.Contains(strings.ToLower(help.Key), lower) &&
+				!strings.Contains(strings.ToLower(help.Desc), lower) &&
 				!strings.Contains(strings.ToLower(hint.Category), lower) {
 				continue
 			}
@@ -196,11 +197,12 @@ func (h HelpOverlay) renderContent() string {
 		}
 		b.WriteString(groupStyle.Render(g.name) + "\n")
 		for _, hint := range g.hints {
+			help := hint.Help()
 			badge := ""
 			if hint.Mode == ModeReadWrite {
 				badge = " " + rwBadge.Render("[RW]")
 			}
-			line := keyStyle.Render(hint.Key) + descStyle.Render(hint.Desc) + badge
+			line := keyStyle.Render(help.Key) + descStyle.Render(help.Desc) + badge
 			b.WriteString(line + "\n")
 		}
 	}

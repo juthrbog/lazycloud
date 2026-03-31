@@ -15,17 +15,9 @@ const (
 	ModeReadWrite                 // shown only in ReadWrite mode
 )
 
-// KeyHint represents a single keybinding hint for the status bar.
-type KeyHint struct {
-	Key      string
-	Desc     string
-	Mode     HintMode // zero value = ModeAny (backward compatible)
-	Category string   // for help overlay grouping; empty = uncategorized
-}
-
 // StatusBarData holds the values needed to render the status bar.
 type StatusBarData struct {
-	Keys  []KeyHint
+	Keys  []HintBinding
 	Error string
 	Width int
 }
@@ -48,7 +40,7 @@ func RenderStatusBar(data StatusBarData) string {
 	}
 
 	// Filter by mode
-	var filtered []KeyHint
+	var filtered []HintBinding
 	for _, k := range data.Keys {
 		if k.Mode == ModeReadWrite && ReadOnly {
 			continue
@@ -72,11 +64,12 @@ func RenderStatusBar(data StatusBarData) string {
 }
 
 // renderHints renders as many hints as fit within maxWidth, dropping from the right.
-func renderHints(s Styles, hints []KeyHint, maxWidth int) string {
+func renderHints(s Styles, hints []HintBinding, maxWidth int) string {
 	for n := len(hints); n > 0; n-- {
 		var parts []string
 		for _, k := range hints[:n] {
-			parts = append(parts, s.StatusKey.Render(k.Key)+" "+s.StatusDesc.Render(k.Desc))
+			h := k.Help()
+			parts = append(parts, s.StatusKey.Render(h.Key)+" "+s.StatusDesc.Render(h.Desc))
 		}
 		sep := " " + s.Muted.Render("·") + " "
 		bar := strings.Join(parts, sep)

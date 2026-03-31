@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -19,8 +20,27 @@ type s3VersionsLoadedMsg struct {
 	versions []aws.ObjectVersion
 }
 
+type s3VersionsKeyMap struct {
+	Esc         key.Binding
+	View        key.Binding
+	Describe    key.Binding
+	Sort        key.Binding
+	SortReverse key.Binding
+	Refresh     key.Binding
+}
+
+var defaultS3VersionsKeyMap = s3VersionsKeyMap{
+	Esc:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	View:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "view")),
+	Describe:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "describe")),
+	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
+	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
+	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+}
+
 // S3Versions displays all versions of a specific S3 object.
 type S3Versions struct {
+	keys     s3VersionsKeyMap
 	s3       aws.S3Service
 	bucket   string
 	key      string
@@ -42,12 +62,12 @@ func (s *S3Versions) Title() string {
 	return path.Base(s.key) + " versions"
 }
 
-func (s *S3Versions) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
-		{Key: "enter", Desc: "view"},
-		{Key: "d", Desc: "describe"},
-		{Key: "s/S", Desc: "sort"},
-		{Key: "r", Desc: "refresh"},
+func (s *S3Versions) KeyMap() []ui.HintBinding {
+	return []ui.HintBinding{
+		{Binding: s.keys.View},
+		{Binding: s.keys.Describe},
+		{Binding: s.keys.Sort},
+		{Binding: s.keys.Refresh},
 	}
 }
 
@@ -72,6 +92,7 @@ func s3VersionColumns(tier ui.WidthTier) []table.Column {
 func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
 	t := ui.NewTable(s3VersionColumns(ui.TierMedium), nil)
 	return &S3Versions{
+		keys:      defaultS3VersionsKeyMap,
 		s3:        s3,
 		bucket:    bucket,
 		key:       key,
@@ -147,22 +168,22 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case tea.KeyPressMsg:
-		switch m.String() {
-		case "esc":
+		switch {
+		case key.Matches(m, s.keys.Esc):
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case "s":
+		case key.Matches(m, s.keys.Sort):
 			columns, currentCol := s.table.SortColumnNames()
 			return s, func() tea.Msg {
 				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
 			}
-		case "S":
+		case key.Matches(m, s.keys.SortReverse):
 			s.table.SortReverse()
 			return s, nil
-		case "r":
+		case key.Matches(m, s.keys.Refresh):
 			s.loading = true
 			s.spinner.Show("Loading versions...")
 			return s, tea.Batch(s.spinner.Tick(), s.fetchVersions())
-		case "enter", "d":
+		case key.Matches(m, s.keys.View, s.keys.Describe):
 			idx := s.table.SelectedIndex()
 			if idx < 0 || idx >= len(s.versions) {
 				return s, nil
