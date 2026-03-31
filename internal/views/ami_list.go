@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
-	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
@@ -53,8 +52,7 @@ type AMIList struct {
 	table        ui.Table
 	amis         []aws.AMI
 	filter       ui.Filter
-	search       textinput.Model
-	searchActive bool
+	search       ui.Filter
 	lastQuery    string // query used for current search results
 	ownedMode    bool
 	spinner      ui.Spinner
@@ -104,16 +102,12 @@ func amiColumns(tier ui.WidthTier) []table.Column {
 func NewAMIList(ec2 aws.EC2Service) *AMIList {
 	columns := amiColumns(ui.TierMedium)
 
-	ti := textinput.New()
-	ti.Prompt = "? "
-	ti.Placeholder = "search public AMIs..."
-
 	return &AMIList{
 		keys:      defaultAMIListKeyMap,
 		ec2:       ec2,
 		table:     ui.NewTable(columns, nil),
 		filter:    ui.NewFilter(),
-		search:    ti,
+		search:    ui.NewFilterWithPrompt("?", "search public AMIs..."),
 		ownedMode: true,
 		spinner:   ui.NewSpinner("Loading AMIs..."),
 		loading:   true,
@@ -203,7 +197,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		a.table.SetSize(m.Width, m.Height-3)
 		a.filter.SetWidth(m.Width)
-		a.search.SetWidth(m.Width - 4)
+		a.search.SetWidth(m.Width)
 		return a, nil
 
 	case ui.FilterChangedMsg:
@@ -212,18 +206,14 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		// Search input active
-		if a.searchActive {
+		if a.search.Active() {
 			switch m.String() {
 			case "esc":
-				a.searchActive = false
-				a.search.SetValue("")
-				a.search.Blur()
+				a.search.Deactivate()
 				return a, nil
 			case "enter":
 				query := a.search.Value()
-				a.search.SetValue("")
-				a.search.Blur()
-				a.searchActive = false
+				a.search.Deactivate()
 				if query == "" {
 					return a, nil
 				}
@@ -259,8 +249,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			a.filter.Activate()
 			return a, nil
 		case key.Matches(m, a.keys.SearchPublic):
-			a.searchActive = true
-			a.search.Focus()
+			a.search.Activate()
 			return a, nil
 		case key.Matches(m, a.keys.CopyID):
 			selected := a.table.SelectedRow()
@@ -375,8 +364,8 @@ func (a *AMIList) View() tea.View {
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+a.err.Error())
 	} else {
 		content = a.table.View()
-		if a.searchActive {
-			content = ui.S.FilterPrompt.Render("?") + " " + a.search.View() + "\n" + content
+		if a.search.Active() {
+			content = a.search.View() + "\n" + content
 		} else if a.filter.Active() {
 			content = a.filter.View() + "\n" + content
 		}

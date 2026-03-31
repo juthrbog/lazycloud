@@ -63,7 +63,7 @@ func TestAMIList_PActivatesSearch(t *testing.T) {
 
 	view.Update(keyPress('p'))
 
-	assert.True(t, view.searchActive)
+	assert.True(t, view.search.Active())
 }
 
 func TestAMIList_EscCancelsSearch(t *testing.T) {
@@ -71,10 +71,10 @@ func TestAMIList_EscCancelsSearch(t *testing.T) {
 	loadAMIs(view, []aws.AMI{testAMI1})
 
 	view.Update(keyPress('p'))
-	assert.True(t, view.searchActive)
+	assert.True(t, view.search.Active())
 
 	view.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	assert.False(t, view.searchActive)
+	assert.False(t, view.search.Active())
 }
 
 // --- Refresh ---
