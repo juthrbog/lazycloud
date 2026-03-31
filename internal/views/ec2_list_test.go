@@ -163,6 +163,27 @@ func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
 	mockSvc.AssertCalled(t, "StartInstances", mock.Anything, []string{"i-stopped"})
 }
 
+// --- Multi-select ---
+
+func TestEC2List_SpaceTogglesSelect(t *testing.T) {
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance, testStoppedInstance})
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Equal(t, 1, view.table.SelectionCount())
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Equal(t, 0, view.table.SelectionCount())
+}
+
+func TestEC2List_FooterShowsSelectionCount(t *testing.T) {
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance, testStoppedInstance})
+
+	view.Update(tea.KeyPressMsg{Code: tea.KeySpace})
+	assert.Contains(t, view.Footer(), "1 selected")
+}
+
 // --- KeyMap ---
 
 func TestEC2List_KeyMapManageIsReadWriteOnly(t *testing.T) {
