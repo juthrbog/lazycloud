@@ -52,7 +52,6 @@ type ec2ListKeyMap struct {
 	Filter      key.Binding
 	Refresh     key.Binding
 	Select      key.Binding
-	CopyIDs     key.Binding
 }
 
 var defaultEC2ListKeyMap = ec2ListKeyMap{
@@ -67,7 +66,6 @@ var defaultEC2ListKeyMap = ec2ListKeyMap{
 	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 	Select:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
-	CopyIDs:     key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "copy selected IDs")),
 }
 
 // EC2List displays all EC2 instances.
@@ -380,15 +378,6 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return e, e.fetchDetail(instanceID)
 			}
 		case key.Matches(m, e.keys.CopyID):
-			selected := e.table.SelectedRow()
-			if selected != nil {
-				id := selected[0]
-				return e, tea.Batch(
-					tea.SetClipboard(id),
-					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
-				)
-			}
-		case key.Matches(m, e.keys.CopyIDs):
 			ids := e.selectedInstanceIDs()
 			if len(ids) == 0 {
 				return e, nil
