@@ -56,6 +56,10 @@ func NewTable(columns []table.Column, rows []table.Row) Table {
 		Bold(false)
 	t.SetStyles(st)
 
+	// Remove "space" from the default PageDown binding so views can use it
+	// for selection without triggering an unwanted page-down.
+	t.KeyMap.PageDown.SetKeys("f", "pgdown")
+
 	baseCols := make([]table.Column, len(columns))
 	copy(baseCols, columns)
 
