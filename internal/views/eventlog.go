@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/juthrbog/lazycloud/internal/eventlog"
 	msg_pkg "github.com/juthrbog/lazycloud/internal/msg"
@@ -36,6 +37,7 @@ type eventLogKeyMap struct {
 	Level4     key.Binding
 	CycleUp    key.Binding
 	CycleDown  key.Binding
+	Wrap       key.Binding
 }
 
 var defaultEventLogKeyMap = eventLogKeyMap{
@@ -49,6 +51,7 @@ var defaultEventLogKeyMap = eventLogKeyMap{
 	Level4:     key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "err")),
 	CycleUp:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "cycle")),
 	CycleDown:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "cycle back")),
+	Wrap:       key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "wrap")),
 }
 
 // EventLog displays the in-app event log with scrolling and filtering.
@@ -57,6 +60,7 @@ type EventLog struct {
 	viewport     viewport.Model
 	filter       ui.Filter
 	autoScroll   bool
+	wrapOn       bool
 	levelIdx     int // index into levelFilters, 0 = ALL
 	width        int
 	height       int
@@ -71,6 +75,7 @@ func (e *EventLog) KeyMap() []ui.HintBinding {
 		{Binding: e.keys.Level1},
 		{Binding: e.keys.CycleUp},
 		{Binding: e.keys.AutoScroll},
+		{Binding: e.keys.Wrap},
 		{Binding: e.keys.Filter},
 		{Binding: e.keys.Refresh},
 	}
@@ -99,7 +104,7 @@ func (e *EventLog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		e.width = msg.Width
 		e.height = msg.Height
 		e.viewport.SetWidth(msg.Width)
-		e.viewport.SetHeight(msg.Height - 3)
+		e.viewport.SetHeight(msg.Height - 2)
 		e.filter.SetWidth(msg.Width)
 		e.refreshContent()
 		return e, nil
@@ -123,6 +128,10 @@ func (e *EventLog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return e, nil
 		case key.Matches(msg, e.keys.AutoScroll):
 			e.autoScroll = !e.autoScroll
+			return e, nil
+		case key.Matches(msg, e.keys.Wrap):
+			e.wrapOn = !e.wrapOn
+			e.refreshContent()
 			return e, nil
 		case key.Matches(msg, e.keys.Refresh):
 			e.refreshContent()
@@ -182,7 +191,12 @@ func (e *EventLog) View() tea.View {
 		scrollIndicator = lipgloss.NewStyle().Foreground(t.Accent).Render("  ● auto-scroll")
 	}
 
-	header := title + count + "  " + tabs + scrollIndicator
+	wrapIndicator := ""
+	if e.wrapOn {
+		wrapIndicator = "  " + lipgloss.NewStyle().Foreground(t.Info).Render("wrap")
+	}
+
+	header := title + count + "  " + tabs + scrollIndicator + wrapIndicator
 
 	// Filter
 	filterView := ""
@@ -190,12 +204,7 @@ func (e *EventLog) View() tea.View {
 		filterView = e.filter.View() + "\n"
 	}
 
-	// Footer hints
-	hints := lipgloss.NewStyle().Foreground(t.Muted).Render(
-		"↑↓ scroll  1 all  2 inf+  3 wrn+  4 err  tab cycle  ctrl+s auto-scroll  / filter  esc back",
-	)
-
-	content := header + "\n" + filterView + e.viewport.View() + "\n" + hints
+	content := header + "\n" + filterView + e.viewport.View()
 	return tea.NewView(content)
 }
 
@@ -267,7 +276,12 @@ func (e *EventLog) refreshContent() {
 		b.WriteString(lipgloss.NewStyle().Foreground(t.Muted).Render("  No matching events."))
 	}
 
-	e.viewport.SetContent(b.String())
+	out := b.String()
+	if e.wrapOn && e.width > 0 {
+		out = ansi.Wordwrap(out, e.width, "")
+	}
+	e.viewport.SoftWrap = e.wrapOn
+	e.viewport.SetContent(out)
 
 	if e.autoScroll {
 		e.viewport.GotoBottom()
