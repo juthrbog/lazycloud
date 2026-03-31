@@ -155,7 +155,7 @@ func NewStyles(t Theme) Styles {
 		FilterBar: lipgloss.NewStyle().
 				BorderLeft(true).
 				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(t.Accent).
+				BorderForeground(t.Primary).
 				PaddingLeft(1),
 
 		// Content area border
