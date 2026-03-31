@@ -51,6 +51,8 @@ type ec2ListKeyMap struct {
 	SortReverse key.Binding
 	Filter      key.Binding
 	Refresh     key.Binding
+	Select      key.Binding
+	CopyIDs     key.Binding
 }
 
 var defaultEC2ListKeyMap = ec2ListKeyMap{
@@ -64,6 +66,8 @@ var defaultEC2ListKeyMap = ec2ListKeyMap{
 	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
 	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+	Select:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
+	CopyIDs:     key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "copy selected IDs")),
 }
 
 // EC2List displays all EC2 instances.
@@ -76,7 +80,7 @@ type EC2List struct {
 	filter            ui.Filter
 	spinner           ui.Spinner
 	loading           bool
-	pendingInstanceID string // instance targeted by a pending action
+	pendingInstanceIDs []string // instances targeted by a pending action
 	pendingAction     string // action name awaiting confirmation
 	err               error
 	width             int
@@ -92,6 +96,7 @@ func (e *EC2List) KeyMap() []ui.HintBinding {
 		{Binding: e.keys.Connect},
 		{Binding: e.keys.Manage, Mode: ui.ModeReadWrite},
 		{Binding: e.keys.CopyID},
+		{Binding: e.keys.Select},
 		{Binding: e.keys.Sort},
 		{Binding: e.keys.Filter},
 		{Binding: e.keys.Refresh},
@@ -177,19 +182,21 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				e.table.Sort(m.Selected)
 			}
 		} else if m.ID == "action" && m.Selected >= 0 {
-			id := e.pendingInstanceID
+			ids := e.pendingInstanceIDs
 			switch m.Value {
 			case "Start":
-				ts := transitionalState("Start")
-				e.setInstanceState(id, ts)
-				e.spinner.Show("starting " + id + "...")
-				return e, tea.Batch(e.spinner.Tick(), e.startInstance(id))
+				for _, id := range ids {
+					e.setInstanceState(id, "pending")
+				}
+				e.spinner.Show(fmt.Sprintf("starting %d instance(s)...", len(ids)))
+				return e, tea.Batch(e.spinner.Tick(), e.startInstances(ids))
 			case "Stop", "Reboot", "Terminate":
 				e.pendingAction = m.Value
 				action := m.Value
+				count := len(ids)
 				return e, func() tea.Msg {
 					return msg.RequestConfirmMsg{
-						Message: action + " instance " + id + "?",
+						Message: fmt.Sprintf("%s %d instance(s)?", action, count),
 						Action:  "ec2_" + strings.ToLower(action),
 					}
 				}
@@ -199,29 +206,32 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.ConfirmResultMsg:
 		if !m.Confirmed {
-			e.pendingInstanceID = ""
+			e.pendingInstanceIDs = nil
 			e.pendingAction = ""
 			return e, nil
 		}
-		id := e.pendingInstanceID
+		ids := e.pendingInstanceIDs
 		action := e.pendingAction
-		e.pendingInstanceID = ""
+		e.pendingInstanceIDs = nil
 		e.pendingAction = ""
-		if ts := transitionalState(action); ts != "" {
-			e.setInstanceState(id, ts)
-			e.spinner.Show(ts + " " + id + "...")
+		for _, id := range ids {
+			if ts := transitionalState(action); ts != "" {
+				e.setInstanceState(id, ts)
+			}
 		}
+		e.spinner.Show(fmt.Sprintf("%s %d instance(s)...", strings.ToLower(action)+"ing", len(ids)))
 		switch m.Action {
 		case "ec2_stop":
-			return e, tea.Batch(e.spinner.Tick(), e.stopInstance(id))
+			return e, tea.Batch(e.spinner.Tick(), e.stopInstances(ids))
 		case "ec2_reboot":
-			return e, tea.Batch(e.spinner.Tick(), e.rebootInstance(id))
+			return e, tea.Batch(e.spinner.Tick(), e.rebootInstances(ids))
 		case "ec2_terminate":
-			return e, tea.Batch(e.spinner.Tick(), e.terminateInstance(id))
+			return e, tea.Batch(e.spinner.Tick(), e.terminateInstances(ids))
 		}
 		return e, nil
 
 	case ec2InstanceMutatedMsg:
+		e.table.DeselectAll()
 		if m.err != nil {
 			e.spinner.Hide()
 			e.err = m.err
@@ -378,31 +388,45 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
 				)
 			}
+		case key.Matches(m, e.keys.CopyIDs):
+			ids := e.selectedInstanceIDs()
+			if len(ids) == 0 {
+				return e, nil
+			}
+			text := strings.Join(ids, "\n")
+			return e, tea.Batch(
+				tea.SetClipboard(text),
+				func() tea.Msg {
+					return msg.ToastSuccess(fmt.Sprintf("Copied %d instance ID(s)", len(ids)))
+				},
+			)
+		case key.Matches(m, e.keys.Select):
+			e.table.ToggleSelect()
+			return e, nil
 		case key.Matches(m, e.keys.Manage):
 			if ui.ReadOnly {
 				return e, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
 				}
 			}
-			selected := e.table.SelectedRow()
-			if selected == nil {
+			ids := e.selectedInstanceIDs()
+			if len(ids) == 0 {
 				return e, nil
 			}
-			inst := e.findInstance(selected[0])
-			if inst == nil {
-				return e, nil
-			}
-			actions := e.actionsForState(inst.State)
+			actions := e.commonActionsForSelection(ids)
 			if len(actions) == 0 {
-				state := inst.State
 				return e, func() tea.Msg {
-					return msg.ToastError("No actions available for " + state + " instance")
+					return msg.ToastError("No common actions for selected instances")
 				}
 			}
-			e.pendingInstanceID = inst.ID
+			e.pendingInstanceIDs = ids
+			title := "Manage Instance"
+			if len(ids) > 1 {
+				title = fmt.Sprintf("Manage %d Instances", len(ids))
+			}
 			return e, func() tea.Msg {
 				return msg.RequestActionPickerMsg{
-					Title:   "Manage Instance",
+					Title:   title,
 					Options: actions,
 				}
 			}
@@ -458,6 +482,62 @@ func (e *EC2List) findInstance(id string) *aws.Instance {
 		}
 	}
 	return nil
+}
+
+// selectedInstanceIDs returns the IDs of all selected instances,
+// or the cursor instance ID if nothing is selected.
+func (e *EC2List) selectedInstanceIDs() []string {
+	indices := e.table.SelectedIndices()
+	if len(indices) == 0 {
+		row := e.table.SelectedRow()
+		if row == nil {
+			return nil
+		}
+		return []string{row[0]}
+	}
+	ids := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		if idx < len(e.instances) {
+			ids = append(ids, e.instances[idx].ID)
+		}
+	}
+	return ids
+}
+
+// commonActionsForSelection returns the actions available for ALL selected instances.
+// Returns nil if the selection contains instances in mixed states with no common actions.
+func (e *EC2List) commonActionsForSelection(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	var common []string
+	for i, id := range ids {
+		inst := e.findInstance(id)
+		if inst == nil {
+			return nil
+		}
+		actions := e.actionsForState(inst.State)
+		if len(actions) == 0 {
+			return nil
+		}
+		if i == 0 {
+			common = actions
+			continue
+		}
+		// Intersect
+		set := make(map[string]bool, len(actions))
+		for _, a := range actions {
+			set[a] = true
+		}
+		filtered := common[:0]
+		for _, a := range common {
+			if set[a] {
+				filtered = append(filtered, a)
+			}
+		}
+		common = filtered
+	}
+	return common
 }
 
 // setInstanceState optimistically updates an instance's state in the local
@@ -530,6 +610,42 @@ func (e *EC2List) terminateInstance(id string) tea.Cmd {
 		eventlog.Infof(eventlog.CatAWS, "Terminating instance: %s", id)
 		err := svc.TerminateInstance(context.Background(), id)
 		return ec2InstanceMutatedMsg{action: "terminated", instanceID: id, err: err}
+	}
+}
+
+func (e *EC2List) startInstances(ids []string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Starting %d instances", len(ids))
+		err := svc.StartInstances(context.Background(), ids)
+		return ec2InstanceMutatedMsg{action: "started", instanceID: strings.Join(ids, ", "), err: err}
+	}
+}
+
+func (e *EC2List) stopInstances(ids []string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Stopping %d instances", len(ids))
+		err := svc.StopInstances(context.Background(), ids)
+		return ec2InstanceMutatedMsg{action: "stopped", instanceID: strings.Join(ids, ", "), err: err}
+	}
+}
+
+func (e *EC2List) rebootInstances(ids []string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Rebooting %d instances", len(ids))
+		err := svc.RebootInstances(context.Background(), ids)
+		return ec2InstanceMutatedMsg{action: "rebooted", instanceID: strings.Join(ids, ", "), err: err}
+	}
+}
+
+func (e *EC2List) terminateInstances(ids []string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Terminating %d instances", len(ids))
+		err := svc.TerminateInstances(context.Background(), ids)
+		return ec2InstanceMutatedMsg{action: "terminated", instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
@@ -638,6 +754,9 @@ func buildTagsContent(tags map[string]string) string {
 func (e *EC2List) Footer() string {
 	filtered, total := e.table.RowCount()
 	footer := fmt.Sprintf("%d/%d instances", filtered, total)
+	if sel := e.table.SelectionCount(); sel > 0 {
+		footer += fmt.Sprintf("  (%d selected)", sel)
+	}
 	if e.spinner.Visible() {
 		footer += "  " + e.spinner.View()
 	}
