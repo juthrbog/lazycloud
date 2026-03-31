@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -76,8 +77,47 @@ type s3TableEntry struct {
 	fullPath string
 }
 
+type s3ObjectsKeyMap struct {
+	Esc         key.Binding
+	View        key.Binding
+	Describe    key.Binding
+	Download    key.Binding
+	Copy        key.Binding
+	Move        key.Binding
+	Versions    key.Binding
+	Presign     key.Binding
+	CopyPath    key.Binding
+	Select      key.Binding
+	Delete      key.Binding
+	DeleteAll   key.Binding
+	Sort        key.Binding
+	SortReverse key.Binding
+	Filter      key.Binding
+	Refresh     key.Binding
+}
+
+var defaultS3ObjectsKeyMap = s3ObjectsKeyMap{
+	Esc:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	View:        key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "view")),
+	Describe:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "describe")),
+	Download:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "download")),
+	Copy:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+	Move:        key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "move")),
+	Versions:    key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "versions")),
+	Presign:     key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "presign")),
+	CopyPath:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy path")),
+	Select:      key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "select")),
+	Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete")),
+	DeleteAll:   key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "delete all")),
+	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
+	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
+	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+}
+
 // S3Objects displays objects and folders within an S3 bucket.
 type S3Objects struct {
+	keys              s3ObjectsKeyMap
 	s3                aws.S3Service
 	bucket            string
 	prefix            string
@@ -103,22 +143,24 @@ func (s *S3Objects) ID() string {
 	return "s3_objects:" + s.bucket + ":" + s.prefix
 }
 
-func (s *S3Objects) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
-		{Key: "enter", Desc: "view"},
-		{Key: "d", Desc: "describe"},
-		{Key: "w", Desc: "download"},
-		{Key: "c", Desc: "copy", Mode: ui.ModeReadWrite},
-		{Key: "m", Desc: "move", Mode: ui.ModeReadWrite},
-		{Key: "v", Desc: "versions"},
-		{Key: "u", Desc: "presign"},
-		{Key: "y", Desc: "copy path"},
-		{Key: "space", Desc: "select"},
-		{Key: "x", Desc: "delete", Mode: ui.ModeReadWrite},
-		{Key: "s/S", Desc: "sort"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
+func (s *S3Objects) KeyMap() []ui.HintBinding {
+	hints := []ui.HintBinding{
+		{Binding: s.keys.View},
+		{Binding: s.keys.Describe},
+		{Binding: s.keys.Download},
+		{Binding: s.keys.Copy, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.Move, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.Versions},
+		{Binding: s.keys.Presign},
+		{Binding: s.keys.CopyPath},
+		{Binding: s.keys.Select},
+		{Binding: s.keys.Delete, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.Sort},
+		{Binding: s.keys.Filter},
+		{Binding: s.keys.Refresh},
 	}
+	ui.ApplyModeAll(hints)
+	return hints
 }
 
 func (s *S3Objects) Title() string {
@@ -150,6 +192,7 @@ func s3ObjectColumns(tier ui.WidthTier) []table.Column {
 func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
 	t := ui.NewTable(s3ObjectColumns(ui.TierMedium), nil)
 	return &S3Objects{
+		keys:    defaultS3ObjectsKeyMap,
 		s3:      s3,
 		bucket:  bucket,
 		prefix:  prefix,
@@ -527,21 +570,21 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		switch m.String() {
-		case "esc":
+		switch {
+		case key.Matches(m, s.keys.Esc):
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case "s":
+		case key.Matches(m, s.keys.Sort):
 			columns, currentCol := s.table.SortColumnNames()
 			return s, func() tea.Msg {
 				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
 			}
-		case "S":
+		case key.Matches(m, s.keys.SortReverse):
 			s.table.SortReverse()
 			return s, nil
-		case "/":
+		case key.Matches(m, s.keys.Filter):
 			s.filter.Activate()
 			return s, nil
-		case "r":
+		case key.Matches(m, s.keys.Refresh):
 			// Full refresh: clear and restart
 			s.objects = nil
 			s.prefixes = nil
@@ -552,7 +595,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinner.Show("Loading objects...")
 			s.table.SetRows(nil)
 			return s, tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
-		case "enter":
+		case key.Matches(m, s.keys.View):
 			entry := s.selectedEntry()
 			if entry == nil {
 				return s, nil
@@ -570,7 +613,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			// Preview file content
 			return s, s.previewCheck(entry.fullPath)
-		case "d":
+		case key.Matches(m, s.keys.Describe):
 			// Describe: show object metadata as JSON
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
@@ -578,13 +621,13 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			eventlog.Infof(eventlog.CatUI, "Describe object: %s", entry.fullPath)
 			return s, s.fetchMetadataAndNavigate(entry.fullPath)
-		case "u":
+		case key.Matches(m, s.keys.Presign):
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil
 			}
 			return s, s.presignObject(entry.fullPath)
-		case "y":
+		case key.Matches(m, s.keys.CopyPath):
 			entry := s.selectedEntry()
 			if entry == nil {
 				return s, nil
@@ -594,10 +637,10 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				tea.SetClipboard(arn),
 				func() tea.Msg { return msg.ToastSuccess("Copied: " + arn) },
 			)
-		case "space", " ":
+		case key.Matches(m, s.keys.Select):
 			s.table.ToggleSelect()
 			return s, nil
-		case "x", "X":
+		case key.Matches(m, s.keys.Delete, s.keys.DeleteAll):
 			if ui.ReadOnly {
 				return s, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
@@ -633,13 +676,13 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					Action:  "delete_objects",
 				}
 			}
-		case "w":
+		case key.Matches(m, s.keys.Download):
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil
 			}
 			return s, s.downloadObject(entry.fullPath)
-		case "c":
+		case key.Matches(m, s.keys.Copy):
 			if ui.ReadOnly {
 				return s, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
@@ -654,7 +697,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.copyInput = ui.NewFilter()
 			s.copyInput.Activate()
 			return s, nil
-		case "m":
+		case key.Matches(m, s.keys.Move):
 			if ui.ReadOnly {
 				return s, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
@@ -669,7 +712,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.copyInput = ui.NewFilter()
 			s.copyInput.Activate()
 			return s, nil
-		case "v":
+		case key.Matches(m, s.keys.Versions):
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil

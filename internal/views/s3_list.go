@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -33,8 +34,33 @@ type s3BucketPropsMsg struct {
 	err   error
 }
 
+type s3ListKeyMap struct {
+	Esc         key.Binding
+	Browse      key.Binding
+	Properties  key.Binding
+	NewBucket   key.Binding
+	Delete      key.Binding
+	Sort        key.Binding
+	SortReverse key.Binding
+	Filter      key.Binding
+	Refresh     key.Binding
+}
+
+var defaultS3ListKeyMap = s3ListKeyMap{
+	Esc:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Browse:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "browse")),
+	Properties:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "properties")),
+	NewBucket:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new bucket")),
+	Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete bucket")),
+	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
+	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
+	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+}
+
 // S3List displays all S3 buckets.
 type S3List struct {
+	keys                s3ListKeyMap
 	s3                  aws.S3Service
 	defaultRegion       string
 	table               ui.Table
@@ -53,16 +79,18 @@ type S3List struct {
 
 func (s *S3List) ID() string    { return "s3_list" }
 func (s *S3List) Title() string { return "S3 Buckets" }
-func (s *S3List) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
-		{Key: "enter", Desc: "browse"},
-		{Key: "d", Desc: "properties"},
-		{Key: "n", Desc: "new bucket", Mode: ui.ModeReadWrite},
-		{Key: "x", Desc: "delete bucket", Mode: ui.ModeReadWrite},
-		{Key: "s/S", Desc: "sort"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
+func (s *S3List) KeyMap() []ui.HintBinding {
+	hints := []ui.HintBinding{
+		{Binding: s.keys.Browse},
+		{Binding: s.keys.Properties},
+		{Binding: s.keys.NewBucket, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.Delete, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.Sort},
+		{Binding: s.keys.Filter},
+		{Binding: s.keys.Refresh},
 	}
+	ui.ApplyModeAll(hints)
+	return hints
 }
 
 func s3BucketColumns(tier ui.WidthTier) []table.Column {
@@ -81,6 +109,7 @@ func s3BucketColumns(tier ui.WidthTier) []table.Column {
 func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
 	t := ui.NewTable(s3BucketColumns(ui.TierMedium), nil)
 	return &S3List{
+		keys:          defaultS3ListKeyMap,
 		s3:            s3,
 		defaultRegion: defaultRegion,
 		table:         t,
@@ -246,26 +275,26 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		switch m.String() {
-		case "esc":
+		switch {
+		case key.Matches(m, s.keys.Esc):
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case "s":
+		case key.Matches(m, s.keys.Sort):
 			columns, currentCol := s.table.SortColumnNames()
 			return s, func() tea.Msg {
 				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
 			}
-		case "S":
+		case key.Matches(m, s.keys.SortReverse):
 			s.table.SortReverse()
 			return s, nil
-		case "/":
+		case key.Matches(m, s.keys.Filter):
 			s.filter.Activate()
 			return s, nil
-		case "r":
+		case key.Matches(m, s.keys.Refresh):
 			s.loading = true
 			s.err = nil
 			s.spinner.Show("Loading S3 buckets...")
 			return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets())
-		case "enter":
+		case key.Matches(m, s.keys.Browse):
 			selected := s.table.SelectedRow()
 			if selected != nil {
 				bucket := selected[0]
@@ -276,14 +305,14 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
-		case "d":
+		case key.Matches(m, s.keys.Properties):
 			selected := s.table.SelectedRow()
 			if selected == nil {
 				return s, nil
 			}
 			bucket := selected[0]
 			return s, s.fetchBucketProperties(bucket)
-		case "n":
+		case key.Matches(m, s.keys.NewBucket):
 			if ui.ReadOnly {
 				return s, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
@@ -293,7 +322,7 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.createInput = ui.NewFilter()
 			s.createInput.Activate()
 			return s, nil
-		case "x":
+		case key.Matches(m, s.keys.Delete):
 			if ui.ReadOnly {
 				return s, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")

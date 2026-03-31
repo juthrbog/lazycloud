@@ -259,7 +259,7 @@ To add a new service (e.g., Lambda):
 3. `internal/registry/registry.go` — add a `Service` entry with features and `Command` entries
 4. `internal/app/app.go` — add a case in `resolveView()` for each new view ID
 
-See `.ai/ARCHITECTURE.md` for the full checklist.
+See `docs/ARCHITECTURE.md` for the full checklist.
 
 ## Contributing
 

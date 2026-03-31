@@ -17,7 +17,7 @@ type stubView struct {
 
 func (v stubView) ID() string              { return v.id }
 func (v stubView) Title() string           { return v.title }
-func (v stubView) KeyMap() []ui.KeyHint    { return nil }
+func (v stubView) KeyMap() []ui.HintBinding { return nil }
 func (v stubView) Footer() string          { return "" }
 func (v stubView) Init() tea.Cmd           { return nil }
 func (v stubView) View() tea.View          { return tea.NewView("") }
@@ -116,7 +116,7 @@ type trackingView struct {
 
 func (v *trackingView) ID() string              { return v.id }
 func (v *trackingView) Title() string           { return v.title }
-func (v *trackingView) KeyMap() []ui.KeyHint    { return nil }
+func (v *trackingView) KeyMap() []ui.HintBinding { return nil }
 func (v *trackingView) Footer() string          { return "" }
 func (v *trackingView) Init() tea.Cmd           { return nil }
 func (v *trackingView) View() tea.View          { return tea.NewView("") }

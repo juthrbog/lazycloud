@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -58,6 +59,7 @@ type ContentLinkActivatedMsg struct {
 }
 
 type ContentView struct {
+	keys        ContentViewKeyMap
 	viewport    viewport.Model
 	title       string
 	raw         string        // original unhighlighted content
@@ -79,6 +81,7 @@ type ContentView struct {
 func NewContentView(title, content string, format ContentFormat) ContentView {
 	vp := viewport.New()
 	cv := ContentView{
+		keys:        DefaultContentViewKeyMap(),
 		viewport:    vp,
 		title:       title,
 		raw:         content,
@@ -258,47 +261,43 @@ func (cv *ContentView) ensureCursorVisible() {
 func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		key := msg.String()
-
-		switch key {
-		// Cursor movement
-		case "j", "down":
+		k := cv.keys
+		switch {
+		case key.Matches(msg, k.CursorDown):
 			cv.cursor++
 			cv.clampCursor()
 			cv.renderContent()
 			cv.ensureCursorVisible()
 			return cv, nil
-		case "k", "up":
+		case key.Matches(msg, k.CursorUp):
 			cv.cursor--
 			cv.clampCursor()
 			cv.renderContent()
 			cv.ensureCursorVisible()
 			return cv, nil
-		case "g":
+		case key.Matches(msg, k.GotoTop):
 			cv.cursor = 0
 			cv.renderContent()
 			cv.ensureCursorVisible()
 			return cv, nil
-		case "G":
+		case key.Matches(msg, k.GotoBottom):
 			cv.cursor = cv.lineCount() - 1
 			cv.renderContent()
 			cv.ensureCursorVisible()
 			return cv, nil
-		case "ctrl+d":
+		case key.Matches(msg, k.HalfPageDown):
 			cv.cursor += cv.viewport.Height() / 2
 			cv.clampCursor()
 			cv.renderContent()
 			cv.ensureCursorVisible()
 			return cv, nil
-		case "ctrl+u":
+		case key.Matches(msg, k.HalfPageUp):
 			cv.cursor -= cv.viewport.Height() / 2
 			cv.clampCursor()
 			cv.renderContent()
 			cv.ensureCursorVisible()
 			return cv, nil
-
-		// Visual mode
-		case "V":
+		case key.Matches(msg, k.VisualToggle):
 			if cv.visualMode {
 				cv.visualMode = false
 			} else {
@@ -307,14 +306,10 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 			}
 			cv.renderContent()
 			return cv, nil
-
-		// Yank
-		case "y":
+		case key.Matches(msg, k.Yank):
 			cmd := cv.yankSelection()
 			return cv, cmd
-
-		// Navigate linked line
-		case "enter":
+		case key.Matches(msg, k.Enter):
 			if cv.links != nil {
 				if link, ok := cv.links[cv.cursor]; ok {
 					viewID := link.ViewID
@@ -325,19 +320,13 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 				}
 			}
 			return cv, nil
-
-		// Line numbers toggle
-		case "n":
+		case key.Matches(msg, k.LineNumbers):
 			cv.ToggleLineNumbers()
 			return cv, nil
-
-		// Word wrap toggle
-		case "w":
+		case key.Matches(msg, k.WrapToggle):
 			cv.ToggleWrap()
 			return cv, nil
-
-		// Horizontal scroll (when wrap is off, forward to viewport)
-		case "h", "left", "l", "right":
+		case key.Matches(msg, k.ScrollLeft, k.ScrollRight):
 			if cv.wrapOff {
 				var cmd tea.Cmd
 				cv.viewport, cmd = cv.viewport.Update(msg)

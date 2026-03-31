@@ -15,10 +15,10 @@ func TestRenderStatusBarFiltersReadWriteInReadOnly(t *testing.T) {
 	defer func() { ReadOnly = true }()
 
 	data := StatusBarData{
-		Keys: []KeyHint{
-			{Key: "enter", Desc: "select"},
-			{Key: "m", Desc: "manage", Mode: ModeReadWrite},
-			{Key: "/", Desc: "filter"},
+		Keys: []HintBinding{
+			NewHintBinding([]string{"enter"}, "enter", "select"),
+			NewHintBinding([]string{"m"}, "m", "manage").WithMode(ModeReadWrite),
+			NewHintBinding([]string{"/"}, "/", "filter"),
 		},
 		Width: 80,
 	}
@@ -34,9 +34,9 @@ func TestRenderStatusBarShowsReadWriteInReadWrite(t *testing.T) {
 	defer func() { ReadOnly = true }()
 
 	data := StatusBarData{
-		Keys: []KeyHint{
-			{Key: "enter", Desc: "select"},
-			{Key: "m", Desc: "manage", Mode: ModeReadWrite},
+		Keys: []HintBinding{
+			NewHintBinding([]string{"enter"}, "enter", "select"),
+			NewHintBinding([]string{"m"}, "m", "manage").WithMode(ModeReadWrite),
 		},
 		Width: 80,
 	}
@@ -51,9 +51,9 @@ func TestRenderStatusBarFiltersReadOnlyInReadWrite(t *testing.T) {
 	defer func() { ReadOnly = true }()
 
 	data := StatusBarData{
-		Keys: []KeyHint{
-			{Key: "enter", Desc: "select"},
-			{Key: "x", Desc: "ro-only", Mode: ModeReadOnly},
+		Keys: []HintBinding{
+			NewHintBinding([]string{"enter"}, "enter", "select"),
+			NewHintBinding([]string{"x"}, "x", "ro-only").WithMode(ModeReadOnly),
 		},
 		Width: 80,
 	}
@@ -67,7 +67,7 @@ func TestRenderStatusBarModeAnyAlwaysShown(t *testing.T) {
 	for _, ro := range []bool{true, false} {
 		ReadOnly = ro
 		data := StatusBarData{
-			Keys:  []KeyHint{{Key: "q", Desc: "quit", Mode: ModeAny}},
+			Keys:  []HintBinding{NewHintBinding([]string{"q"}, "q", "quit")},
 			Width: 80,
 		}
 		bar := RenderStatusBar(data)

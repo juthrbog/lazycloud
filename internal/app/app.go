@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
@@ -44,6 +45,8 @@ type Model struct {
 	err       string
 	isDark    bool
 
+	keys ui.AppKeyMap
+
 	// Side detail panel
 	panel              *ui.TabbedPanel
 	panelOpen          bool
@@ -68,17 +71,18 @@ func New(cfg config.Config) Model {
 	}
 
 	return Model{
-		config:    cfg,
-		awsClient: awsClient,
-		s3:        aws.NewS3Service(awsClient),
-		ec2:       aws.NewEC2Service(awsClient),
-		nav:       nav.New(home),
-		confirm:   ui.NewConfirm(),
-		picker:    ui.NewPicker(),
+		config:     cfg,
+		awsClient:  awsClient,
+		s3:         aws.NewS3Service(awsClient),
+		ec2:        aws.NewEC2Service(awsClient),
+		nav:        nav.New(home),
+		confirm:    ui.NewConfirm(),
+		picker:     ui.NewPicker(),
 		help:       ui.NewHelpOverlay(),
 		commandBar: ui.NewCommandBar(),
 		toasts:     ui.NewToastManager(),
-		isDark:    true,
+		keys:       ui.DefaultAppKeyMap(),
+		isDark:     true,
 	}
 }
 
@@ -298,16 +302,16 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		// Tab toggles focus between main view and panel
-		if m.panelOpen && msg.String() == "tab" {
+		if m.panelOpen && key.Matches(msg, m.keys.TabToggle.Binding) {
 			m.panelFocused = !m.panelFocused
 			return m, nil
 		}
 
 		// Global keys — work regardless of focus state
-		switch msg.String() {
-		case "ctrl+c":
+		switch {
+		case msg.String() == "ctrl+c":
 			return m, tea.Quit
-		case "q":
+		case key.Matches(msg, m.keys.Quit.Binding):
 			if m.panelOpen {
 				m.closePanel()
 				return m, nil
@@ -317,25 +321,25 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.nav.Pop()
 			return m, nil
-		case "T":
+		case key.Matches(msg, m.keys.ThemePicker.Binding):
 			m.showThemePicker()
 			return m, nil
-		case "P":
+		case key.Matches(msg, m.keys.ProfilePicker.Binding):
 			return m, m.showProfilePicker()
-		case "R":
+		case key.Matches(msg, m.keys.RegionPicker.Binding):
 			m.showRegionPicker()
 			return m, nil
-		case "W":
+		case key.Matches(msg, m.keys.ModePicker.Binding):
 			m.showModePicker()
 			return m, nil
-		case "L":
+		case key.Matches(msg, m.keys.EventLog.Binding):
 			eventlog.Debug(eventlog.CatUI, "Event log opened")
 			cmd := m.pushView(views.NewEventLog())
 			return m, cmd
-		case ":":
+		case key.Matches(msg, m.keys.CommandBar.Binding):
 			m.commandBar.Show(registry.CommandBarEntries(), m.width)
 			return m, nil
-		case "?":
+		case key.Matches(msg, m.keys.Help.Binding):
 			hints := m.collectAllKeyHints()
 			m.help.Show(hints, m.width, m.height)
 			return m, nil
@@ -343,21 +347,21 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Panel-focused key handling
 		if m.panelOpen && m.panelFocused && m.panel != nil {
-			switch msg.String() {
-			case "esc":
+			switch {
+			case key.Matches(msg, m.keys.PanelClose.Binding):
 				m.closePanel()
 				return m, nil
-			case "e":
+			case key.Matches(msg, m.keys.PanelEditor.Binding):
 				return m, m.panel.OpenInEditorCmd()
-			case "<":
+			case key.Matches(msg, m.keys.PanelGrow.Binding):
 				m.panelWidthOverride = m.panelWidth() + panelResizeStep
 				m.resizeViews()
 				return m, nil
-			case ">":
+			case key.Matches(msg, m.keys.PanelShrink.Binding):
 				m.panelWidthOverride = m.panelWidth() - panelResizeStep
 				m.resizeViews()
 				return m, nil
-			case "=":
+			case key.Matches(msg, m.keys.PanelReset.Binding):
 				m.panelWidthOverride = 0
 				m.resizeViews()
 				return m, nil
@@ -370,8 +374,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Context-specific esc when panel is not focused
-		switch msg.String() {
-		case "esc":
+		if msg.String() == "esc" {
 			// Delegate to child — it may need to dismiss a filter
 			cmd := m.nav.UpdateCurrent(teaMsg)
 			return m, cmd
@@ -987,26 +990,26 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 	}
 }
 
-func (m Model) currentKeyHints() []ui.KeyHint {
+func (m Model) currentKeyHints() []ui.HintBinding {
 	if m.panelOpen && m.panelFocused {
-		hints := []ui.KeyHint{}
+		var hints []ui.HintBinding
 		if m.panel != nil && m.panel.TabCount() > 1 {
-			hints = append(hints, ui.KeyHint{
-				Key:  fmt.Sprintf("1-%d", m.panel.TabCount()),
-				Desc: "switch tab",
-			})
+			hints = append(hints, ui.NewHintBinding(
+				nil, fmt.Sprintf("1-%d", m.panel.TabCount()), "switch tab",
+			))
 		}
+		cvk := ui.DefaultContentViewKeyMap()
 		hints = append(hints,
-			ui.KeyHint{Key: "j/k", Desc: "scroll"},
-			ui.KeyHint{Key: "g/G", Desc: "top/bottom"},
-			ui.KeyHint{Key: "h/l", Desc: "scroll horiz"},
-			ui.KeyHint{Key: "V", Desc: "visual"},
-			ui.KeyHint{Key: "y", Desc: "yank"},
-			ui.KeyHint{Key: "w", Desc: "wrap"},
-			ui.KeyHint{Key: "e", Desc: "editor"},
-			ui.KeyHint{Key: "</>/=", Desc: "resize/reset"},
-			ui.KeyHint{Key: "tab", Desc: "focus main"},
-			ui.KeyHint{Key: "esc", Desc: "close panel"},
+			ui.HintBinding{Binding: cvk.CursorDown},
+			ui.HintBinding{Binding: cvk.GotoTop},
+			ui.HintBinding{Binding: cvk.ScrollLeft},
+			ui.HintBinding{Binding: cvk.VisualToggle},
+			ui.HintBinding{Binding: cvk.Yank},
+			ui.HintBinding{Binding: cvk.WrapToggle},
+			m.keys.PanelEditor,
+			ui.NewHintBinding([]string{"<", ">", "="}, "</>/=", "resize/reset"),
+			ui.NewHintBinding([]string{"tab"}, "tab", "focus main"),
+			m.keys.PanelClose,
 		)
 		return hints
 	}
@@ -1015,67 +1018,71 @@ func (m Model) currentKeyHints() []ui.KeyHint {
 	hints := m.nav.Current().KeyMap()
 
 	if m.panelOpen {
-		hints = append(hints, ui.KeyHint{Key: "tab", Desc: "focus panel"})
+		hints = append(hints, ui.NewHintBinding([]string{"tab"}, "tab", "focus panel"))
 	}
 
 	// Global hints
 	if m.nav.Depth() > 1 {
-		hints = append(hints, ui.KeyHint{Key: "esc", Desc: "back"})
+		hints = append(hints, ui.NewHintBinding([]string{"esc", "q"}, "esc/q", "back"))
+	} else {
+		hints = append(hints, m.keys.Quit)
 	}
 	hints = append(hints,
-		ui.KeyHint{Key: "W", Desc: "mode"},
-		ui.KeyHint{Key: "L", Desc: "logs"},
-		ui.KeyHint{Key: "P", Desc: "profile"},
-		ui.KeyHint{Key: "R", Desc: "region"},
-		ui.KeyHint{Key: "T", Desc: "theme"},
-		ui.KeyHint{Key: ":", Desc: "command"},
-		ui.KeyHint{Key: "?", Desc: "help"},
-		ui.KeyHint{Key: "q", Desc: "quit"},
+		m.keys.ModePicker,
+		m.keys.EventLog,
+		m.keys.ProfilePicker,
+		m.keys.RegionPicker,
+		m.keys.ThemePicker,
+		m.keys.CommandBar,
+		m.keys.Help,
 	)
 	return hints
 }
 
 // collectAllKeyHints returns all keybindings with categories set for the help overlay.
-func (m Model) collectAllKeyHints() []ui.KeyHint {
-	var hints []ui.KeyHint
+func (m Model) collectAllKeyHints() []ui.HintBinding {
+	var hints []ui.HintBinding
 
 	// View-specific hints (Category empty — rendered as "Current View")
 	hints = append(hints, m.nav.Current().KeyMap()...)
 
 	// Navigation hints
 	if m.panelOpen {
-		hints = append(hints, ui.KeyHint{Key: "tab", Desc: "toggle panel focus", Category: "Navigation"})
+		hints = append(hints, m.keys.TabToggle.WithCategory("Navigation"))
 	}
 	if m.nav.Depth() > 1 {
-		hints = append(hints, ui.KeyHint{Key: "esc", Desc: "go back", Category: "Navigation"})
+		hints = append(hints, ui.NewHintBinding([]string{"esc", "q"}, "esc/q", "go back").WithCategory("Navigation"))
 	}
 
 	// Panel hints (when panel is open)
 	if m.panelOpen {
-		panelHints := []ui.KeyHint{
-			{Key: "j/k", Desc: "scroll", Category: "Panel"},
-			{Key: "g/G", Desc: "top/bottom", Category: "Panel"},
-			{Key: "h/l", Desc: "scroll horizontally", Category: "Panel"},
-			{Key: "V", Desc: "visual select", Category: "Panel"},
-			{Key: "y", Desc: "yank to clipboard", Category: "Panel"},
-			{Key: "w", Desc: "toggle word wrap", Category: "Panel"},
-			{Key: "e", Desc: "open in editor", Category: "Panel"},
-			{Key: "</>/=", Desc: "resize/reset panel", Category: "Panel"},
-			{Key: "esc", Desc: "close panel", Category: "Panel"},
+		cvk := ui.DefaultContentViewKeyMap()
+		panelHints := []ui.HintBinding{
+			{Binding: cvk.CursorDown, Category: "Panel"},
+			{Binding: cvk.GotoTop, Category: "Panel"},
+			{Binding: cvk.ScrollLeft, Category: "Panel"},
+			{Binding: cvk.VisualToggle, Category: "Panel"},
+			{Binding: cvk.Yank, Category: "Panel"},
+			{Binding: cvk.WrapToggle, Category: "Panel"},
+			m.keys.PanelEditor.WithCategory("Panel"),
+			ui.NewHintBinding([]string{"<", ">", "="}, "</>/=", "resize/reset panel").WithCategory("Panel"),
+			m.keys.PanelClose.WithCategory("Panel"),
 		}
 		hints = append(hints, panelHints...)
 	}
 
 	// Global hints
-	globalHints := []ui.KeyHint{
-		{Key: "W", Desc: "toggle ReadOnly/ReadWrite", Category: "Global"},
-		{Key: "L", Desc: "event log", Category: "Global"},
-		{Key: "P", Desc: "switch AWS profile", Category: "Global"},
-		{Key: "R", Desc: "switch AWS region", Category: "Global"},
-		{Key: "T", Desc: "switch theme", Category: "Global"},
-		{Key: ":", Desc: "command palette", Category: "Global"},
-		{Key: "?", Desc: "this help", Category: "Global"},
-		{Key: "q", Desc: "quit", Category: "Global"},
+	globalHints := []ui.HintBinding{
+		m.keys.ModePicker.WithCategory("Global"),
+		m.keys.EventLog.WithCategory("Global"),
+		m.keys.ProfilePicker.WithCategory("Global"),
+		m.keys.RegionPicker.WithCategory("Global"),
+		m.keys.ThemePicker.WithCategory("Global"),
+		m.keys.CommandBar.WithCategory("Global"),
+		m.keys.Help.WithCategory("Global"),
+	}
+	if m.nav.Depth() <= 1 {
+		globalHints = append(globalHints, m.keys.Quit.WithCategory("Global"))
 	}
 	hints = append(hints, globalHints...)
 

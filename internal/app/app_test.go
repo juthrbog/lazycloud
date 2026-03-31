@@ -331,7 +331,7 @@ func TestKeyHintsPanelFocused(t *testing.T) {
 	hints := m.currentKeyHints()
 	descs := make([]string, len(hints))
 	for i, h := range hints {
-		descs[i] = h.Desc
+		descs[i] = h.Help().Desc
 	}
 	assert.Contains(t, descs, "close panel")
 	assert.Contains(t, descs, "focus main")
@@ -346,7 +346,7 @@ func TestKeyHintsMainFocusedWithPanel(t *testing.T) {
 	hints := m.currentKeyHints()
 	descs := make([]string, len(hints))
 	for i, h := range hints {
-		descs[i] = h.Desc
+		descs[i] = h.Help().Desc
 	}
 	assert.Contains(t, descs, "focus panel")
 	assert.NotContains(t, descs, "close panel")
@@ -622,7 +622,7 @@ func TestTabbedPanelTabSwitchKeyHint(t *testing.T) {
 	// Single tab — no switch hint
 	hints := m.currentKeyHints()
 	for _, h := range hints {
-		assert.NotContains(t, h.Key, "switch tab")
+		assert.NotContains(t, h.Help().Key, "switch tab")
 	}
 
 	// Open with multiple tabs
@@ -637,7 +637,7 @@ func TestTabbedPanelTabSwitchKeyHint(t *testing.T) {
 	hints = m.currentKeyHints()
 	descs := make([]string, len(hints))
 	for i, h := range hints {
-		descs[i] = h.Desc
+		descs[i] = h.Help().Desc
 	}
 	assert.Contains(t, descs, "switch tab")
 }

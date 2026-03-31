@@ -11,14 +11,14 @@ func init() {
 	RebuildStyles()
 }
 
-func testHints() []KeyHint {
-	return []KeyHint{
-		{Key: "enter", Desc: "select"},
-		{Key: "m", Desc: "manage", Mode: ModeReadWrite},
-		{Key: "/", Desc: "filter"},
-		{Key: "W", Desc: "mode", Category: "Global"},
-		{Key: "q", Desc: "quit", Category: "Global"},
-		{Key: "j/k", Desc: "scroll", Category: "Panel"},
+func testHints() []HintBinding {
+	return []HintBinding{
+		NewHintBinding([]string{"enter"}, "enter", "select"),
+		NewHintBinding([]string{"m"}, "m", "manage").WithMode(ModeReadWrite),
+		NewHintBinding([]string{"/"}, "/", "filter"),
+		NewHintBinding([]string{"W"}, "W", "mode").WithCategory("Global"),
+		NewHintBinding([]string{"q"}, "q", "quit").WithCategory("Global"),
+		NewHintBinding([]string{"j", "k"}, "j/k", "scroll").WithCategory("Panel"),
 	}
 }
 

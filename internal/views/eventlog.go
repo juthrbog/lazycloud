@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -24,8 +25,35 @@ var levelFilters = []struct {
 	{"ERR", 3},
 }
 
+type eventLogKeyMap struct {
+	Esc        key.Binding
+	Filter     key.Binding
+	AutoScroll key.Binding
+	Refresh    key.Binding
+	Level1     key.Binding
+	Level2     key.Binding
+	Level3     key.Binding
+	Level4     key.Binding
+	CycleUp    key.Binding
+	CycleDown  key.Binding
+}
+
+var defaultEventLogKeyMap = eventLogKeyMap{
+	Esc:        key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
+	Filter:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+	AutoScroll: key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "auto-scroll")),
+	Refresh:    key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+	Level1:     key.NewBinding(key.WithKeys("1"), key.WithHelp("1-4", "severity")),
+	Level2:     key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "inf+")),
+	Level3:     key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "wrn+")),
+	Level4:     key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "err")),
+	CycleUp:    key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "cycle")),
+	CycleDown:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "cycle back")),
+}
+
 // EventLog displays the in-app event log with scrolling and filtering.
 type EventLog struct {
+	keys         eventLogKeyMap
 	viewport     viewport.Model
 	filter       ui.Filter
 	autoScroll   bool
@@ -38,13 +66,13 @@ type EventLog struct {
 func (e *EventLog) ID() string    { return "eventlog" }
 func (e *EventLog) Title() string { return "Event Log" }
 func (e *EventLog) Footer() string    { return "" }
-func (e *EventLog) KeyMap() []ui.KeyHint {
-	return []ui.KeyHint{
-		{Key: "1-4", Desc: "severity"},
-		{Key: "tab", Desc: "cycle"},
-		{Key: "ctrl+s", Desc: "auto-scroll"},
-		{Key: "/", Desc: "filter"},
-		{Key: "r", Desc: "refresh"},
+func (e *EventLog) KeyMap() []ui.HintBinding {
+	return []ui.HintBinding{
+		{Binding: e.keys.Level1},
+		{Binding: e.keys.CycleUp},
+		{Binding: e.keys.AutoScroll},
+		{Binding: e.keys.Filter},
+		{Binding: e.keys.Refresh},
 	}
 }
 
@@ -52,6 +80,7 @@ func (e *EventLog) KeyMap() []ui.KeyHint {
 func NewEventLog() *EventLog {
 	vp := viewport.New()
 	return &EventLog{
+		keys:       defaultEventLogKeyMap,
 		viewport:   vp,
 		filter:     ui.NewFilter(),
 		autoScroll: true,
@@ -86,39 +115,39 @@ func (e *EventLog) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return e, cmd
 		}
 
-		switch msg.String() {
-		case "esc":
+		switch {
+		case key.Matches(msg, e.keys.Esc):
 			return e, func() tea.Msg { return msg_pkg.NavigateBackMsg{} }
-		case "/":
+		case key.Matches(msg, e.keys.Filter):
 			e.filter.Activate()
 			return e, nil
-		case "ctrl+s":
+		case key.Matches(msg, e.keys.AutoScroll):
 			e.autoScroll = !e.autoScroll
 			return e, nil
-		case "r":
+		case key.Matches(msg, e.keys.Refresh):
 			e.refreshContent()
 			return e, nil
-		case "1":
+		case key.Matches(msg, e.keys.Level1):
 			e.levelIdx = 0
 			e.refreshContent()
 			return e, nil
-		case "2":
+		case key.Matches(msg, e.keys.Level2):
 			e.levelIdx = 1
 			e.refreshContent()
 			return e, nil
-		case "3":
+		case key.Matches(msg, e.keys.Level3):
 			e.levelIdx = 2
 			e.refreshContent()
 			return e, nil
-		case "4":
+		case key.Matches(msg, e.keys.Level4):
 			e.levelIdx = 3
 			e.refreshContent()
 			return e, nil
-		case "tab":
+		case key.Matches(msg, e.keys.CycleUp):
 			e.levelIdx = (e.levelIdx + 1) % len(levelFilters)
 			e.refreshContent()
 			return e, nil
-		case "shift+tab":
+		case key.Matches(msg, e.keys.CycleDown):
 			e.levelIdx = (e.levelIdx - 1 + len(levelFilters)) % len(levelFilters)
 			e.refreshContent()
 			return e, nil

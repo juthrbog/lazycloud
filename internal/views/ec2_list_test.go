@@ -170,7 +170,7 @@ func TestEC2List_KeyMapManageIsReadWriteOnly(t *testing.T) {
 	hints := view.KeyMap()
 
 	for _, h := range hints {
-		if h.Desc == "manage" {
+		if h.Help().Desc == "manage" {
 			assert.Equal(t, ui.ModeReadWrite, h.Mode, "manage hint should require ReadWrite mode")
 			return
 		}
@@ -184,7 +184,7 @@ func TestEC2List_KeyMapAlwaysContainsAllHints(t *testing.T) {
 
 	descs := make([]string, len(hints))
 	for i, h := range hints {
-		descs[i] = h.Desc
+		descs[i] = h.Help().Desc
 	}
 	assert.Contains(t, descs, "details")
 	assert.Contains(t, descs, "manage")
