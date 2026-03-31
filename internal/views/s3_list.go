@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
@@ -40,6 +41,7 @@ type s3ListKeyMap struct {
 	Properties  key.Binding
 	NewBucket   key.Binding
 	Delete      key.Binding
+	Select      key.Binding
 	Sort        key.Binding
 	SortReverse key.Binding
 	Filter      key.Binding
@@ -52,6 +54,7 @@ var defaultS3ListKeyMap = s3ListKeyMap{
 	Properties:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "properties")),
 	NewBucket:   key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new bucket")),
 	Delete:      key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "delete bucket")),
+	Select:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
 	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
 	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
 	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
@@ -70,7 +73,7 @@ type S3List struct {
 	creating            bool
 	spinner             ui.Spinner
 	loading             bool
-	pendingDeleteBucket string
+	pendingDeleteBuckets []string
 	err                 error
 	width               int
 	height              int
@@ -85,6 +88,7 @@ func (s *S3List) KeyMap() []ui.HintBinding {
 		{Binding: s.keys.Properties},
 		{Binding: s.keys.NewBucket, Mode: ui.ModeReadWrite},
 		{Binding: s.keys.Delete, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.Select},
 		{Binding: s.keys.Sort},
 		{Binding: s.keys.Filter},
 		{Binding: s.keys.Refresh},
@@ -145,15 +149,16 @@ func (s *S3List) fetchBuckets() tea.Cmd {
 func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.ConfirmResultMsg:
-		if m.Confirmed && m.Action == "delete_bucket" && s.pendingDeleteBucket != "" {
-			bucket := s.pendingDeleteBucket
-			s.pendingDeleteBucket = ""
-			return s, s.deleteBucket(bucket)
+		if m.Confirmed && m.Action == "delete_bucket" && len(s.pendingDeleteBuckets) > 0 {
+			buckets := s.pendingDeleteBuckets
+			s.pendingDeleteBuckets = nil
+			return s, s.deleteBuckets(buckets)
 		}
-		s.pendingDeleteBucket = ""
+		s.pendingDeleteBuckets = nil
 		return s, nil
 
 	case s3BucketDeletedMsg:
+		s.table.DeselectAll()
 		if m.err != nil {
 			s.err = m.err
 			return s, nil
@@ -323,21 +328,27 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.createInput.SetWidth(s.width)
 			s.createInput.Activate()
 			return s, nil
+		case key.Matches(m, s.keys.Select):
+			s.table.ToggleSelect()
+			return s, nil
 		case key.Matches(m, s.keys.Delete):
 			if ui.ReadOnly {
 				return s, func() tea.Msg {
 					return msg.ToastError("ReadOnly mode — press W to switch")
 				}
 			}
-			selected := s.table.SelectedRow()
-			if selected == nil {
+			names := s.selectedBucketNames()
+			if len(names) == 0 {
 				return s, nil
 			}
-			s.pendingDeleteBucket = selected[0]
-			bucket := selected[0]
+			s.pendingDeleteBuckets = names
+			message := fmt.Sprintf("Delete bucket '%s'?\nThis will delete all objects first.", names[0])
+			if len(names) > 1 {
+				message = fmt.Sprintf("Delete %d buckets?\nThis will delete all objects in each bucket first.", len(names))
+			}
 			return s, func() tea.Msg {
 				return msg.RequestConfirmMsg{
-					Message: fmt.Sprintf("Delete bucket '%s'?\nThis will delete all objects first.", bucket),
+					Message: message,
 					Action:  "delete_bucket",
 				}
 			}
@@ -386,6 +397,41 @@ func (s *S3List) deleteBucket(bucket string) tea.Cmd {
 	}
 }
 
+// selectedBucketNames returns names of all selected buckets,
+// or the cursor bucket name if nothing is selected.
+func (s *S3List) selectedBucketNames() []string {
+	indices := s.table.SelectedIndices()
+	if len(indices) == 0 {
+		row := s.table.SelectedRow()
+		if row == nil {
+			return nil
+		}
+		return []string{row[0]}
+	}
+	names := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		if idx < len(s.buckets) {
+			names = append(names, s.buckets[idx].Name)
+		}
+	}
+	return names
+}
+
+func (s *S3List) deleteBuckets(buckets []string) tea.Cmd {
+	svc := s.s3
+	return func() tea.Msg {
+		var lastErr error
+		for _, bucket := range buckets {
+			eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
+			if err := svc.EmptyAndDeleteBucket(context.Background(), bucket); err != nil {
+				lastErr = err
+				eventlog.Errorf(eventlog.CatAWS, "Failed to delete bucket %s: %v", bucket, err)
+			}
+		}
+		return s3BucketDeletedMsg{bucket: strings.Join(buckets, ", "), err: lastErr}
+	}
+}
+
 func (s *S3List) rebuildRows() {
 	narrow := s.widthTier == ui.TierNarrow
 	var rows []table.Row
@@ -404,7 +450,11 @@ func (s *S3List) rebuildRows() {
 
 func (s *S3List) Footer() string {
 	filtered, total := s.table.RowCount()
-	return fmt.Sprintf("%d/%d buckets", filtered, total)
+	footer := fmt.Sprintf("%d/%d buckets", filtered, total)
+	if sel := s.table.SelectionCount(); sel > 0 {
+		footer += fmt.Sprintf("  (%d selected)", sel)
+	}
+	return footer
 }
 
 func (s *S3List) View() tea.View {
