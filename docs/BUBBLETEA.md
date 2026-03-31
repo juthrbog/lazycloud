@@ -11,7 +11,7 @@ LazyCloud is a terminal user interface (TUI) for interacting with AWS services, 
 - **License:** Apache 2.0 (same as k9s)
 - **Repository Name:** `lazycloud`
 
-**Companion docs** (also in `.ai/`):
+**Companion docs** (also in `docs/`):
 - [ARCHITECTURE.md](ARCHITECTURE.md) — service hierarchy, registry pattern, scaling strategy, width tiers
 - [THEMING.md](THEMING.md) — semantic color roles, focus/dimming, icon conventions, accessibility
 - [TESTING.md](TESTING.md) — three-tier testing pyramid, mock patterns, coverage priorities
@@ -146,10 +146,14 @@ lazycloud/
 │   └── version/
 │       └── version.go
 │
-├── .ai/                           # Architecture and design guidelines
-│   ├── DESIGN.md                  # This file — Bubble Tea patterns, v2 specifics, dev setup
+├── docs/                           # Architecture and design guidelines
 │   ├── ARCHITECTURE.md            # Service hierarchy, registry pattern, scaling strategy
-│   └── THEMING.md                 # Semantic colors, focus/dimming, icon conventions
+│   ├── BUBBLETEA.md               # This file — Bubble Tea patterns, v2 specifics, dev setup
+│   ├── CHARM.md                   # Charm ecosystem conventions
+│   ├── KEYBINDINGS.md             # Keybinding dispatch system (key.Binding pattern)
+│   ├── TESTING.md                 # Three-tier testing pyramid, mock patterns
+│   ├── THEMING.md                 # Semantic colors, focus/dimming, icon conventions
+│   └── UI_COMPONENTS.md           # UI component patterns
 │
 ├── services/aws/                  # Service documentation
 │   ├── s3.md
