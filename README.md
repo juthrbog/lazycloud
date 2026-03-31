@@ -15,7 +15,7 @@
 <!-- Record with: vhs demo/s3.tape -->
 <!-- <p align="center"><img src="demo/s3.gif" alt="LazyCloud Demo" width="800"></p> -->
 
-Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by [lazygit](https://github.com/jesseduffield/lazygit), [k9s](https://github.com/derailed/k9s), and [claws](https://github.com/clawscli/claws).
+Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing TUIs like [lazygit](https://github.com/jesseduffield/lazygit) and [k9s](https://github.com/derailed/k9s).
 
 ## Features
 
@@ -165,13 +165,6 @@ task test:integration      # integration tests against LocalStack
 ## Contributing
 
 LazyCloud is in early development and not yet accepting contributions. This may change in the future — check back later.
-
-## Inspired By
-
-- [lazygit](https://github.com/jesseduffield/lazygit) — Git TUI
-- [lazydocker](https://github.com/jesseduffield/lazydocker) — Docker TUI
-- [k9s](https://github.com/derailed/k9s) — Kubernetes TUI
-- [claws](https://github.com/clawscli/claws) — AWS TUI
 
 ## Supporters
 
