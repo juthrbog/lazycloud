@@ -103,7 +103,7 @@ func (h HelpOverlay) View() string {
 	}
 	header.WriteString("\n\n")
 
-	footer := "\n" + s.Muted.Render("j/k scroll  ? close  esc close")
+	footer := "\n" + s.Muted.Render("type to filter  ? close  esc close")
 
 	box := s.DialogBorder.Width(h.boxWidth())
 
