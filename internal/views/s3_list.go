@@ -393,15 +393,6 @@ func (s *S3List) createBucket(name string) tea.Cmd {
 	}
 }
 
-func (s *S3List) deleteBucket(bucket string) tea.Cmd {
-	svc := s.s3
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
-		err := svc.EmptyAndDeleteBucket(context.Background(), bucket)
-		return s3BucketDeletedMsg{bucket: bucket, err: err}
-	}
-}
-
 // selectedBucketNames returns names of all selected buckets,
 // or the cursor bucket name if nothing is selected.
 func (s *S3List) selectedBucketNames() []string {

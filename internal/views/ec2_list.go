@@ -571,42 +571,6 @@ func (e *EC2List) actionsForState(state string) []string {
 	}
 }
 
-func (e *EC2List) startInstance(id string) tea.Cmd {
-	svc := e.ec2
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Starting instance: %s", id)
-		err := svc.StartInstance(context.Background(), id)
-		return ec2InstanceMutatedMsg{action: "started", instanceID: id, err: err}
-	}
-}
-
-func (e *EC2List) stopInstance(id string) tea.Cmd {
-	svc := e.ec2
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Stopping instance: %s", id)
-		err := svc.StopInstance(context.Background(), id)
-		return ec2InstanceMutatedMsg{action: "stopped", instanceID: id, err: err}
-	}
-}
-
-func (e *EC2List) rebootInstance(id string) tea.Cmd {
-	svc := e.ec2
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Rebooting instance: %s", id)
-		err := svc.RebootInstance(context.Background(), id)
-		return ec2InstanceMutatedMsg{action: "rebooted", instanceID: id, err: err}
-	}
-}
-
-func (e *EC2List) terminateInstance(id string) tea.Cmd {
-	svc := e.ec2
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Terminating instance: %s", id)
-		err := svc.TerminateInstance(context.Background(), id)
-		return ec2InstanceMutatedMsg{action: "terminated", instanceID: id, err: err}
-	}
-}
-
 func (e *EC2List) startInstances(ids []string) tea.Cmd {
 	svc := e.ec2
 	return func() tea.Msg {
