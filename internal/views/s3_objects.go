@@ -729,15 +729,16 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	var cmds []tea.Cmd
 	if s.loading {
-		var cmd tea.Cmd
-		s.spinner, cmd = s.spinner.Update(m)
-		return s, cmd
+		var spinnerCmd tea.Cmd
+		s.spinner, spinnerCmd = s.spinner.Update(m)
+		cmds = append(cmds, spinnerCmd)
 	}
-
-	var cmd tea.Cmd
-	s.table, cmd = s.table.Update(m)
-	return s, cmd
+	var tableCmd tea.Cmd
+	s.table, tableCmd = s.table.Update(m)
+	cmds = append(cmds, tableCmd)
+	return s, tea.Batch(cmds...)
 }
 
 func (s *S3Objects) Footer() string {
