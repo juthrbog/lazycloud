@@ -79,6 +79,11 @@ func (m *MockS3Service) DeleteObjects(ctx context.Context, bucket string, keys [
 	return args.Error(0)
 }
 
+func (m *MockS3Service) DeleteObjectVersions(ctx context.Context, bucket string, versions []aws.ObjectVersion) error {
+	args := m.Called(ctx, bucket, versions)
+	return args.Error(0)
+}
+
 func (m *MockS3Service) DeleteBucket(ctx context.Context, bucket string) error {
 	args := m.Called(ctx, bucket)
 	return args.Error(0)

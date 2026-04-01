@@ -202,3 +202,74 @@ func TestS3Objects_WideTierShowsAllColumns(t *testing.T) {
 	assert.Equal(t, 5, len(cols), "wide tier should show 5 columns")
 	assert.Equal(t, "Class", cols[4].Title)
 }
+
+// --- Loading navigation tests ---
+
+func TestS3Objects_NavigableDuringLoading(t *testing.T) {
+	view, _ := newTestS3Objects()
+
+	// Simulate first page loaded with more pages pending
+	view.Update(s3PageLoadedMsg{
+		bucket: "test-bucket",
+		prefix: "",
+		objects: []aws.S3Object{
+			{Key: "file1.txt", Size: 1024, LastModified: time.Now(), StorageClass: "STANDARD"},
+			{Key: "file2.json", Size: 2048, LastModified: time.Now(), StorageClass: "STANDARD"},
+			{Key: "file3.go", Size: 512, LastModified: time.Now(), StorageClass: "STANDARD"},
+		},
+		hasMorePages: true,
+		pageNum:      1,
+		token:        nil,
+	})
+
+	// View should still be loading
+	assert.True(t, view.loading, "view should still be loading after partial page")
+
+	// Table should have rows
+	_, total := view.table.RowCount()
+	assert.Equal(t, 3, total, "table should have 3 rows from first page")
+
+	// Press down arrow — should move cursor even while loading
+	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, 1, view.table.SelectedIndex(), "cursor should move to row 1 during loading")
+
+	// Press down again
+	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, 2, view.table.SelectedIndex(), "cursor should move to row 2 during loading")
+}
+
+func TestS3Objects_CursorPreservedOnNewPage(t *testing.T) {
+	view, _ := newTestS3Objects()
+
+	// Load first page
+	view.Update(s3PageLoadedMsg{
+		bucket: "test-bucket",
+		prefix: "",
+		objects: []aws.S3Object{
+			{Key: "file1.txt", Size: 1024, LastModified: time.Now(), StorageClass: "STANDARD"},
+			{Key: "file2.json", Size: 2048, LastModified: time.Now(), StorageClass: "STANDARD"},
+		},
+		hasMorePages: true,
+		pageNum:      1,
+	})
+
+	// Move cursor to row 1
+	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, 1, view.table.SelectedIndex(), "cursor should be at row 1")
+
+	// Second page arrives — cursor should stay at row 1
+	view.Update(s3PageLoadedMsg{
+		bucket: "test-bucket",
+		prefix: "",
+		objects: []aws.S3Object{
+			{Key: "file3.go", Size: 512, LastModified: time.Now(), StorageClass: "STANDARD"},
+		},
+		hasMorePages: false,
+		pageNum:      2,
+	})
+
+	assert.Equal(t, 1, view.table.SelectedIndex(), "cursor should stay at row 1 after new page loads")
+	_, total := view.table.RowCount()
+	assert.Equal(t, 3, total, "table should now have 3 rows")
+	assert.False(t, view.loading, "loading should be complete")
+}
