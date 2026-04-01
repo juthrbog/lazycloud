@@ -134,6 +134,11 @@ func (t Table) SelectedIndex() int {
 	return t.inner.Cursor()
 }
 
+// SetCursor sets the cursor to the given row index.
+func (t *Table) SetCursor(n int) {
+	t.inner.SetCursor(n)
+}
+
 // SelectedAllRowIndex returns the allRows index for the current cursor position.
 // Returns -1 if no valid mapping exists.
 func (t Table) SelectedAllRowIndex() int {

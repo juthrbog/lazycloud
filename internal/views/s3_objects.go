@@ -447,7 +447,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		// Append new data (prefixes only come on first page typically, but handle any)
 		s.objects = append(s.objects, m.objects...)
 		s.prefixes = append(s.prefixes, m.prefixes...)
+		prevCount := len(s.entries)
 		s.buildTable()
+		// On first data arrival, initialize cursor to 0 so navigation is possible.
+		if prevCount == 0 && len(s.entries) > 0 && s.table.SelectedIndex() < 0 {
+			s.table.SetCursor(0)
+		}
 
 		if m.hasMorePages {
 			// Chain: immediately fetch the next page
