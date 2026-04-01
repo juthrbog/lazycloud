@@ -27,6 +27,7 @@ type S3Service interface {
 	GetBucketRegion(ctx context.Context, bucket string) (string, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 	DeleteObjects(ctx context.Context, bucket string, keys []string) error
+	DeleteObjectVersions(ctx context.Context, bucket string, versions []ObjectVersion) error
 	DeleteBucket(ctx context.Context, bucket string) error
 	EmptyAndDeleteBucket(ctx context.Context, bucket string) error
 	CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error
@@ -355,6 +356,94 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 	return nil
 }
 
+// DeleteObjectVersions deletes specific object versions and delete markers in batches of up to 1000.
+func (svc *S3ServiceImpl) DeleteObjectVersions(ctx context.Context, bucket string, versions []ObjectVersion) error {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
+	if err != nil {
+		return err
+	}
+
+	const batchSize = 1000
+	for i := 0; i < len(versions); i += batchSize {
+		end := i + batchSize
+		if end > len(versions) {
+			end = len(versions)
+		}
+		batch := versions[i:end]
+
+		objects := make([]s3types.ObjectIdentifier, len(batch))
+		for j, v := range batch {
+			objects[j] = s3types.ObjectIdentifier{
+				Key:       aws.String(v.Key),
+				VersionId: aws.String(v.VersionID),
+			}
+		}
+
+		out, err := s3c.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(bucket),
+			Delete: &s3types.Delete{
+				Objects: objects,
+				Quiet:   aws.Bool(true),
+			},
+		})
+		if err != nil {
+			return err
+		}
+		if len(out.Errors) > 0 {
+			e := out.Errors[0]
+			return fmt.Errorf("deleting version %s of %s: %s",
+				aws.ToString(e.VersionId), aws.ToString(e.Key), aws.ToString(e.Message))
+		}
+	}
+	return nil
+}
+
+// listAllVersions returns all object versions and delete markers in the bucket, paginating automatically.
+func (svc *S3ServiceImpl) listAllVersions(ctx context.Context, bucket string) ([]ObjectVersion, error) {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
+	if err != nil {
+		return nil, err
+	}
+
+	var all []ObjectVersion
+	var keyMarker, versionMarker *string
+
+	for {
+		output, err := s3c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+			Bucket:          aws.String(bucket),
+			KeyMarker:       keyMarker,
+			VersionIdMarker: versionMarker,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, v := range output.Versions {
+			ov := ObjectVersion{
+				Key:       aws.ToString(v.Key),
+				VersionID: aws.ToString(v.VersionId),
+			}
+			all = append(all, ov)
+		}
+		for _, dm := range output.DeleteMarkers {
+			ov := ObjectVersion{
+				Key:            aws.ToString(dm.Key),
+				VersionID:      aws.ToString(dm.VersionId),
+				IsDeleteMarker: true,
+			}
+			all = append(all, ov)
+		}
+
+		if !aws.ToBool(output.IsTruncated) {
+			break
+		}
+		keyMarker = output.NextKeyMarker
+		versionMarker = output.NextVersionIdMarker
+	}
+
+	return all, nil
+}
+
 // DeleteBucket deletes an S3 bucket. The bucket must be empty.
 func (svc *S3ServiceImpl) DeleteBucket(ctx context.Context, bucket string) error {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
@@ -367,23 +456,19 @@ func (svc *S3ServiceImpl) DeleteBucket(ctx context.Context, bucket string) error
 	return err
 }
 
-// EmptyAndDeleteBucket deletes all objects in a bucket, then deletes the bucket itself.
+// EmptyAndDeleteBucket deletes all object versions and delete markers, then deletes the bucket.
 func (svc *S3ServiceImpl) EmptyAndDeleteBucket(ctx context.Context, bucket string) error {
-	// List and delete all objects
+	// Delete all object versions and delete markers (handles versioned and non-versioned buckets)
 	for {
-		page, err := svc.ListObjectsPage(ctx, bucket, "", nil)
+		versions, err := svc.listAllVersions(ctx, bucket)
 		if err != nil {
-			return fmt.Errorf("listing objects: %w", err)
+			return fmt.Errorf("listing versions: %w", err)
 		}
-		if len(page.Objects) == 0 {
+		if len(versions) == 0 {
 			break
 		}
-		keys := make([]string, len(page.Objects))
-		for i, obj := range page.Objects {
-			keys[i] = obj.Key
-		}
-		if err := svc.DeleteObjects(ctx, bucket, keys); err != nil {
-			return fmt.Errorf("deleting objects: %w", err)
+		if err := svc.DeleteObjectVersions(ctx, bucket, versions); err != nil {
+			return fmt.Errorf("deleting versions: %w", err)
 		}
 	}
 	return svc.DeleteBucket(ctx, bucket)
