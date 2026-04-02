@@ -27,6 +27,8 @@ type EC2Service interface {
 	TerminateInstances(ctx context.Context, ids []string) error
 	ListOwnedAMIs(ctx context.Context) ([]AMI, error)
 	SearchAMIs(ctx context.Context, query string) ([]AMI, error)
+	ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
+	GetSecurityGroup(ctx context.Context, groupID string) (*SecurityGroup, error)
 }
 
 // EC2ServiceImpl is the real AWS-backed implementation of EC2Service.
@@ -123,6 +125,37 @@ type InstanceDetail struct {
 type SecurityGroupRef struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// SecurityGroup represents an EC2 security group with its rules.
+type SecurityGroup struct {
+	ID            string              `json:"id"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	VpcID         string              `json:"vpc_id"`
+	OwnerID       string              `json:"owner_id"`
+	ARN           string              `json:"arn"`
+	InboundRules  []SecurityGroupRule `json:"inbound_rules"`
+	OutboundRules []SecurityGroupRule `json:"outbound_rules"`
+	Tags          map[string]string   `json:"tags,omitempty"`
+}
+
+// SecurityGroupRule represents a single inbound or outbound rule.
+type SecurityGroupRule struct {
+	Protocol    string   `json:"protocol"`
+	FromPort    int32    `json:"from_port"`
+	ToPort      int32    `json:"to_port"`
+	CIDRs       []string `json:"cidrs,omitempty"`
+	IPv6CIDRs   []string `json:"ipv6_cidrs,omitempty"`
+	SGRefs      []string `json:"sg_refs,omitempty"`
+	PrefixLists []string `json:"prefix_lists,omitempty"`
+	Description string   `json:"description,omitempty"`
+}
+
+// DetailJSON returns the security group as indented JSON.
+func (sg *SecurityGroup) DetailJSON() string {
+	b, _ := json.MarshalIndent(sg, "", "  ")
+	return string(b)
 }
 
 // DetailJSON returns the instance detail as indented JSON.
@@ -312,6 +345,112 @@ func mapAMI(img ec2types.Image) AMI {
 		State:        string(img.State),
 		CreationDate: aws.ToString(img.CreationDate),
 	}
+}
+
+// ListSecurityGroups returns all security groups, handling pagination automatically.
+func (svc *EC2ServiceImpl) ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error) {
+	ec2c := svc.client.EC2Client()
+
+	var groups []SecurityGroup
+	var nextToken *string
+
+	for {
+		output, err := ec2c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+			NextToken: nextToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, sg := range output.SecurityGroups {
+			groups = append(groups, mapSecurityGroup(sg))
+		}
+
+		if output.NextToken == nil {
+			break
+		}
+		nextToken = output.NextToken
+	}
+
+	return groups, nil
+}
+
+// GetSecurityGroup returns a single security group by ID.
+func (svc *EC2ServiceImpl) GetSecurityGroup(ctx context.Context, groupID string) (*SecurityGroup, error) {
+	ec2c := svc.client.EC2Client()
+
+	output, err := ec2c.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
+		GroupIds: []string{groupID},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(output.SecurityGroups) == 0 {
+		return nil, nil
+	}
+
+	sg := mapSecurityGroup(output.SecurityGroups[0])
+	return &sg, nil
+}
+
+func mapSecurityGroup(sg ec2types.SecurityGroup) SecurityGroup {
+	tags := make(map[string]string, len(sg.Tags))
+	for _, tag := range sg.Tags {
+		tags[aws.ToString(tag.Key)] = aws.ToString(tag.Value)
+	}
+
+	g := SecurityGroup{
+		ID:            aws.ToString(sg.GroupId),
+		Name:          aws.ToString(sg.GroupName),
+		Description:   aws.ToString(sg.Description),
+		VpcID:         aws.ToString(sg.VpcId),
+		OwnerID:       aws.ToString(sg.OwnerId),
+		ARN:           aws.ToString(sg.SecurityGroupArn),
+		InboundRules:  mapIpPermissions(sg.IpPermissions),
+		OutboundRules: mapIpPermissions(sg.IpPermissionsEgress),
+	}
+	if len(tags) > 0 {
+		g.Tags = tags
+	}
+	return g
+}
+
+func mapIpPermissions(perms []ec2types.IpPermission) []SecurityGroupRule {
+	rules := make([]SecurityGroupRule, 0, len(perms))
+	for _, p := range perms {
+		r := SecurityGroupRule{
+			Protocol: aws.ToString(p.IpProtocol),
+			FromPort: aws.ToInt32(p.FromPort),
+			ToPort:   aws.ToInt32(p.ToPort),
+		}
+		for _, cidr := range p.IpRanges {
+			r.CIDRs = append(r.CIDRs, aws.ToString(cidr.CidrIp))
+			if r.Description == "" && cidr.Description != nil {
+				r.Description = *cidr.Description
+			}
+		}
+		for _, cidr := range p.Ipv6Ranges {
+			r.IPv6CIDRs = append(r.IPv6CIDRs, aws.ToString(cidr.CidrIpv6))
+			if r.Description == "" && cidr.Description != nil {
+				r.Description = *cidr.Description
+			}
+		}
+		for _, pair := range p.UserIdGroupPairs {
+			r.SGRefs = append(r.SGRefs, aws.ToString(pair.GroupId))
+			if r.Description == "" && pair.Description != nil {
+				r.Description = *pair.Description
+			}
+		}
+		for _, pl := range p.PrefixListIds {
+			r.PrefixLists = append(r.PrefixLists, aws.ToString(pl.PrefixListId))
+			if r.Description == "" && pl.Description != nil {
+				r.Description = *pl.Description
+			}
+		}
+		rules = append(rules, r)
+	}
+	return rules
 }
 
 // mapInstance extracts list-view fields from an SDK instance.

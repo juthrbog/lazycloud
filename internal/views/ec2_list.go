@@ -689,7 +689,7 @@ func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink)
 		fmt.Fprintf(&b, "%-22s %s\n", sg.ID, sg.Name)
 		links = append(links, msg.TabLink{
 			Line:   i,
-			ViewID: "sg_detail",
+			ViewID: "sg_list",
 			Params: map[string]string{"id": sg.ID},
 		})
 	}

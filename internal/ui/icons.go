@@ -24,7 +24,8 @@ var UseNerdFonts = true
 var (
 	IconS3    = ServiceIcon{Nerd: "\U000f01bc", Fallback: "◇"} // nf-md-bucket
 	IconEC2   = ServiceIcon{Nerd: "\U000f01c4", Fallback: "◈"} // nf-md-server
-	IconCloud = ServiceIcon{Nerd: "\U000f015f", Fallback: "☁"} // nf-md-cloud
+	IconCloud  = ServiceIcon{Nerd: "\U000f015f", Fallback: "☁"} // nf-md-cloud
+	IconShield = ServiceIcon{Nerd: "\U000f0498", Fallback: "🛡"} // nf-md-shield
 
 	// State indicators
 	IconRunning = ServiceIcon{Nerd: "\U000f012c", Fallback: "●"} // nf-md-check_circle
