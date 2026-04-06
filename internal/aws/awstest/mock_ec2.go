@@ -20,6 +20,12 @@ func (m *MockEC2Service) ListInstances(ctx context.Context) ([]aws.Instance, err
 	return args.Get(0).([]aws.Instance), args.Error(1)
 }
 
+func (m *MockEC2Service) ListInstancesPage(ctx context.Context, token *string) (*aws.InstancePage, error) {
+	args := m.Called(ctx, token)
+	val, _ := args.Get(0).(*aws.InstancePage)
+	return val, args.Error(1)
+}
+
 func (m *MockEC2Service) GetInstanceDetail(ctx context.Context, instanceID string) (*aws.InstanceDetail, error) {
 	args := m.Called(ctx, instanceID)
 	val, _ := args.Get(0).(*aws.InstanceDetail)

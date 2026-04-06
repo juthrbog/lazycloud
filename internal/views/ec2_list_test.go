@@ -22,7 +22,7 @@ func newTestEC2List() (*EC2List, *awstest.MockEC2Service) {
 }
 
 func loadInstances(view *EC2List, instances []aws.Instance) {
-	view.Update(ec2InstancesLoadedMsg{instances: instances})
+	view.Update(ec2PageLoadedMsg{instances: instances, hasMorePages: false, pageNum: 1})
 }
 
 var testRunningInstance = aws.Instance{ID: "i-running", Name: "web-1", State: "running"}

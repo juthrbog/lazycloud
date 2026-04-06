@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	smithy "github.com/aws/smithy-go"
 
 	awslib "github.com/juthrbog/lazycloud/internal/aws"
 )
@@ -262,6 +265,9 @@ func (e *ec2Seeder) addIngressRules(ctx context.Context, ec2c *ec2.Client, sgID 
 		GroupId:       aws.String(sgID),
 		IpPermissions: e.buildIPPermissions(rules, sgMap),
 	})
+	if isDuplicatePermission(err) {
+		return nil
+	}
 	return err
 }
 
@@ -282,7 +288,24 @@ func (e *ec2Seeder) addEgressRules(ctx context.Context, ec2c *ec2.Client, sgID s
 		GroupId:       aws.String(sgID),
 		IpPermissions: e.buildIPPermissions(filtered, sgMap),
 	})
+	if isDuplicatePermission(err) {
+		return nil
+	}
 	return err
+}
+
+// isDuplicatePermission returns true if the error is an InvalidPermission.Duplicate
+// from the EC2 API, meaning the rule already exists on the security group.
+func isDuplicatePermission(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr smithy.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr.ErrorCode() == "InvalidPermission.Duplicate"
+	}
+	// LocalStack may not always use structured errors
+	return strings.Contains(err.Error(), "InvalidPermission.Duplicate")
 }
 
 func (e *ec2Seeder) listExistingAMIs(ctx context.Context, ec2c *ec2.Client) (map[string]string, error) {
