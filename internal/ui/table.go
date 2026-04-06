@@ -90,27 +90,33 @@ func (t Table) Columns() []table.Column {
 
 // SetColumns swaps the column set without recreating the table.
 // Clears rows and resets sort state since column indices may have changed.
-// Callers should call SetRows or SetRowsWithSortKeys after SetColumns.
+// Selections are preserved — callers repopulate rows with the same data.
 func (t *Table) SetColumns(columns []table.Column) {
 	t.columns = columns
 	baseCols := make([]table.Column, len(columns))
 	copy(baseCols, columns)
 	t.baseColumns = baseCols
+	saved := t.selected
 	t.allRows = nil
 	t.sortKeys = nil
-	t.selected = make(map[int]bool)
 	t.inner.SetRows(nil)
 	t.inner.SetColumns(columns)
 	t.sortCol = -1
 	t.sortDir = SortAsc
+	t.selected = saved
 	t.buildFilteredMap()
 }
 
-// SetRows replaces the table data and reapplies sort/filter. Clears selection and sort keys.
+// SetRows replaces the table data and reapplies sort/filter.
+// Selections are preserved for indices that remain valid.
 func (t *Table) SetRows(rows []table.Row) {
 	t.allRows = rows
 	t.sortKeys = nil
-	t.selected = make(map[int]bool)
+	for idx := range t.selected {
+		if idx >= len(rows) {
+			delete(t.selected, idx)
+		}
+	}
 	t.applyFilterAndSort()
 }
 
