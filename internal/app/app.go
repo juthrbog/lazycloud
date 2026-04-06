@@ -110,32 +110,29 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	// Remove expired toasts as a fallback in case dismiss commands were dropped.
 	m.toasts.Cleanup()
 
-	// Picker intercepts all input when visible
-	if m.picker.Visible() {
-		var cmd tea.Cmd
-		m.picker, cmd = m.picker.Update(teaMsg)
-		return m, cmd
-	}
-
-	// Confirmation dialog intercepts all input when visible
-	if m.confirm.Visible() {
-		var cmd tea.Cmd
-		m.confirm, cmd = m.confirm.Update(teaMsg)
-		return m, cmd
-	}
-
-	// Help overlay intercepts all input when visible
-	if m.help.Visible() {
-		var cmd tea.Cmd
-		m.help, cmd = m.help.Update(teaMsg)
-		return m, cmd
-	}
-
-	// Command bar intercepts all input when visible
-	if m.commandBar.Visible() {
-		var cmd tea.Cmd
-		m.commandBar, cmd = m.commandBar.Update(teaMsg)
-		return m, cmd
+	// Overlays intercept key input when visible, but let async data messages
+	// (page loads, spinner ticks, etc.) fall through to normal routing.
+	if _, isKey := teaMsg.(tea.KeyPressMsg); isKey {
+		if m.picker.Visible() {
+			var cmd tea.Cmd
+			m.picker, cmd = m.picker.Update(teaMsg)
+			return m, cmd
+		}
+		if m.confirm.Visible() {
+			var cmd tea.Cmd
+			m.confirm, cmd = m.confirm.Update(teaMsg)
+			return m, cmd
+		}
+		if m.help.Visible() {
+			var cmd tea.Cmd
+			m.help, cmd = m.help.Update(teaMsg)
+			return m, cmd
+		}
+		if m.commandBar.Visible() {
+			var cmd tea.Cmd
+			m.commandBar, cmd = m.commandBar.Update(teaMsg)
+			return m, cmd
+		}
 	}
 
 	switch msg := teaMsg.(type) {
