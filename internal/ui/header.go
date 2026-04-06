@@ -8,11 +8,12 @@ import (
 
 // HeaderData holds the values needed to render the header bar.
 type HeaderData struct {
-	Profile     string
-	Region      string
-	Mode        string // "RO" or "RW"
-	Breadcrumbs []string
-	Width       int
+	Profile          string
+	Region           string
+	Mode             string // "RO" or "RW"
+	Breadcrumbs      []string
+	CrossNavBackLabel string // non-empty: show right-aligned back indicator with this label
+	Width            int
 }
 
 // RenderHeader renders the top bar with gradient branding and profile/region badges.
@@ -53,6 +54,16 @@ func RenderHeader(data HeaderData) string {
 	// for breadcrumbs. At very narrow widths, progressively hide badges.
 	sep := lipgloss.NewStyle().Foreground(t.Muted).Render(" › ")
 
+	// Right-aligned cross-nav back indicator
+	var backIndicator string
+	var backWidth int
+	if data.CrossNavBackLabel != "" {
+		backIndicator = lipgloss.NewStyle().Foreground(t.Muted).Render(" ← bksp ") +
+			lipgloss.NewStyle().Foreground(t.Accent).Render(data.CrossNavBackLabel) +
+			" "
+		backWidth = lipgloss.Width(backIndicator)
+	}
+
 	var bar string
 	if data.Width < 60 {
 		// Minimal: title + breadcrumbs only
@@ -61,26 +72,28 @@ func RenderHeader(data HeaderData) string {
 	} else if data.Width < 80 {
 		// Compact: drop region badge
 		fixed := titleRendered + " " + profileBadge + " " + modeBadge + "  "
-		remaining := data.Width - lipgloss.Width(fixed)
+		remaining := data.Width - lipgloss.Width(fixed) - backWidth
 		crumbs := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
 		bar = fixed + crumbs
 	} else {
 		// Full: all badges + breadcrumbs
 		fixed := titleRendered + " " + profileBadge + " " + regionBadge + " " + modeBadge + "  "
-		remaining := data.Width - lipgloss.Width(fixed)
+		remaining := data.Width - lipgloss.Width(fixed) - backWidth
 		crumbs := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
 		bar = fixed + crumbs
 	}
 
-	// Fill to full width with surface background
+	// Fill remaining space and append right-aligned back indicator
 	barWidth := lipgloss.Width(bar)
-	if data.Width > barWidth {
+	remainingWidth := data.Width - barWidth - backWidth
+	if remainingWidth > 0 {
 		padding := lipgloss.NewStyle().
-			Width(data.Width - barWidth).
+			Width(remainingWidth).
 			Background(t.Base).
 			Render("")
 		bar += padding
 	}
+	bar += backIndicator
 
 	// Add a thin gradient line below the header
 	gradLine := RenderGradientLine(data.Width)

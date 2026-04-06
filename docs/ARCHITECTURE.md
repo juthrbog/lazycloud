@@ -57,6 +57,8 @@ When the panel is open, the header breadcrumbs append the panel title (e.g., `Se
 
 Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a `focus` parameter, the target view auto-selects the matching resource and opens its detail panel. If the view is still loading data, the focus is deferred until the data arrives. This lets users follow links seamlessly — e.g., clicking a security group in an EC2 instance detail navigates to the SG list with that group's detail panel already open.
 
+**Back traversal:** Before navigating forward, the app saves the current panel state (title, tabs, links) to a bounded history stack (max 10 entries). Press `backspace` to pop the history, navigate back, and restore the previous panel. This preserves the user's context through chains of cross-resource links. The history is automatically invalidated when the user manually navigates back via `esc`/`q`, and cleared on profile or region changes.
+
 ---
 
 # Architecture Guidelines

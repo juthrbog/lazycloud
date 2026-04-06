@@ -28,6 +28,15 @@ const (
 	panelResizeStep   = 5  // columns per resize keystroke
 )
 
+// Cross-navigation history for back traversal.
+const crossNavHistoryMax = 10
+
+type crossNavEntry struct {
+	navDepth   int                  // nav stack depth when saved
+	panelTitle string               // panel title to restore
+	panelTabs  []appmsg.TabContent  // panel content to restore
+}
+
 // Model is the root application model — message router and layout compositor.
 type Model struct {
 	config    config.Config
@@ -53,6 +62,9 @@ type Model struct {
 	panelFocused       bool
 	panelTitle         string
 	panelWidthOverride int // 0 = use default 40% calculation
+
+	// Cross-navigation history for back traversal
+	crossNavHistory []crossNavEntry
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -172,6 +184,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if m.nav.Depth() > 1 {
 			m.nav.Pop()
+			m.trimCrossNavHistory()
 			m.resizeViews()
 		}
 		return m, nil
@@ -203,7 +216,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ContentLinkActivatedMsg:
-		// Cross-resource navigation from the detail panel
+		// Save panel state before cross-navigation for back traversal
+		if m.panelOpen && m.panel != nil {
+			m.pushCrossNavHistory()
+		}
 		m.closePanel()
 		viewID := msg.ViewID
 		params := msg.Params
@@ -327,6 +343,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			}
 			m.nav.Pop()
+			m.trimCrossNavHistory()
 			return m, nil
 		case key.Matches(msg, m.keys.ThemePicker.Binding):
 			m.showThemePicker()
@@ -349,6 +366,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help.Binding):
 			hints := m.collectAllKeyHints()
 			m.help.Show(hints, m.width, m.height)
+			return m, nil
+		case key.Matches(msg, m.keys.CrossNavBack.Binding):
+			if len(m.crossNavHistory) > 0 {
+				m.popCrossNavBack()
+				return m, nil
+			}
 			return m, nil
 		}
 
@@ -523,6 +546,70 @@ func (m *Model) closePanel() {
 	m.resizeViews()
 }
 
+// pushCrossNavHistory saves the current panel state for later restoration.
+func (m *Model) pushCrossNavHistory() {
+	if m.panel == nil {
+		return
+	}
+	tabData := m.panel.TabData()
+	tabs := make([]appmsg.TabContent, len(tabData))
+	for i, t := range tabData {
+		var links []appmsg.TabLink
+		for line, link := range t.Links {
+			links = append(links, appmsg.TabLink{
+				Line:   line,
+				ViewID: link.ViewID,
+				Params: link.Params,
+			})
+		}
+		tabs[i] = appmsg.TabContent{
+			Title:   t.Title,
+			Content: t.Content,
+			Format:  t.Format,
+			Links:   links,
+		}
+	}
+	entry := crossNavEntry{
+		navDepth:   m.nav.Depth(),
+		panelTitle: m.panelTitle,
+		panelTabs:  tabs,
+	}
+	m.crossNavHistory = append(m.crossNavHistory, entry)
+	if len(m.crossNavHistory) > crossNavHistoryMax {
+		m.crossNavHistory = m.crossNavHistory[1:]
+	}
+}
+
+// popCrossNavBack pops the cross-nav history, navigates back, and restores the panel.
+func (m *Model) popCrossNavBack() {
+	n := len(m.crossNavHistory)
+	entry := m.crossNavHistory[n-1]
+	m.crossNavHistory = m.crossNavHistory[:n-1]
+
+	if m.panelOpen {
+		m.closePanel()
+	}
+	if m.nav.Depth() > 1 {
+		m.nav.Pop()
+		m.resizeViews()
+	}
+
+	m.openTabbedPanel(entry.panelTitle, entry.panelTabs)
+}
+
+// trimCrossNavHistory removes stale entries whose source depth is no longer on the stack.
+func (m *Model) trimCrossNavHistory() {
+	depth := m.nav.Depth()
+	n := 0
+	for _, e := range m.crossNavHistory {
+		if e.navDepth < depth {
+			m.crossNavHistory[n] = e
+			n++
+		}
+	}
+	m.crossNavHistory = m.crossNavHistory[:n]
+}
+
 // chromeHeight returns the vertical lines consumed by fixed layout chrome:
 // header (2: title bar + gradient) + status bar (1) + content border (2: top + bottom)
 // + footer (2: gradient line + text).
@@ -627,6 +714,7 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 
 	home := views.NewHome()
 	m.nav = nav.New(home)
+	m.crossNavHistory = nil
 	m.err = ""
 	_, toastCmd := m.toasts.Add("Profile: "+profile, ui.ToastSuccess, 0)
 
@@ -714,6 +802,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 
 	home := views.NewHome()
 	m.nav = nav.New(home)
+	m.crossNavHistory = nil
 	m.err = ""
 	_, toastCmd := m.toasts.Add("Region: "+region, ui.ToastSuccess, 0)
 
@@ -775,12 +864,17 @@ func (m Model) View() tea.View {
 	if m.panelOpen && m.panelTitle != "" {
 		crumbs = append(crumbs, m.panelTitle)
 	}
+	var crossNavLabel string
+	if n := len(m.crossNavHistory); n > 0 {
+		crossNavLabel = m.crossNavHistory[n-1].panelTitle
+	}
 	header := ui.RenderHeader(ui.HeaderData{
-		Profile:     m.config.AWS.Profile,
-		Region:      m.config.AWS.Region,
-		Mode:        mode,
-		Breadcrumbs: crumbs,
-		Width:       m.width,
+		Profile:           m.config.AWS.Profile,
+		Region:            m.config.AWS.Region,
+		Mode:              mode,
+		Breadcrumbs:       crumbs,
+		CrossNavBackLabel: crossNavLabel,
+		Width:             m.width,
 	})
 
 	var statusBar string
@@ -1037,6 +1131,9 @@ func (m Model) currentKeyHints() []ui.HintBinding {
 	}
 
 	// Global hints
+	if len(m.crossNavHistory) > 0 {
+		hints = append(hints, m.keys.CrossNavBack)
+	}
 	if m.nav.Depth() > 1 {
 		hints = append(hints, ui.NewHintBinding([]string{"esc", "q"}, "esc/q", "back"))
 	} else {
@@ -1064,6 +1161,9 @@ func (m Model) collectAllKeyHints() []ui.HintBinding {
 	// Navigation hints
 	if m.panelOpen {
 		hints = append(hints, m.keys.TabToggle.WithCategory("Navigation"))
+	}
+	if len(m.crossNavHistory) > 0 {
+		hints = append(hints, m.keys.CrossNavBack.WithCategory("Navigation"))
 	}
 	if m.nav.Depth() > 1 {
 		hints = append(hints, ui.NewHintBinding([]string{"esc", "q"}, "esc/q", "go back").WithCategory("Navigation"))

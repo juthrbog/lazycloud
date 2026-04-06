@@ -681,7 +681,7 @@ func buildEC2InfoContentWithLinks(d *aws.InstanceDetail) (string, []msg.TabLink)
 		{k: "Subnet", v: d.SubnetID},
 		{k: "AZ", v: d.AvailabilityZone},
 		{k: "Key Name", v: d.KeyName},
-		{k: "AMI", v: d.AMI, viewID: "ami_list"},
+		{k: "AMI", v: d.AMI, viewID: "ami_list", params: map[string]string{"focus": d.AMI}},
 		{k: "IAM Role", v: d.IAMRole},
 		{k: "Launch Time", v: d.LaunchTime},
 		{k: "Root Device", v: d.RootDeviceType + " (" + d.RootDeviceName + ")"},

@@ -114,6 +114,20 @@ func (tp TabbedPanel) TabCount() int {
 	return len(tp.tabs)
 }
 
+// TabData returns the stored tab entries for saving/restoring panel state.
+func (tp TabbedPanel) TabData() []TabInput {
+	inputs := make([]TabInput, len(tp.tabs))
+	for i, t := range tp.tabs {
+		inputs[i] = TabInput{
+			Title:   t.title,
+			Content: t.content,
+			Format:  string(t.format),
+			Links:   t.links,
+		}
+	}
+	return inputs
+}
+
 // ActiveTab returns the 0-indexed active tab.
 func (tp TabbedPanel) ActiveTab() int {
 	return tp.active
