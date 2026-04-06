@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
@@ -31,6 +32,7 @@ type amiListKeyMap struct {
 	SortReverse  key.Binding
 	Filter       key.Binding
 	Refresh      key.Binding
+	Select       key.Binding
 }
 
 var defaultAMIListKeyMap = amiListKeyMap{
@@ -43,6 +45,7 @@ var defaultAMIListKeyMap = amiListKeyMap{
 	SortReverse:  key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
 	Filter:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
 	Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+	Select:       key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
 }
 
 // AMIList displays EC2 AMIs.
@@ -70,6 +73,7 @@ func (a *AMIList) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: a.keys.Details},
 		{Binding: a.keys.CopyID},
+		{Binding: a.keys.Select},
 		{Binding: a.keys.SearchPublic},
 		{Binding: a.keys.Sort},
 		{Binding: a.keys.Filter},
@@ -117,6 +121,7 @@ func NewAMIList(ec2 aws.EC2Service) *AMIList {
 }
 
 func (a *AMIList) Init() tea.Cmd {
+	a.table.DeselectAll()
 	if !a.loading {
 		return nil
 	}
@@ -249,7 +254,14 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch {
 		case key.Matches(m, a.keys.Esc):
+			if a.table.SelectionCount() > 0 {
+				a.table.DeselectAll()
+				return a, nil
+			}
 			return a, func() tea.Msg { return msg.NavigateBackMsg{} }
+		case key.Matches(m, a.keys.Select):
+			a.table.ToggleSelect()
+			return a, nil
 		case key.Matches(m, a.keys.Sort):
 			columns, currentCol := a.table.SortColumnNames()
 			return a, func() tea.Msg {
@@ -265,14 +277,17 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			a.search.Activate()
 			return a, nil
 		case key.Matches(m, a.keys.CopyID):
-			selected := a.table.SelectedRow()
-			if selected != nil {
-				id := selected[0]
-				return a, tea.Batch(
-					tea.SetClipboard(id),
-					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
-				)
+			ids := a.selectedAMIIDs()
+			if len(ids) == 0 {
+				return a, nil
 			}
+			text := strings.Join(ids, "\n")
+			return a, tea.Batch(
+				tea.SetClipboard(text),
+				func() tea.Msg {
+					return msg.ToastSuccess(fmt.Sprintf("Copied %d AMI ID(s)", len(ids)))
+				},
+			)
 		case key.Matches(m, a.keys.Refresh):
 			a.loading = true
 			a.err = nil
@@ -327,6 +342,24 @@ func (a *AMIList) findAMI(id string) *aws.AMI {
 		}
 	}
 	return nil
+}
+
+func (a *AMIList) selectedAMIIDs() []string {
+	indices := a.table.SelectedIndices()
+	if len(indices) == 0 {
+		row := a.table.SelectedRow()
+		if row == nil {
+			return nil
+		}
+		return []string{row[0]}
+	}
+	ids := make([]string, 0, len(indices))
+	for _, idx := range indices {
+		if idx < len(a.amis) {
+			ids = append(ids, a.amis[idx].ID)
+		}
+	}
+	return ids
 }
 
 func (a *AMIList) focusAndOpenDetail(id string) tea.Cmd {
@@ -393,6 +426,9 @@ func (a *AMIList) Footer() string {
 		footer = fmt.Sprintf("%d/%d AMIs (owned)", filtered, total)
 	} else {
 		footer = fmt.Sprintf("%d/%d results for %q", filtered, total, a.lastQuery)
+	}
+	if sel := a.table.SelectionCount(); sel > 0 {
+		footer += fmt.Sprintf("  (%d selected)", sel)
 	}
 	if a.spinner.Visible() {
 		footer += "  " + a.spinner.View()
