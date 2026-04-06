@@ -498,15 +498,24 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if e.loading {
+	if e.loading && len(e.instances) == 0 {
+		// No rows yet — only tick the spinner
 		var cmd tea.Cmd
 		e.spinner, cmd = e.spinner.Update(m)
 		return e, cmd
 	}
 
+	var cmds []tea.Cmd
+	if e.loading {
+		// Progressive loading — tick spinner while allowing table interaction
+		var cmd tea.Cmd
+		e.spinner, cmd = e.spinner.Update(m)
+		cmds = append(cmds, cmd)
+	}
 	var cmd tea.Cmd
 	e.table, cmd = e.table.Update(m)
-	return e, cmd
+	cmds = append(cmds, cmd)
+	return e, tea.Batch(cmds...)
 }
 
 func (e *EC2List) findInstance(id string) *aws.Instance {
