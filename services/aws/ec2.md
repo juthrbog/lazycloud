@@ -1,6 +1,6 @@
 # EC2
 
-Browse EC2 instances and AMIs.
+Browse EC2 instances, security groups, and AMIs.
 
 ## Views
 
@@ -77,6 +77,43 @@ Press `o` on a running instance to start an SSM Session Manager shell. This susp
 
 If the instance is not running or the plugin is not installed, a toast error is shown.
 
+## Security Group List
+
+Lists EC2 security groups with inbound/outbound rule counts.
+
+| Column | Description |
+|--------|-------------|
+| Group ID | Security group identifier |
+| Name | Security group name |
+| VPC | Associated VPC ID |
+| Description | Group description (medium+ width) |
+| In | Number of inbound rules |
+| Out | Number of outbound rules |
+
+### Security Group Detail (side panel)
+
+Pressing `enter` or `d` opens a tabbed detail panel:
+
+- **Info**: Group ID, Name, ARN, Description, VPC, Owner ID
+- **Inbound**: Rules displayed in aligned columns (protocol, ports, source CIDR/SG, description)
+- **Outbound**: Same format as inbound
+- **JSON**: Full security group as formatted JSON
+- **Tags**: Key-value pairs (shown only if tags exist)
+
+### Keybindings
+
+| Key | Action |
+|-----|--------|
+| `enter` / `d` | View security group details |
+| `y` | Copy group ID to clipboard |
+| `s` / `S` | Sort / reverse sort |
+| `/` | Filter |
+| `r` | Refresh |
+
+### Cross-Navigation
+
+Security groups are linked from EC2 instance details. Clicking a security group in an instance's Security Groups tab navigates to the SG list with the group auto-selected and its detail panel open.
+
 ## AMI List
 
 Lists AMIs owned by the current account by default. Public AMIs can be searched by name.
@@ -119,7 +156,9 @@ type EC2Service interface {
     TerminateInstance(ctx context.Context, instanceID string) error
     ListOwnedAMIs(ctx context.Context) ([]AMI, error)
     SearchAMIs(ctx context.Context, query string) ([]AMI, error)
+    ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
+    GetSecurityGroup(ctx context.Context, groupID string) (*SecurityGroup, error)
 }
 ```
 
-Pagination is handled automatically in `ListInstances`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). `ListOwnedAMIs` uses `DescribeImages` with `Owners: ["self"]`. `SearchAMIs` filters by name with a 100-result cap. A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.
+Pagination is handled automatically in `ListInstances` and `ListSecurityGroups`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). `ListOwnedAMIs` uses `DescribeImages` with `Owners: ["self"]`. `SearchAMIs` filters by name with a 100-result cap. `ListSecurityGroups` and `GetSecurityGroup` use `DescribeSecurityGroups` with automatic pagination. A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.

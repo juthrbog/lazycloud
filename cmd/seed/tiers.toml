@@ -30,32 +30,88 @@ architecture = "arm64"
 name = "lazycloud-minimal-x86_64"
 architecture = "x86_64"
 
+[[base.ec2.security_groups]]
+name = "web-sg"
+description = "Web server security group"
+
+  [[base.ec2.security_groups.inbound]]
+  protocol = "tcp"
+  from_port = 80
+  to_port = 80
+  cidr = "0.0.0.0/0"
+  description = "HTTP"
+
+  [[base.ec2.security_groups.inbound]]
+  protocol = "tcp"
+  from_port = 443
+  to_port = 443
+  cidr = "0.0.0.0/0"
+  description = "HTTPS"
+
+[[base.ec2.security_groups]]
+name = "api-sg"
+description = "API server security group"
+
+  [[base.ec2.security_groups.inbound]]
+  protocol = "tcp"
+  from_port = 8080
+  to_port = 8080
+  sg_ref = "web-sg"
+  description = "API from web tier"
+
+[[base.ec2.security_groups]]
+name = "db-sg"
+description = "Database security group"
+
+  [[base.ec2.security_groups.inbound]]
+  protocol = "tcp"
+  from_port = 5432
+  to_port = 5432
+  sg_ref = "api-sg"
+  description = "Postgres from API tier"
+
+[[base.ec2.security_groups]]
+name = "bastion-sg"
+description = "SSH bastion host"
+
+  [[base.ec2.security_groups.inbound]]
+  protocol = "tcp"
+  from_port = 22
+  to_port = 22
+  cidr = "10.0.0.0/8"
+  description = "SSH from internal"
+
 [[base.ec2.instances]]
 name = "web-server-1"
 ami_ref = "lazycloud-amazonlinux2-x86_64"
 instance_type = "t3.micro"
+sg_refs = ["web-sg"]
 
 [[base.ec2.instances]]
 name = "api-server-1"
 ami_ref = "lazycloud-ubuntu2204-x86_64"
 instance_type = "t3.small"
+sg_refs = ["api-sg"]
 
 [[base.ec2.instances]]
 name = "db-primary"
 ami_ref = "lazycloud-ubuntu2204-x86_64"
 instance_type = "t3.medium"
 stopped = true
+sg_refs = ["db-sg"]
 
 [[base.ec2.instances]]
 name = "worker-arm-1"
 ami_ref = "lazycloud-ubuntu2204-arm64"
 instance_type = "t4g.micro"
+sg_refs = ["web-sg"]
 
 [[base.ec2.instances]]
 name = "old-bastion"
 ami_ref = "lazycloud-minimal-x86_64"
 instance_type = "t2.micro"
 stopped = true
+sg_refs = ["bastion-sg"]
 
 # ─── Tier: small ─────────────────────────────────────────────────────────────
 # Base resources only, no extras. Default for quick dev iteration.
@@ -73,6 +129,7 @@ objects_per_extra_bucket = 5
 extra_amis = 4
 extra_instances = 15
 stop_fraction = 0.3
+extra_sgs = 5
 
 # ─── Tier: large ─────────────────────────────────────────────────────────────
 # Pagination and progressive loading testing.
@@ -85,6 +142,7 @@ objects_per_extra_bucket = 20
 extra_amis = 10
 extra_instances = 200
 stop_fraction = 0.25
+extra_sgs = 20
 
 # ─── Tier: enterprise ────────────────────────────────────────────────────────
 # Performance stress testing.
@@ -97,3 +155,4 @@ objects_per_extra_bucket = 50
 extra_amis = 20
 extra_instances = 1000
 stop_fraction = 0.2
+extra_sgs = 50

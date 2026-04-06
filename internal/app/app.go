@@ -51,6 +51,7 @@ type Model struct {
 	panel              *ui.TabbedPanel
 	panelOpen          bool
 	panelFocused       bool
+	panelTitle         string
 	panelWidthOverride int // 0 = use default 40% calculation
 }
 
@@ -154,6 +155,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		if view != nil {
 			eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
 			cmd := m.pushView(view)
+			if focusID := msg.Params["focus"]; focusID != "" {
+				focusCmd := func() tea.Msg {
+					return appmsg.FocusResourceMsg{ResourceID: focusID}
+				}
+				return m, tea.Batch(cmd, focusCmd)
+			}
 			return m, cmd
 		}
 		eventlog.Warnf(eventlog.CatNav, "Unknown view: %s", msg.ViewID)
@@ -503,6 +510,7 @@ func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
 	m.panel = &tp
 	m.panelOpen = true
 	m.panelFocused = true
+	m.panelTitle = title
 	m.resizeViews()
 	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
 }
@@ -511,6 +519,7 @@ func (m *Model) closePanel() {
 	m.panel = nil
 	m.panelOpen = false
 	m.panelFocused = false
+	m.panelTitle = ""
 	m.resizeViews()
 }
 
@@ -762,11 +771,15 @@ func (m Model) View() tea.View {
 	if !ui.ReadOnly {
 		mode = "RW"
 	}
+	crumbs := m.nav.Breadcrumbs()
+	if m.panelOpen && m.panelTitle != "" {
+		crumbs = append(crumbs, m.panelTitle)
+	}
 	header := ui.RenderHeader(ui.HeaderData{
 		Profile:     m.config.AWS.Profile,
 		Region:      m.config.AWS.Region,
 		Mode:        mode,
-		Breadcrumbs: m.nav.Breadcrumbs(),
+		Breadcrumbs: crumbs,
 		Width:       m.width,
 	})
 
@@ -967,6 +980,8 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		return views.NewEC2List(m.ec2, m.awsClient)
 	case "ami_list":
 		return views.NewAMIList(m.ec2)
+	case "sg_list":
+		return views.NewSGList(m.ec2)
 	case "s3_list":
 		return views.NewS3List(m.s3, m.config.AWS.Region)
 	case "s3_objects":

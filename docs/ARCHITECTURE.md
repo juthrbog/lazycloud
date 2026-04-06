@@ -49,7 +49,13 @@ LazyCloud starts in **ReadOnly** mode by default. All mutating operations (creat
 
 ### Side Detail Panel
 
-When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) opens a side panel alongside the main view. The panel supports **tabbed views** — EC2 instance detail shows Info, JSON, Security Groups, and Tags tabs (press `1-4` to switch). Lines marked with `→` are navigable: press `enter` to follow a cross-resource link (e.g., from an EC2 instance to its AMI). Press `tab` to toggle focus between the main view and panel. On narrow terminals, content opens full-screen.
+When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) opens a side panel alongside the main view. The panel supports **tabbed views** — EC2 instance detail shows Info, JSON, Security Groups, and Tags tabs (press `1-4` to switch). Lines marked with `→` are navigable: press `enter` to follow a cross-resource link (e.g., from an EC2 instance to its security group). Press `tab` to toggle focus between the main view and panel. On narrow terminals, content opens full-screen.
+
+When the panel is open, the header breadcrumbs append the panel title (e.g., `Services › EC2 Instances › web-server-1 (i-abc123)`) so it's always clear which resource is being viewed.
+
+### Cross-Resource Navigation
+
+Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a `focus` parameter, the target view auto-selects the matching resource and opens its detail panel. If the view is still loading data, the focus is deferred until the data arrives. This lets users follow links seamlessly — e.g., clicking a security group in an EC2 instance detail navigates to the SG list with that group's detail panel already open.
 
 ---
 

@@ -66,9 +66,9 @@ Tiers control how many resources are created. Every tier includes the base named
 | Tier | Extra resources | Use case |
 |------|----------------|----------|
 | `small` | None — base only | Quick dev iteration |
-| `medium` | +10 buckets, +15 instances | Realistic browsing and filtering |
-| `large` | +50 buckets, +200 instances | Pagination and progressive loading |
-| `enterprise` | +200 buckets, +1000 instances | Performance stress testing |
+| `medium` | +10 buckets, +15 instances, +5 SGs | Realistic browsing and filtering |
+| `large` | +50 buckets, +200 instances, +20 SGs | Pagination and progressive loading |
+| `enterprise` | +200 buckets, +1000 instances, +50 SGs | Performance stress testing |
 
 Exact counts are defined in `cmd/seed/tiers.toml`.
 
@@ -76,7 +76,7 @@ Exact counts are defined in `cmd/seed/tiers.toml`.
 
 - **Idempotent** — safe to run multiple times. Lists existing resources first, only creates what's missing. PutObject overwrites are harmless.
 - **Parallel** — services seed concurrently (S3 and EC2 run in separate goroutines).
-- **Base + extras** — named resources (from `tiers.toml` `[base]` section) are always created. Tiers add generated resources on top (`data-bucket-001`, `worker-003`, etc.).
+- **Base + extras** — named resources (from `tiers.toml` `[base]` section) are always created. Tiers add generated resources on top (`data-bucket-001`, `worker-003`, `gen-sg-001`, etc.).
 - **Object content** — base bucket objects have realistic content (JSON configs, YAML, scripts, logs). Extra bucket objects are simple generated text files.
 
 ### Adding a New Service Seeder

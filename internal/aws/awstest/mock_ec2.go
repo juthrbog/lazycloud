@@ -75,3 +75,14 @@ func (m *MockEC2Service) SearchAMIs(ctx context.Context, query string) ([]aws.AM
 	args := m.Called(ctx, query)
 	return args.Get(0).([]aws.AMI), args.Error(1)
 }
+
+func (m *MockEC2Service) ListSecurityGroups(ctx context.Context) ([]aws.SecurityGroup, error) {
+	args := m.Called(ctx)
+	return args.Get(0).([]aws.SecurityGroup), args.Error(1)
+}
+
+func (m *MockEC2Service) GetSecurityGroup(ctx context.Context, groupID string) (*aws.SecurityGroup, error) {
+	args := m.Called(ctx, groupID)
+	val, _ := args.Get(0).(*aws.SecurityGroup)
+	return val, args.Error(1)
+}
