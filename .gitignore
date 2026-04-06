@@ -34,8 +34,9 @@ go.work.sum
 # Task runner
 .task/
 
-# Binary
+# Binaries
 lazycloud
+/seed
 
 # GoReleaser
 dist/

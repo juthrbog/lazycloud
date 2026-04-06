@@ -5,6 +5,7 @@ LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture
 ## Package Layout
 
 ```
+cmd/seed/               Seed program for populating LocalStack with test data. See docs/DEVELOPMENT.md.
 internal/aws/           Service interfaces (S3Service, EC2Service) + SDK implementations. No UI imports.
 internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
 internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.

@@ -1,6 +1,6 @@
 services:
   localstack:
-    image: docker.io/localstack/localstack
+    image: docker.io/localstack/localstack:2026.03.0
     ports:
       - "4566:4566"
     environment:
@@ -8,7 +8,7 @@ services:
       - DEBUG=0
       - PERSISTENCE=1
     volumes:
-      - "./scripts/localstack-init:/etc/localstack/init/ready.d"
+      - "/var/run/docker.sock:/var/run/docker.sock"
       - "localstack-data:/var/lib/localstack"
 
 volumes:
