@@ -117,10 +117,16 @@ func (t *Table) SetRows(rows []table.Row) {
 // SetRowsWithSortKeys replaces the table data with parallel sort keys.
 // Sort keys must be the same length as rows; each sort key row provides
 // string values that sort correctly for each column.
+// Selections are preserved for indices that remain valid.
 func (t *Table) SetRowsWithSortKeys(rows []table.Row, sortKeys []table.Row) {
 	t.allRows = rows
 	t.sortKeys = sortKeys
-	t.selected = make(map[int]bool)
+	// Prune selections beyond new row count, but keep valid ones
+	for idx := range t.selected {
+		if idx >= len(rows) {
+			delete(t.selected, idx)
+		}
+	}
 	t.applyFilterAndSort()
 }
 
