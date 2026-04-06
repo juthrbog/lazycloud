@@ -1,0 +1,99 @@
+# Seed tier configuration for LazyCloud LocalStack development.
+#
+# [base] defines named resources that are always seeded (regardless of tier).
+# [tiers.*] defines extra generated resources per tier on top of base.
+
+# ─── Base Resources (always seeded) ──────────────────────────────────────────
+
+[[base.s3.buckets]]
+name = "test-bucket-1"
+
+[[base.s3.buckets]]
+name = "test-bucket-2"
+
+[[base.s3.buckets]]
+name = "logs-bucket"
+
+[[base.ec2.amis]]
+name = "lazycloud-amazonlinux2-x86_64"
+architecture = "x86_64"
+
+[[base.ec2.amis]]
+name = "lazycloud-ubuntu2204-x86_64"
+architecture = "x86_64"
+
+[[base.ec2.amis]]
+name = "lazycloud-ubuntu2204-arm64"
+architecture = "arm64"
+
+[[base.ec2.amis]]
+name = "lazycloud-minimal-x86_64"
+architecture = "x86_64"
+
+[[base.ec2.instances]]
+name = "web-server-1"
+ami_ref = "lazycloud-amazonlinux2-x86_64"
+instance_type = "t3.micro"
+
+[[base.ec2.instances]]
+name = "api-server-1"
+ami_ref = "lazycloud-ubuntu2204-x86_64"
+instance_type = "t3.small"
+
+[[base.ec2.instances]]
+name = "db-primary"
+ami_ref = "lazycloud-ubuntu2204-x86_64"
+instance_type = "t3.medium"
+stopped = true
+
+[[base.ec2.instances]]
+name = "worker-arm-1"
+ami_ref = "lazycloud-ubuntu2204-arm64"
+instance_type = "t4g.micro"
+
+[[base.ec2.instances]]
+name = "old-bastion"
+ami_ref = "lazycloud-minimal-x86_64"
+instance_type = "t2.micro"
+stopped = true
+
+# ─── Tier: small ─────────────────────────────────────────────────────────────
+# Base resources only, no extras. Default for quick dev iteration.
+
+[tiers.small]
+
+# ─── Tier: medium ────────────────────────────────────────────────────────────
+# Realistic browsing with 20-50 resources per type.
+
+[tiers.medium.s3]
+extra_buckets = 10
+objects_per_extra_bucket = 5
+
+[tiers.medium.ec2]
+extra_amis = 4
+extra_instances = 15
+stop_fraction = 0.3
+
+# ─── Tier: large ─────────────────────────────────────────────────────────────
+# Pagination and progressive loading testing.
+
+[tiers.large.s3]
+extra_buckets = 50
+objects_per_extra_bucket = 20
+
+[tiers.large.ec2]
+extra_amis = 10
+extra_instances = 200
+stop_fraction = 0.25
+
+# ─── Tier: enterprise ────────────────────────────────────────────────────────
+# Performance stress testing.
+
+[tiers.enterprise.s3]
+extra_buckets = 200
+objects_per_extra_bucket = 50
+
+[tiers.enterprise.ec2]
+extra_amis = 20
+extra_instances = 1000
+stop_fraction = 0.2

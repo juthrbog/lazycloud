@@ -16,6 +16,7 @@ require (
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260316093931-f2fb44ab3145
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/sync v0.19.0
 )
 
 require (
@@ -53,7 +54,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
