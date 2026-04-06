@@ -323,27 +323,37 @@ func (e *ec2Seeder) listExistingAMIs(ctx context.Context, ec2c *ec2.Client) (map
 }
 
 func (e *ec2Seeder) listExistingInstances(ctx context.Context, ec2c *ec2.Client) (map[string]string, error) {
-	out, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		Filters: []ec2types.Filter{
-			{
-				Name:   aws.String("instance-state-name"),
-				Values: []string{"pending", "running", "stopped", "stopping"},
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
 	m := make(map[string]string)
-	for _, r := range out.Reservations {
-		for _, inst := range r.Instances {
-			for _, tag := range inst.Tags {
-				if aws.ToString(tag.Key) == "Name" {
-					m[aws.ToString(tag.Value)] = aws.ToString(inst.InstanceId)
+	var nextToken *string
+
+	for {
+		out, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+			NextToken: nextToken,
+			Filters: []ec2types.Filter{
+				{
+					Name:   aws.String("instance-state-name"),
+					Values: []string{"pending", "running", "stopped", "stopping"},
+				},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range out.Reservations {
+			for _, inst := range r.Instances {
+				for _, tag := range inst.Tags {
+					if aws.ToString(tag.Key) == "Name" {
+						m[aws.ToString(tag.Value)] = aws.ToString(inst.InstanceId)
+					}
 				}
 			}
 		}
+		if out.NextToken == nil {
+			break
+		}
+		nextToken = out.NextToken
 	}
+
 	return m, nil
 }
 
