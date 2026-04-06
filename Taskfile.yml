@@ -89,10 +89,10 @@ tasks:
     cmds:
       - docker compose up -d
       - echo "Waiting for LocalStack to be ready..."
-      - bash -c 'for i in $(seq 1 60); do curl -s http://localhost:4566/_localstack/health | grep -q "running" && exit 0; sleep 1; done; echo "LocalStack failed to start" && exit 1'
+      - bash -c 'for i in $(seq 1 60); do curl -s http://localhost:4566/_localstack/health | grep -q "available" && exit 0; sleep 1; done; echo "LocalStack failed to start" && exit 1'
       - echo "LocalStack is ready."
     status:
-      - curl -s http://localhost:4566/_localstack/health | grep -q "running"
+      - docker compose ps --status running --format '{{.Name}}' | grep -q localstack
 
   localstack:down:
     desc: Stop LocalStack
@@ -102,7 +102,7 @@ tasks:
   localstack:wipe:
     desc: Wipe all LocalStack data without stopping it
     cmds:
-      - bash scripts/localstack-wipe.sh
+      - go run ./cmd/seed/ --wipe
     env: *localstack-env
 
   localstack:reset:
@@ -113,7 +113,7 @@ tasks:
   localstack:seed:
     desc: Seed LocalStack with test data
     cmds:
-      - bash scripts/localstack-init/seed.sh
+      - go run ./cmd/seed/ {{.CLI_ARGS}}
     env: *localstack-env
 
   localstack:logs:

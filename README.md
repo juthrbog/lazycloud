@@ -71,7 +71,7 @@ go build -o lazycloud .
 task deps              # download Go dependencies
 task build             # build the binary
 task run               # run against real AWS
-task localstack:seed   # populate LocalStack with test data
+task localstack:seed   # populate LocalStack with test data (see docs/DEVELOPMENT.md)
 task dev               # run against LocalStack
 ```
 
