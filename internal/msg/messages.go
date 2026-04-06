@@ -9,6 +9,12 @@ type NavigateMsg struct {
 // NavigateBackMsg tells the root model to pop the current view.
 type NavigateBackMsg struct{}
 
+// FocusResourceMsg tells a list view to select and show detail for a specific resource.
+// Sent after cross-resource navigation to auto-open the detail panel.
+type FocusResourceMsg struct {
+	ResourceID string
+}
+
 // ResourcesLoadedMsg is sent when an AWS API call completes successfully.
 type ResourcesLoadedMsg[T any] struct {
 	Resources []T

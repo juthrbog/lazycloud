@@ -30,8 +30,9 @@ type baseS3Config struct {
 }
 
 type baseEC2Config struct {
-	AMIs      []amiDef      `toml:"amis"`
-	Instances []instanceDef `toml:"instances"`
+	AMIs           []amiDef      `toml:"amis"`
+	Instances      []instanceDef `toml:"instances"`
+	SecurityGroups []sgDef       `toml:"security_groups"`
 }
 
 type tierEntry struct {
@@ -51,10 +52,27 @@ type amiDef struct {
 }
 
 type instanceDef struct {
-	Name         string `toml:"name"`
-	AMIRef       string `toml:"ami_ref"`
-	InstanceType string `toml:"instance_type"`
-	Stopped      bool   `toml:"stopped"`
+	Name         string   `toml:"name"`
+	AMIRef       string   `toml:"ami_ref"`
+	InstanceType string   `toml:"instance_type"`
+	Stopped      bool     `toml:"stopped"`
+	SGRefs       []string `toml:"sg_refs"`
+}
+
+type sgDef struct {
+	Name        string      `toml:"name"`
+	Description string      `toml:"description"`
+	Inbound     []sgRuleDef `toml:"inbound"`
+	Outbound    []sgRuleDef `toml:"outbound"`
+}
+
+type sgRuleDef struct {
+	Protocol    string `toml:"protocol"`
+	FromPort    int32  `toml:"from_port"`
+	ToPort      int32  `toml:"to_port"`
+	CIDR        string `toml:"cidr"`
+	SGRef       string `toml:"sg_ref"`
+	Description string `toml:"description"`
 }
 
 // ─── Tier extras ────────────────────────────────────────────────────────────
@@ -68,6 +86,7 @@ type tierEC2Extras struct {
 	ExtraAMIs      int     `toml:"extra_amis"`
 	ExtraInstances int     `toml:"extra_instances"`
 	StopFraction   float64 `toml:"stop_fraction"`
+	ExtraSGs       int     `toml:"extra_sgs"`
 }
 
 // ─── Merged config ──────────────────────────────────────────────────────────
@@ -87,9 +106,11 @@ type S3SeedConfig struct {
 type EC2SeedConfig struct {
 	AMIs           []amiDef
 	Instances      []instanceDef
+	SecurityGroups []sgDef
 	ExtraAMIs      int
 	ExtraInstances int
 	StopFraction   float64
+	ExtraSGs       int
 }
 
 // loadConfig parses the embedded TOML and returns the merged config for the requested tier.
@@ -113,9 +134,11 @@ func loadConfig(tier string) (*SeedConfig, error) {
 		EC2: EC2SeedConfig{
 			AMIs:           f.Base.EC2.AMIs,
 			Instances:      f.Base.EC2.Instances,
+			SecurityGroups: f.Base.EC2.SecurityGroups,
 			ExtraAMIs:      entry.EC2.ExtraAMIs,
 			ExtraInstances: entry.EC2.ExtraInstances,
 			StopFraction:   entry.EC2.StopFraction,
+			ExtraSGs:       entry.EC2.ExtraSGs,
 		},
 	}, nil
 }

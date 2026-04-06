@@ -43,17 +43,18 @@ var defaultSGListKeyMap = sgListKeyMap{
 
 // SGList displays EC2 security groups.
 type SGList struct {
-	keys      sgListKeyMap
-	ec2       aws.EC2Service
-	table     ui.Table
-	groups    []aws.SecurityGroup
-	filter    ui.Filter
-	spinner   ui.Spinner
-	loading   bool
-	err       error
-	width     int
-	height    int
-	widthTier ui.WidthTier
+	keys         sgListKeyMap
+	ec2          aws.EC2Service
+	table        ui.Table
+	groups       []aws.SecurityGroup
+	filter       ui.Filter
+	spinner      ui.Spinner
+	loading      bool
+	err          error
+	width        int
+	height       int
+	widthTier    ui.WidthTier
+	pendingFocus string // resource ID to auto-open after data loads
 }
 
 func (s *SGList) ID() string    { return "sg_list" }
@@ -141,7 +142,19 @@ func (s *SGList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.groups = m.groups
 		rows := buildSGRows(m.groups, s.widthTier)
 		s.table.SetRows(rows)
+		if s.pendingFocus != "" {
+			id := s.pendingFocus
+			s.pendingFocus = ""
+			return s, s.focusAndOpenDetail(id)
+		}
 		return s, nil
+
+	case msg.FocusResourceMsg:
+		if s.loading {
+			s.pendingFocus = m.ResourceID
+			return s, nil
+		}
+		return s, s.focusAndOpenDetail(m.ResourceID)
 
 	case msg.ErrorMsg:
 		s.loading = false
@@ -214,30 +227,11 @@ func (s *SGList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if selected == nil {
 				return s, nil
 			}
-			sgID := selected[0]
-			sg := s.findSG(sgID)
+			sg := s.findSG(selected[0])
 			if sg == nil {
 				return s, nil
 			}
-			title := sg.ID
-			if sg.Name != "" {
-				title = sg.Name + " (" + sg.ID + ")"
-			}
-			infoContent, infoLinks := buildSGInfoContent(sg)
-			tabs := []msg.TabContent{
-				{Title: "Info", Content: infoContent, Format: "text", Links: infoLinks},
-				{Title: "Inbound", Content: buildRulesContent(sg.InboundRules), Format: "text"},
-				{Title: "Outbound", Content: buildRulesContent(sg.OutboundRules), Format: "text"},
-				{Title: "JSON", Content: sg.DetailJSON(), Format: "json"},
-			}
-			if len(sg.Tags) > 0 {
-				tabs = append(tabs, msg.TabContent{
-					Title: "Tags", Content: buildTagsContent(sg.Tags), Format: "text",
-				})
-			}
-			return s, func() tea.Msg {
-				return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
-			}
+			return s, s.openDetailCmd(sg)
 		}
 	}
 
@@ -259,6 +253,43 @@ func (s *SGList) findSG(id string) *aws.SecurityGroup {
 		}
 	}
 	return nil
+}
+
+func (s *SGList) focusAndOpenDetail(id string) tea.Cmd {
+	// Select the matching row in the table.
+	for i, g := range s.groups {
+		if g.ID == id {
+			s.table.SetCursor(i)
+			break
+		}
+	}
+	sg := s.findSG(id)
+	if sg == nil {
+		return nil
+	}
+	return s.openDetailCmd(sg)
+}
+
+func (s *SGList) openDetailCmd(sg *aws.SecurityGroup) tea.Cmd {
+	title := sg.ID
+	if sg.Name != "" {
+		title = sg.Name + " (" + sg.ID + ")"
+	}
+	infoContent, infoLinks := buildSGInfoContent(sg)
+	tabs := []msg.TabContent{
+		{Title: "Info", Content: infoContent, Format: "text", Links: infoLinks},
+		{Title: "Inbound", Content: buildRulesContent(sg.InboundRules), Format: "text"},
+		{Title: "Outbound", Content: buildRulesContent(sg.OutboundRules), Format: "text"},
+		{Title: "JSON", Content: sg.DetailJSON(), Format: "json"},
+	}
+	if len(sg.Tags) > 0 {
+		tabs = append(tabs, msg.TabContent{
+			Title: "Tags", Content: buildTagsContent(sg.Tags), Format: "text",
+		})
+	}
+	return func() tea.Msg {
+		return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
+	}
 }
 
 func buildSGRows(groups []aws.SecurityGroup, tier ui.WidthTier) []table.Row {

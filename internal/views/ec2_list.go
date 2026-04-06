@@ -80,6 +80,7 @@ type EC2List struct {
 	loading           bool
 	pendingInstanceIDs []string // instances targeted by a pending action
 	pendingAction     string // action name awaiting confirmation
+	pendingFocus      string // instance ID to auto-open after data loads
 	err               error
 	width             int
 	height            int
@@ -160,6 +161,16 @@ func (e *EC2List) fetchInstances() tea.Cmd {
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d EC2 instances", len(instances))
 		return ec2InstancesLoadedMsg{instances: instances}
 	}
+}
+
+func (e *EC2List) focusAndFetchDetail(instanceID string) tea.Cmd {
+	for i, inst := range e.instances {
+		if inst.ID == instanceID {
+			e.table.SetCursor(i)
+			break
+		}
+	}
+	return e.fetchDetail(instanceID)
 }
 
 func (e *EC2List) fetchDetail(instanceID string) tea.Cmd {
@@ -279,7 +290,19 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		e.instances = m.instances
 		rows, sortKeys := e.buildRows(m.instances)
 		e.table.SetRowsWithSortKeys(rows, sortKeys)
+		if e.pendingFocus != "" {
+			id := e.pendingFocus
+			e.pendingFocus = ""
+			return e, e.focusAndFetchDetail(id)
+		}
 		return e, nil
+
+	case msg.FocusResourceMsg:
+		if e.loading {
+			e.pendingFocus = m.ResourceID
+			return e, nil
+		}
+		return e, e.focusAndFetchDetail(m.ResourceID)
 
 	case ec2InstanceDetailMsg:
 		if m.err != nil {
@@ -690,7 +713,7 @@ func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink)
 		links = append(links, msg.TabLink{
 			Line:   i,
 			ViewID: "sg_list",
-			Params: map[string]string{"id": sg.ID},
+			Params: map[string]string{"focus": sg.ID},
 		})
 	}
 	return b.String(), links
