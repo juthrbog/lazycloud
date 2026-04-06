@@ -17,8 +17,11 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-type ec2InstancesLoadedMsg struct {
-	instances []aws.Instance
+type ec2PageLoadedMsg struct {
+	instances    []aws.Instance
+	hasMorePages bool
+	token        *string
+	pageNum      int
 }
 
 type ec2InstanceDetailMsg struct {
@@ -145,21 +148,25 @@ func (e *EC2List) Init() tea.Cmd {
 	if !e.loading {
 		return nil
 	}
-	return tea.Batch(e.spinner.Tick(), e.fetchInstances())
+	return tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
 }
 
-func (e *EC2List) fetchInstances() tea.Cmd {
+func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := e.ec2
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
-		instances, err := svc.ListInstances(context.Background())
+		page, err := svc.ListInstancesPage(context.Background(), token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing EC2 instances"}
 		}
-		eventlog.Infof(eventlog.CatAWS, "Loaded %d EC2 instances", len(instances))
-		return ec2InstancesLoadedMsg{instances: instances}
+		return ec2PageLoadedMsg{
+			instances:    page.Instances,
+			hasMorePages: page.HasMorePages,
+			token:        page.Token,
+			pageNum:      pageNum,
+		}
 	}
 }
 
@@ -264,8 +271,9 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case ec2DelayedRefreshMsg:
+		e.instances = nil
 		e.spinner.Show("Refreshing instances...")
-		return e, tea.Batch(e.spinner.Tick(), e.fetchInstances())
+		return e, tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
 
 	case ec2SSMSessionFinishedMsg:
 		if m.err != nil {
@@ -279,17 +287,25 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Refresh instance list — state may have changed during the session
 		e.loading = true
+		e.instances = nil
 		e.spinner.Show("Refreshing instances...")
-		return e, tea.Batch(e.spinner.Tick(), e.fetchInstances(), func() tea.Msg {
+		return e, tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1), func() tea.Msg {
 			return msg.ToastSuccess("Session ended: " + label)
 		})
 
-	case ec2InstancesLoadedMsg:
+	case ec2PageLoadedMsg:
+		e.instances = append(e.instances, m.instances...)
+		rows, sortKeys := e.buildRows(e.instances)
+		e.table.SetRowsWithSortKeys(rows, sortKeys)
+
+		if m.hasMorePages {
+			e.spinner.Show(fmt.Sprintf("Loading instances... %d so far", len(e.instances)))
+			return e, tea.Batch(e.spinner.Tick(), e.fetchPage(m.token, m.pageNum+1))
+		}
+
 		e.loading = false
 		e.spinner.Hide()
-		e.instances = m.instances
-		rows, sortKeys := e.buildRows(m.instances)
-		e.table.SetRowsWithSortKeys(rows, sortKeys)
+		eventlog.Infof(eventlog.CatAWS, "Loaded %d EC2 instances (%d pages)", len(e.instances), m.pageNum)
 		if e.pendingFocus != "" {
 			id := e.pendingFocus
 			e.pendingFocus = ""
@@ -397,8 +413,9 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, e.keys.Refresh):
 			e.loading = true
 			e.err = nil
+			e.instances = nil
 			e.spinner.Show("Loading EC2 instances...")
-			return e, tea.Batch(e.spinner.Tick(), e.fetchInstances())
+			return e, tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
 		case key.Matches(m, e.keys.Details, e.keys.Describe):
 			selected := e.table.SelectedRow()
 			if selected != nil {
@@ -481,15 +498,24 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	if e.loading {
+	if e.loading && len(e.instances) == 0 {
+		// No rows yet — only tick the spinner
 		var cmd tea.Cmd
 		e.spinner, cmd = e.spinner.Update(m)
 		return e, cmd
 	}
 
+	var cmds []tea.Cmd
+	if e.loading {
+		// Progressive loading — tick spinner while allowing table interaction
+		var cmd tea.Cmd
+		e.spinner, cmd = e.spinner.Update(m)
+		cmds = append(cmds, cmd)
+	}
 	var cmd tea.Cmd
 	e.table, cmd = e.table.Update(m)
-	return e, cmd
+	cmds = append(cmds, cmd)
+	return e, tea.Batch(cmds...)
 }
 
 func (e *EC2List) findInstance(id string) *aws.Instance {
@@ -735,6 +761,9 @@ func buildTagsContent(tags map[string]string) string {
 func (e *EC2List) Footer() string {
 	filtered, total := e.table.RowCount()
 	footer := fmt.Sprintf("%d/%d instances", filtered, total)
+	if e.loading && total > 0 {
+		footer += fmt.Sprintf("  (loading... %d so far)", total)
+	}
 	if sel := e.table.SelectionCount(); sel > 0 {
 		footer += fmt.Sprintf("  (%d selected)", sel)
 	}

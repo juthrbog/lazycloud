@@ -13,9 +13,17 @@ import (
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
+// InstancePage holds one page of EC2 instances for progressive loading.
+type InstancePage struct {
+	Instances    []Instance
+	HasMorePages bool
+	Token        *string
+}
+
 // EC2Service defines all EC2 operations that views depend on.
 type EC2Service interface {
 	ListInstances(ctx context.Context) ([]Instance, error)
+	ListInstancesPage(ctx context.Context, token *string) (*InstancePage, error)
 	GetInstanceDetail(ctx context.Context, instanceID string) (*InstanceDetail, error)
 	StartInstance(ctx context.Context, instanceID string) error
 	StopInstance(ctx context.Context, instanceID string) error
@@ -193,6 +201,31 @@ func (svc *EC2ServiceImpl) ListInstances(ctx context.Context) ([]Instance, error
 	}
 
 	return instances, nil
+}
+
+// ListInstancesPage returns a single page of EC2 instances for progressive loading.
+func (svc *EC2ServiceImpl) ListInstancesPage(ctx context.Context, token *string) (*InstancePage, error) {
+	ec2c := svc.client.EC2Client()
+
+	output, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		NextToken: token,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var instances []Instance
+	for _, reservation := range output.Reservations {
+		for _, inst := range reservation.Instances {
+			instances = append(instances, mapInstance(inst))
+		}
+	}
+
+	return &InstancePage{
+		Instances:    instances,
+		HasMorePages: output.NextToken != nil,
+		Token:        output.NextToken,
+	}, nil
 }
 
 // GetInstanceDetail returns full metadata for a single instance.
