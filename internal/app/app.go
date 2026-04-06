@@ -63,6 +63,10 @@ type Model struct {
 	panelTitle         string
 	panelWidthOverride int // 0 = use default 40% calculation
 
+	// Stashed panel state for resize restoration
+	stashedPanelTitle string
+	stashedPanelTabs  []appmsg.TabContent
+
 	// Cross-navigation history for back traversal
 	crossNavHistory []crossNavEntry
 }
@@ -144,7 +148,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.panelOpen && !m.canShowPanel() {
+			m.stashPanel()
 			m.closePanel()
+		}
+		if !m.panelOpen && m.canShowPanel() && m.stashedPanelTitle != "" {
+			m.openTabbedPanel(m.stashedPanelTitle, m.stashedPanelTabs)
+			m.clearStashedPanel()
 		}
 		m.resizeViews()
 		return m, nil
@@ -158,6 +167,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Non-content navigation closes the panel
 		if m.panelOpen {
+			m.clearStashedPanel()
 			m.closePanel()
 		}
 		view := m.resolveView(msg)
@@ -177,8 +187,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.NavigateBackMsg:
 		if m.panelOpen {
+			m.clearStashedPanel()
 			m.closePanel()
 		}
+		m.clearStashedPanel()
 		if m.nav.Depth() > 1 {
 			m.nav.Pop()
 			m.trimCrossNavHistory()
@@ -333,6 +345,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case key.Matches(msg, m.keys.Quit.Binding):
 			if m.panelOpen {
+				m.clearStashedPanel()
 				m.closePanel()
 				return m, nil
 			}
@@ -376,6 +389,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panelOpen && m.panelFocused && m.panel != nil {
 			switch {
 			case key.Matches(msg, m.keys.PanelClose.Binding):
+				m.clearStashedPanel()
 				m.closePanel()
 				return m, nil
 			case key.Matches(msg, m.keys.PanelEditor.Binding):
@@ -543,10 +557,10 @@ func (m *Model) closePanel() {
 	m.resizeViews()
 }
 
-// pushCrossNavHistory saves the current panel state for later restoration.
-func (m *Model) pushCrossNavHistory() {
+// savePanelState extracts the current panel's title and tabs for saving.
+func (m *Model) savePanelState() (string, []appmsg.TabContent) {
 	if m.panel == nil {
-		return
+		return "", nil
 	}
 	tabData := m.panel.TabData()
 	tabs := make([]appmsg.TabContent, len(tabData))
@@ -566,9 +580,29 @@ func (m *Model) pushCrossNavHistory() {
 			Links:   links,
 		}
 	}
+	return m.panelTitle, tabs
+}
+
+// stashPanel saves the current panel state for resize restoration.
+func (m *Model) stashPanel() {
+	m.stashedPanelTitle, m.stashedPanelTabs = m.savePanelState()
+}
+
+// clearStashedPanel discards any stashed panel state.
+func (m *Model) clearStashedPanel() {
+	m.stashedPanelTitle = ""
+	m.stashedPanelTabs = nil
+}
+
+// pushCrossNavHistory saves the current panel state for later restoration.
+func (m *Model) pushCrossNavHistory() {
+	title, tabs := m.savePanelState()
+	if title == "" {
+		return
+	}
 	entry := crossNavEntry{
 		navDepth:   m.nav.Depth(),
-		panelTitle: m.panelTitle,
+		panelTitle: title,
 		panelTabs:  tabs,
 	}
 	m.crossNavHistory = append(m.crossNavHistory, entry)
@@ -694,6 +728,7 @@ func (m *Model) showProfilePicker() tea.Cmd {
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Profile changed → %s", profile)
+	m.clearStashedPanel()
 	m.closePanel()
 	m.config.AWS.Profile = profile
 
@@ -782,6 +817,7 @@ func (m *Model) showRegionPicker() {
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Region changed → %s", region)
+	m.clearStashedPanel()
 	m.closePanel()
 	m.config.AWS.Region = region
 
@@ -823,6 +859,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatUI, "Theme changed → %s", name)
+	m.clearStashedPanel()
 	m.closePanel()
 	if t, ok := ui.Themes[name]; ok {
 		ui.ActiveTheme = t
