@@ -61,6 +61,7 @@ type AMIList struct {
 	width        int
 	height       int
 	widthTier    ui.WidthTier
+	pendingFocus string // AMI ID to auto-open after data loads
 }
 
 func (a *AMIList) ID() string    { return "ami_list" }
@@ -170,7 +171,19 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		a.lastQuery = m.query
 		rows := buildAMIRows(m.amis, a.widthTier)
 		a.table.SetRows(rows)
+		if a.pendingFocus != "" {
+			id := a.pendingFocus
+			a.pendingFocus = ""
+			return a, a.focusAndOpenDetail(id)
+		}
 		return a, nil
+
+	case msg.FocusResourceMsg:
+		if a.loading {
+			a.pendingFocus = m.ResourceID
+			return a, nil
+		}
+		return a, a.focusAndOpenDetail(m.ResourceID)
 
 	case msg.ErrorMsg:
 		a.loading = false
@@ -314,6 +327,37 @@ func (a *AMIList) findAMI(id string) *aws.AMI {
 		}
 	}
 	return nil
+}
+
+func (a *AMIList) focusAndOpenDetail(id string) tea.Cmd {
+	for i, ami := range a.amis {
+		if ami.ID == id {
+			a.table.SetCursor(i)
+			break
+		}
+	}
+	ami := a.findAMI(id)
+	if ami == nil {
+		return nil
+	}
+	return a.openDetailCmd(ami)
+}
+
+func (a *AMIList) openDetailCmd(ami *aws.AMI) tea.Cmd {
+	content, _ := json.MarshalIndent(ami, "", "  ")
+	title := ami.ID
+	if ami.Name != "" {
+		title = ami.Name + " (" + ami.ID + ")"
+	}
+	c := string(content)
+	return func() tea.Msg {
+		return msg.TabbedContentMsg{
+			PanelTitle: title,
+			Tabs: []msg.TabContent{
+				{Title: title, Content: c, Format: "json"},
+			},
+		}
+	}
 }
 
 func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []table.Row {

@@ -656,3 +656,139 @@ func TestContentLinkActivatedMsgClosesPanelAndNavigates(t *testing.T) {
 	assert.False(t, m.panelOpen, "panel should close on link activation")
 	assert.NotNil(t, cmd, "should return NavigateMsg cmd")
 }
+
+// --- Cross-navigation history ---
+
+func openTabbedPanel(m *Model, title string) {
+	tabs := []msg.TabContent{
+		{Title: "Info", Content: "info for " + title, Format: "text"},
+		{Title: "JSON", Content: `{"title":"` + title + `"}`, Format: "json"},
+	}
+	m.openTabbedPanel(title, tabs)
+}
+
+func TestCrossNavSavesPanelState(t *testing.T) {
+	m := newTestModel(140, 40)
+	openTabbedPanel(&m, "web-server-1 (i-123)")
+	assert.True(t, m.panelOpen)
+	assert.Empty(t, m.crossNavHistory)
+
+	// Cross-nav: link activation saves panel state
+	result, _ := m.Update(ui.ContentLinkActivatedMsg{
+		ViewID: "sg_list",
+		Params: map[string]string{"focus": "sg-456"},
+	})
+	m = result.(Model)
+
+	assert.False(t, m.panelOpen)
+	require.Len(t, m.crossNavHistory, 1)
+	assert.Equal(t, "web-server-1 (i-123)", m.crossNavHistory[0].panelTitle)
+	assert.Len(t, m.crossNavHistory[0].panelTabs, 2)
+}
+
+func TestCrossNavBackRestoresPanel(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// Navigate to a view so we have depth > 1
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "eventlog"})
+	m = result.(Model)
+	assert.Equal(t, 2, m.nav.Depth())
+
+	// Open panel and cross-nav
+	openTabbedPanel(&m, "test-resource")
+	result, cmd := m.Update(ui.ContentLinkActivatedMsg{
+		ViewID: "eventlog",
+		Params: map[string]string{},
+	})
+	m = result.(Model)
+	require.Len(t, m.crossNavHistory, 1)
+
+	// Execute the NavigateMsg returned by link activation to push the target view
+	navMsg := cmd()
+	result, _ = m.Update(navMsg)
+	m = result.(Model)
+	assert.Equal(t, 3, m.nav.Depth())
+
+	// Backspace restores panel and pops nav
+	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(Model)
+
+	assert.True(t, m.panelOpen, "panel should be restored")
+	assert.Equal(t, "test-resource", m.panelTitle)
+	assert.Equal(t, 2, m.nav.Depth(), "nav stack should have popped")
+	assert.Empty(t, m.crossNavHistory, "history entry should be consumed")
+}
+
+func TestCrossNavBackNoopWhenEmpty(t *testing.T) {
+	m := newTestModel(140, 40)
+	depth := m.nav.Depth()
+
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	m = result.(Model)
+
+	assert.Equal(t, depth, m.nav.Depth(), "should not pop when history is empty")
+	assert.False(t, m.panelOpen)
+}
+
+func TestCrossNavHistoryBounded(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// Push more than max entries
+	for i := range crossNavHistoryMax + 5 {
+		m.crossNavHistory = append(m.crossNavHistory, crossNavEntry{
+			navDepth:   i + 1,
+			panelTitle: "entry",
+			panelTabs:  []msg.TabContent{{Title: "Info", Content: "x"}},
+		})
+		if len(m.crossNavHistory) > crossNavHistoryMax {
+			m.crossNavHistory = m.crossNavHistory[1:]
+		}
+	}
+
+	assert.Len(t, m.crossNavHistory, crossNavHistoryMax)
+}
+
+func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// Push two views
+	m.Update(msg.NavigateMsg{ViewID: "eventlog"})
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "eventlog"})
+	m = result.(Model)
+	assert.Equal(t, 3, m.nav.Depth())
+
+	// Add history entries at different depths
+	m.crossNavHistory = []crossNavEntry{
+		{navDepth: 2, panelTitle: "deep"},
+		{navDepth: 1, panelTitle: "shallow"},
+	}
+
+	// Manual back (esc → NavigateBackMsg) should trim entries at depth >= current
+	result, _ = m.Update(msg.NavigateBackMsg{})
+	m = result.(Model)
+
+	assert.Equal(t, 2, m.nav.Depth())
+	require.Len(t, m.crossNavHistory, 1)
+	assert.Equal(t, "shallow", m.crossNavHistory[0].panelTitle)
+}
+
+func TestBackspaceHintOnlyShownWithHistory(t *testing.T) {
+	m := newTestModel(140, 40)
+
+	// No history — no backspace hint
+	hints := m.currentKeyHints()
+	for _, h := range hints {
+		assert.NotEqual(t, "cross-nav back", h.Help().Desc)
+	}
+
+	// Add history — hint should appear
+	m.crossNavHistory = []crossNavEntry{
+		{navDepth: 1, panelTitle: "test"},
+	}
+	hints = m.currentKeyHints()
+	descs := make([]string, len(hints))
+	for i, h := range hints {
+		descs[i] = h.Help().Desc
+	}
+	assert.Contains(t, descs, "cross-nav back")
+}
