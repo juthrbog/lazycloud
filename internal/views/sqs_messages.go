@@ -88,6 +88,7 @@ type SQSMessages struct {
 	filter    ui.Filter
 	spinner   ui.Spinner
 	loading   bool
+	fetched   bool // true after at least one fetch attempt
 	redriving bool // active redrive in progress
 	err       error
 	width     int
@@ -245,6 +246,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsMessagesLoadedMsg:
 		s.loading = false
+		s.fetched = true
 		s.spinner.Hide()
 		newCount := 0
 		for _, m := range m.messages {
@@ -380,6 +382,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		case key.Matches(m, s.keys.Refresh):
 			s.loading = true
+			s.fetched = false
 			s.err = nil
 			s.messages = nil
 			s.seen = make(map[string]bool)
@@ -650,6 +653,8 @@ func (s *SQSMessages) View() tea.View {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+	} else if len(s.messages) == 0 && s.fetched {
+		content = "\n  No messages in queue. Press l to peek again."
 	} else if len(s.messages) == 0 {
 		content = "\n  Press l to peek at messages"
 	} else {
