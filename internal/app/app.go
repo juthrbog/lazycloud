@@ -252,6 +252,24 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toasts.Dismiss(msg.ID)
 		return m, nil
 
+	case appmsg.RequestFormMsg:
+		formView := ui.NewFormView(msg)
+		if m.panelOpen {
+			m.clearStashedPanel()
+			m.closePanel()
+		}
+		cmd := m.pushView(formView)
+		return m, cmd
+
+	case appmsg.FormResultMsg:
+		// Pop the form view, then route the result to the revealed parent view.
+		if m.nav.Depth() > 1 {
+			m.nav.Pop()
+			m.resizeViews()
+		}
+		cmd := m.nav.UpdateCurrent(msg)
+		return m, cmd
+
 	case appmsg.RequestConfirmMsg:
 		m.confirm.Show(msg.Message, msg.Action)
 		return m, nil
@@ -339,6 +357,16 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panelOpen && key.Matches(msg, m.keys.TabToggle.Binding) {
 			m.panelFocused = !m.panelFocused
 			return m, nil
+		}
+
+		// When a form view is active, only ctrl+c is global — all other keys
+		// go to the form so text input works (q, T, P, etc. are typed characters).
+		if _, isForm := m.nav.Current().(*ui.FormView); isForm {
+			if msg.String() == "ctrl+c" {
+				return m, tea.Quit
+			}
+			cmd := m.nav.UpdateCurrent(teaMsg)
+			return m, cmd
 		}
 
 		// Global keys — work regardless of focus state
@@ -1165,6 +1193,11 @@ func (m Model) currentKeyHints() []ui.HintBinding {
 
 	// View-specific hints first
 	hints := m.nav.Current().KeyMap()
+
+	// Forms handle all keys internally — don't show global hints.
+	if _, isForm := m.nav.Current().(*ui.FormView); isForm {
+		return hints
+	}
 
 	if m.panelOpen {
 		hints = append(hints, ui.NewHintBinding([]string{"tab"}, "tab", "focus panel"))

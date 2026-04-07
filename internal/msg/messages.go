@@ -91,6 +91,38 @@ type RequestFeaturePickerMsg struct {
 	ViewIDs []string // corresponding view IDs
 }
 
+// ─── Form messages ──────────────────────────────────────────────────────────
+
+// FormField describes a single field in a form request.
+type FormField struct {
+	Key         string               // unique key for result retrieval
+	Type        string               // "input", "text", "select", "confirm"
+	Title       string               // field label
+	Description string               // help text below the field
+	Placeholder string               // placeholder for input/text
+	Default     string               // default value
+	Options     []string             // for select fields
+	Required    bool                 // adds NotEmpty validation
+	Validate    func(string) error   // custom validation (applied after Required)
+}
+
+// RequestFormMsg asks the app to show a multi-field form as a nav view.
+// The FormResultMsg is routed back to the originating view after completion.
+type RequestFormMsg struct {
+	ID     string      // form identifier (e.g., "sqs_send_message")
+	Title  string      // breadcrumb title
+	Fields []FormField // field definitions
+}
+
+// FormResultMsg is emitted when a form is submitted or cancelled.
+type FormResultMsg struct {
+	ID      string            // matches RequestFormMsg.ID
+	Aborted bool              // true if user pressed esc
+	Values  map[string]string // key → value for each field
+}
+
+// ─── Tab/panel messages ─────────────────────────────────────────────────────
+
 // TabLink maps a line in a tab's content to a navigation target.
 // When the user presses Enter on this line, a NavigateMsg is emitted.
 type TabLink struct {
