@@ -8,6 +8,7 @@ community discussions, and real-world usage in this codebase.
 - `charm.land/lipgloss/v2@v2.0.2`
 - `charm.land/bubbletea/v2@v2.0.2`
 - `charm.land/bubbles/v2@v2.0.0`
+- `charm.land/huh/v2@v2.0.3` — form library (used by `internal/ui/form.go`)
 
 ---
 

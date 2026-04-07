@@ -59,6 +59,14 @@ Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a 
 
 **Back traversal:** Before navigating forward, the app saves the current panel state (title, tabs, links) to a bounded history stack (max 10 entries). Press `backspace` to pop the history, navigate back, and restore the previous panel. This preserves the user's context through chains of cross-resource links. The history is automatically invalidated when the user manually navigates back via `esc`/`q`, and cleared on profile or region changes.
 
+### Forms
+
+Multi-field input forms use `charm.land/huh/v2` wrapped in a `FormView` (`internal/ui/form.go`). Unlike overlays (confirm, picker), forms are pushed onto the nav stack as full views. Views declare fields via `RequestFormMsg` with declarative `FormField` specs — no `huh` import needed. The `FormView` translates specs to huh fields, applies the LazyCloud theme, and emits `FormResultMsg` on submit/cancel.
+
+**Key handling:** When a `FormView` is active, all global key handlers (`q`, `T`, `P`, etc.) are bypassed so text input works. Only `ctrl+c` remains global. The status bar shows only form-relevant hints.
+
+**Field types:** `input` (single-line), `text` (multi-line textarea), `select` (single choice), `confirm` (yes/no). Custom validation via `FormField.Validate`.
+
 ---
 
 # Architecture Guidelines
@@ -77,6 +85,8 @@ Home (service grid)
 │   └── Key Pairs        (list)
 ├── S3
 │   └── Buckets          (list → objects → versions)
+├── SQS
+│   └── Queues           (list → detail with tabs / message peek)
 ├── Lambda
 │   ├── Functions        (list → detail with tabs: Config / Env / Triggers / Logs)
 │   └── Layers           (list → detail)
