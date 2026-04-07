@@ -103,8 +103,13 @@ Modal UI components that intercept all input when visible and don't expose hints
 - `confirm.go` -- destructive action confirmation
 - `tabbedpanel.go` -- numeric tab switching (delegates content keys to ContentView)
 - `help.go` -- the help overlay itself (j/k scroll, filter input, esc/? close)
+- `form.go` -- multi-field forms via `huh/v2` (pushed as nav view, not overlay)
 
 These stay string-based because they're self-contained, don't participate in the hint system, and don't benefit from `key.Binding`.
+
+## Form Key Handling
+
+When a `FormView` is the active view, the app bypasses **all** global key handlers except `ctrl+c`. This prevents single-letter global bindings (`q`, `T`, `P`, `W`, `L`, `:`, `?`) from intercepting form text input. Huh handles all field navigation internally (`tab`/`shift+tab`, `enter` to advance, `esc` to cancel). The status bar hides global hints and shows only form-relevant ones.
 
 ## Adding a New Keybinding
 
