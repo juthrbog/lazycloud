@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 // Client holds shared AWS configuration.
@@ -48,6 +49,15 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 		Region:   region,
 		Endpoint: endpoint,
 	}, nil
+}
+
+// SQSClient returns an SQS service client configured for the current profile/region/endpoint.
+func (c *Client) SQSClient() *sqs.Client {
+	return sqs.NewFromConfig(c.Config, func(o *sqs.Options) {
+		if c.Endpoint != "" {
+			o.BaseEndpoint = aws.String(c.Endpoint)
+		}
+	})
 }
 
 // ServiceEndpoint returns the endpoint override for service client constructors.

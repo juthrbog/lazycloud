@@ -23,6 +23,19 @@ type tiersFile struct {
 type baseConfig struct {
 	S3  baseS3Config  `toml:"s3"`
 	EC2 baseEC2Config `toml:"ec2"`
+	SQS baseSQSConfig `toml:"sqs"`
+}
+
+type baseSQSConfig struct {
+	Queues []queueDef `toml:"queues"`
+}
+
+type queueDef struct {
+	Name            string `toml:"name"`
+	FIFO            bool   `toml:"fifo"`
+	DLQRef          string `toml:"dlq_ref"`
+	MaxReceiveCount int    `toml:"max_receive_count"`
+	SeedMessages    int    `toml:"seed_messages"`
 }
 
 type baseS3Config struct {
@@ -38,6 +51,11 @@ type baseEC2Config struct {
 type tierEntry struct {
 	S3  tierS3Extras  `toml:"s3"`
 	EC2 tierEC2Extras `toml:"ec2"`
+	SQS tierSQSExtras `toml:"sqs"`
+}
+
+type tierSQSExtras struct {
+	ExtraQueues int `toml:"extra_queues"`
 }
 
 // ─── Resource definitions ───────────────────────────────────────────────────
@@ -95,6 +113,12 @@ type tierEC2Extras struct {
 type SeedConfig struct {
 	S3  S3SeedConfig
 	EC2 EC2SeedConfig
+	SQS SQSSeedConfig
+}
+
+type SQSSeedConfig struct {
+	Queues      []queueDef
+	ExtraQueues int
 }
 
 type S3SeedConfig struct {
@@ -139,6 +163,10 @@ func loadConfig(tier string) (*SeedConfig, error) {
 			ExtraInstances: entry.EC2.ExtraInstances,
 			StopFraction:   entry.EC2.StopFraction,
 			ExtraSGs:       entry.EC2.ExtraSGs,
+		},
+		SQS: SQSSeedConfig{
+			Queues:      f.Base.SQS.Queues,
+			ExtraQueues: entry.SQS.ExtraQueues,
 		},
 	}, nil
 }

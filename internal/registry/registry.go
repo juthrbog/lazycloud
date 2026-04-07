@@ -41,6 +41,9 @@ var Services = []Service{
 	{Name: "S3", Icon: ui.IconS3, Features: []Feature{
 		{Name: "Buckets", ViewID: "s3_list", Icon: ui.IconS3},
 	}},
+	{Name: "SQS", Icon: ui.IconSQS, Features: []Feature{
+		{Name: "Queues", ViewID: "sqs_queues", Icon: ui.IconSQS},
+	}},
 }
 
 // Commands is the ordered list of commands available in the command palette.
@@ -51,6 +54,7 @@ var Commands = []Command{
 	{Name: "ec2/amis", Aliases: []string{"amis"}, Description: "EC2 AMIs", ViewID: "ami_list"},
 	{Name: "ec2/sgs", Aliases: []string{"sgs", "security-groups"}, Description: "EC2 Security Groups", ViewID: "sg_list"},
 	{Name: "s3", Aliases: []string{"buckets"}, Description: "S3 buckets", ViewID: "s3_list"},
+	{Name: "sqs", Aliases: []string{"queues"}, Description: "SQS queues", ViewID: "sqs_queues"},
 	{Name: "logs", Aliases: []string{"log", "events"}, Description: "Event log", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},
 	{Name: "theme", Description: "Switch theme"},
