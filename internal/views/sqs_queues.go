@@ -264,9 +264,14 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return msg.ToastError("Purge failed: " + m.err.Error())
 			}
 		}
-		return s, func() tea.Msg {
+		// Refresh to pick up new message counts.
+		s.loading = true
+		s.queues = nil
+		s.queueURLs = nil
+		s.spinner.Show("Refreshing queues...")
+		return s, tea.Batch(s.spinner.Tick(), s.fetchQueuesPage(nil, 1), func() tea.Msg {
 			return msg.ToastSuccess("Queue purged (60s cooldown before next purge)")
-		}
+		})
 
 	case sqsQueueDeletedMsg:
 		if m.err != nil {
