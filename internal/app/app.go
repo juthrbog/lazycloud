@@ -43,6 +43,7 @@ type Model struct {
 	awsClient *aws.Client
 	s3        aws.S3Service
 	ec2       aws.EC2Service
+	sqs       aws.SQSService
 	nav       *nav.Navigator
 	confirm   ui.Confirm
 	picker    ui.Picker
@@ -92,6 +93,7 @@ func New(cfg config.Config) Model {
 		awsClient:  awsClient,
 		s3:         aws.NewS3Service(awsClient),
 		ec2:        aws.NewEC2Service(awsClient),
+		sqs:        aws.NewSQSService(awsClient),
 		nav:        nav.New(home),
 		confirm:    ui.NewConfirm(),
 		picker:     ui.NewPicker(),
@@ -1116,6 +1118,10 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		return views.NewS3Objects(m.s3, n.Params["bucket"], n.Params["prefix"])
 	case "s3_versions":
 		return views.NewS3Versions(m.s3, n.Params["bucket"], n.Params["key"])
+	case "sqs_queues":
+		return views.NewSQSQueues(m.sqs)
+	case "sqs_messages":
+		return views.NewSQSMessages(m.sqs, n.Params["queue_url"], n.Params["queue_name"], n.Params["fifo"] == "true")
 	case "eventlog":
 		return views.NewEventLog()
 	case "content":
