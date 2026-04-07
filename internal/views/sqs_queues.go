@@ -638,10 +638,11 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
 // ─── Detail tabs ────────────────────────────────────────────────────────────
 
 func buildSQSDetailTabs(q *aws.Queue, sourceQueues []string) []msg.TabContent {
+	msgContent, msgLinks := buildSQSMessageCountsContent(q)
 	tabs := []msg.TabContent{
 		{Title: "Info", Content: buildSQSInfoContent(q), Format: "text"},
 		{Title: "Configuration", Content: buildSQSConfigContent(q), Format: "text"},
-		{Title: "Messages", Content: buildSQSMessageCountsContent(q), Format: "text"},
+		{Title: "Messages", Content: msgContent, Format: "text", Links: msgLinks},
 	}
 
 	dlqContent, dlqLinks := buildSQSDLQContent(q, sourceQueues)
@@ -687,12 +688,21 @@ func buildSQSConfigContent(q *aws.Queue) string {
 	return b.String()
 }
 
-func buildSQSMessageCountsContent(q *aws.Queue) string {
+func buildSQSMessageCountsContent(q *aws.Queue) (string, []msg.TabLink) {
 	var b strings.Builder
 	writeField(&b, "Approximate Messages", fmt.Sprintf("%d", q.ApproximateMessageCount))
 	writeField(&b, "In-Flight", fmt.Sprintf("%d", q.ApproximateInFlightCount))
 	writeField(&b, "Delayed", fmt.Sprintf("%d", q.ApproximateDelayedCount))
-	return b.String()
+	links := []msg.TabLink{{
+		Line:   0, // "Approximate Messages" line
+		ViewID: "sqs_messages",
+		Params: map[string]string{
+			"queue_url":  q.URL,
+			"queue_name": q.Name,
+			"fifo":       fmt.Sprintf("%t", q.FifoQueue),
+		},
+	}}
+	return b.String(), links
 }
 
 func buildSQSDLQContent(q *aws.Queue, sourceQueues []string) (string, []msg.TabLink) {
