@@ -76,6 +76,7 @@ type Queue struct {
 	ContentBasedDeduplication  bool
 	DeduplicationScope         string
 	FifoThroughputLimit        string
+	IsDLQ                      bool // derived: another queue's RedrivePolicy targets this queue
 }
 
 // RedrivePolicy configures dead-letter queue routing.

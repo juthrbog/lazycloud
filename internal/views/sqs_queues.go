@@ -305,6 +305,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.attrsLoading = false
 		s.spinner.Hide()
 		s.queues = m.queues
+		markDLQQueues(s.queues)
 		rows, sortKeys := s.buildRows(s.queues)
 		s.table.SetRowsWithSortKeys(rows, sortKeys)
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d SQS queues", len(s.queues))
@@ -548,6 +549,24 @@ func (s *SQSQueues) deleteQueues(urls []string) tea.Cmd {
 	}
 }
 
+// markDLQQueues cross-references redrive policies to mark queues that are
+// used as dead-letter queues by other queues in the list.
+func markDLQQueues(queues []aws.Queue) {
+	// Collect all ARNs that are DLQ targets.
+	dlqARNs := make(map[string]bool)
+	for _, q := range queues {
+		if q.RedrivePolicy != nil {
+			dlqARNs[q.RedrivePolicy.DeadLetterTargetArn] = true
+		}
+	}
+	// Mark queues whose ARN appears as a DLQ target.
+	for i := range queues {
+		if dlqARNs[queues[i].ARN] || queues[i].RedriveAllowPolicy != nil {
+			queues[i].IsDLQ = true
+		}
+	}
+}
+
 // ─── Row building ───────────────────────────────────────────────────────────
 
 func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
@@ -564,7 +583,7 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
 		}
 
 		dlq := ""
-		if q.RedriveAllowPolicy != nil {
+		if q.IsDLQ {
 			dlq = "Yes"
 		}
 
