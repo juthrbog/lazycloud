@@ -37,6 +37,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 |---------|-------------|
 | [S3](services/aws/s3.md) | Buckets, objects, versions, presigned URLs, copy/move, create/delete |
 | [EC2](services/aws/ec2.md) | Instances, AMIs, start/stop/reboot/terminate, SSM connect, public AMI search |
+| [SQS](services/aws/sqs.md) | Queues, message peek, send, purge, delete, DLQ redrive |
 
 ## Getting Started
 
@@ -139,7 +140,7 @@ Precedence: **config file < env vars < CLI flags**.
 
 ## Tech Stack
 
-[Bubble Tea v2](https://github.com/charmbracelet/bubbletea) | [Lip Gloss v2](https://github.com/charmbracelet/lipgloss) | [Bubbles v2](https://github.com/charmbracelet/bubbles) | [Chroma](https://github.com/alecthomas/chroma) | [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2) | [testify](https://github.com/stretchr/testify) | [Taskfile](https://taskfile.dev) | [LocalStack](https://github.com/localstack/localstack)
+[Bubble Tea v2](https://github.com/charmbracelet/bubbletea) | [Lip Gloss v2](https://github.com/charmbracelet/lipgloss) | [Bubbles v2](https://github.com/charmbracelet/bubbles) | [Huh v2](https://github.com/charmbracelet/huh) | [Chroma](https://github.com/alecthomas/chroma) | [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2) | [testify](https://github.com/stretchr/testify) | [Taskfile](https://taskfile.dev) | [LocalStack](https://github.com/localstack/localstack)
 
 ## Architecture
 
