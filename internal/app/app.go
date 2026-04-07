@@ -70,6 +70,9 @@ type Model struct {
 
 	// Cross-navigation history for back traversal
 	crossNavHistory []crossNavEntry
+
+	// Pending theme name awaiting confirmation when nav stack is deep
+	pendingTheme string
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -307,6 +310,15 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ConfirmResultMsg:
+		if msg.Action == "theme_switch" {
+			if msg.Confirmed && m.pendingTheme != "" {
+				name := m.pendingTheme
+				m.pendingTheme = ""
+				return m.applyTheme(name)
+			}
+			m.pendingTheme = ""
+			return m, nil
+		}
 		// Route to current view
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
@@ -335,6 +347,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.ID {
 		case "theme":
+			if m.nav.Depth() > 1 {
+				m.pendingTheme = msg.Value
+				m.confirm.ShowQuick("Switching themes resets the current view. Continue?", "theme_switch")
+				return m, nil
+			}
 			return m.applyTheme(msg.Value)
 		case "region":
 			return m.applyRegion(msg.Value)
@@ -1075,7 +1092,7 @@ func (m Model) View() tea.View {
 		toastW := lipgloss.Width(toastView)
 		toastH := lipgloss.Height(toastView)
 		x := m.width - toastW - 2
-		y := m.height - toastH - 2
+		y := m.height - toastH - footerHeight - statusHeight - 1
 		if x < 0 {
 			x = 0
 		}
