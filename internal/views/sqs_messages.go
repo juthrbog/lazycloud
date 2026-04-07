@@ -252,6 +252,14 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				s.seen[m.MessageID] = true
 				s.messages = append(s.messages, m)
 				newCount++
+			} else {
+				// Update existing message with fresh attributes (e.g., ReceiveCount).
+				for i := range s.messages {
+					if s.messages[i].MessageID == m.MessageID {
+						s.messages[i] = m
+						break
+					}
+				}
 			}
 		}
 		s.rebuildRows()
