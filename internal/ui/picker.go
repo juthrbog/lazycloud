@@ -153,9 +153,8 @@ func (p *Picker) rebuildFiltered() {
 		p.filtered = append(p.filtered, contains...)
 		p.filtered = append(p.filtered, fuzzyOnly...)
 	}
-	if p.cursor >= len(p.filtered) {
-		p.cursor = max(0, len(p.filtered)-1)
-	}
+	// Reset cursor to the top match when the filter changes.
+	p.cursor = 0
 }
 
 // fuzzyMatch returns true if all characters in pattern appear in s in order.
