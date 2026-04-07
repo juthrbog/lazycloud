@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
@@ -47,6 +49,10 @@ type sqsQueuePurgedMsg struct {
 
 type sqsQueueDeletedMsg struct {
 	url string
+	err error
+}
+
+type sqsMessageSentMsg struct {
 	err error
 }
 
@@ -232,6 +238,66 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		} else if m.ID == "action" && m.Selected >= 0 {
 			urls := s.pendingQueueURLs
 			switch m.Value {
+			case "Send Message":
+				q := s.selectedQueue()
+				if q == nil {
+					return s, nil
+				}
+				fields := []msg.FormField{
+					{Key: "body", Type: "text", Title: "Message Body", Required: true,
+						Placeholder: "Enter message body (JSON or plain text)"},
+				}
+				if q.FifoQueue {
+					// FIFO queues require MessageGroupId and don't support per-message delay.
+					fields = append(fields,
+						msg.FormField{Key: "group_id", Type: "input", Title: "Message Group ID",
+							Required: true, Placeholder: "Enter group ID",
+							Description: "Required. Messages in the same group are processed in order.",
+							Validate: huh.ValidateMaxLength(128)},
+					)
+					if !q.ContentBasedDeduplication {
+						fields = append(fields,
+							msg.FormField{Key: "dedup_id", Type: "input", Title: "Deduplication ID",
+								Required: true, Placeholder: "Enter deduplication ID",
+								Description: "Required (content-based dedup is disabled on this queue).",
+								Validate: huh.ValidateMaxLength(128)},
+						)
+					} else {
+						fields = append(fields,
+							msg.FormField{Key: "dedup_id", Type: "input", Title: "Deduplication ID",
+								Placeholder: "Leave empty for content-based dedup",
+								Description: "Optional. Auto-generated from message body if empty.",
+								Validate: huh.ValidateMaxLength(128)},
+						)
+					}
+				} else {
+					// Standard queues support per-message delay.
+					fields = append(fields,
+						msg.FormField{Key: "delay", Type: "input", Title: "Delay Seconds",
+							Placeholder: "0", Description: "Optional. Seconds to delay delivery (0-900).",
+							Validate: func(s string) error {
+								if s == "" {
+									return nil
+								}
+								v, err := strconv.Atoi(s)
+								if err != nil {
+									return fmt.Errorf("must be a number")
+								}
+								if v < 0 || v > 900 {
+									return fmt.Errorf("must be between 0 and 900")
+								}
+								return nil
+							}},
+					)
+				}
+				s.pendingQueueURLs = []string{q.URL}
+				return s, func() tea.Msg {
+					return msg.RequestFormMsg{
+						ID:     "sqs_send_message",
+						Title:  "Send Message",
+						Fields: fields,
+					}
+				}
 			case "Purge Queue":
 				s.pendingAction = "purge"
 				count := len(urls)
@@ -252,6 +318,18 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		return s, nil
+
+	case msg.FormResultMsg:
+		if m.ID == "sqs_send_message" && !m.Aborted {
+			if len(s.pendingQueueURLs) == 0 {
+				return s, nil
+			}
+			queueURL := s.pendingQueueURLs[0]
+			s.pendingQueueURLs = nil
+			return s, s.sendMessage(queueURL, m.Values)
+		}
+		s.pendingQueueURLs = nil
 		return s, nil
 
 	case ui.ConfirmResultMsg:
@@ -311,6 +389,17 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.removeQueue(m.url)
 		return s, func() tea.Msg {
 			return msg.ToastSuccess("Queue deleted")
+		}
+
+	case sqsMessageSentMsg:
+		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "SendMessage failed: %v", m.err)
+			return s, func() tea.Msg {
+				return msg.ToastError("Send failed: " + m.err.Error())
+			}
+		}
+		return s, func() tea.Msg {
+			return msg.ToastSuccess("Message sent")
 		}
 
 	case sqsQueuesPageMsg:
@@ -476,7 +565,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if len(urls) > 1 {
 				title = fmt.Sprintf("Manage %d Queues", len(urls))
 			}
-			actions := []string{"Purge Queue", "Delete Queue"}
+			actions := []string{"Send Message", "Purge Queue", "Delete Queue"}
 			return s, func() tea.Msg {
 				return msg.RequestActionPickerMsg{
 					Title:   title,
@@ -579,6 +668,24 @@ func (s *SQSQueues) deleteQueues(urls []string) tea.Cmd {
 			}
 		}
 		return sqsQueueDeletedMsg{url: urls[0]}
+	}
+}
+
+func (s *SQSQueues) sendMessage(queueURL string, values map[string]string) tea.Cmd {
+	svc := s.sqs
+	body := values["body"]
+	delay := int32(0)
+	if d, ok := values["delay"]; ok && d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 && v <= 900 {
+			delay = int32(v) //nolint:gosec // bounded to 0-900
+		}
+	}
+	groupID := values["group_id"]
+	dedupID := values["dedup_id"]
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Sending message to %s", queueURL)
+		err := svc.SendMessage(context.Background(), queueURL, body, delay, groupID, dedupID)
+		return sqsMessageSentMsg{err: err}
 	}
 }
 
