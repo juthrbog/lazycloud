@@ -145,17 +145,16 @@ func NewSQSMessages(sqs aws.SQSService, queueURL, queueName string, isFIFO bool)
 		seen:      make(map[string]bool),
 		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner("Peeking at messages..."),
-		loading:   true,
+		loading:   false,
 		widthTier: ui.TierMedium,
 	}
 }
 
 func (s *SQSMessages) Init() tea.Cmd {
 	s.table.DeselectAll()
-	if !s.loading {
-		return nil
-	}
-	return tea.Batch(s.spinner.Tick(), s.fetchMessages(), s.fetchQueueARN())
+	// Fetch queue ARN (lightweight, no side effects) but don't auto-peek.
+	// The user presses 'l' to consciously trigger ReceiveMessage.
+	return s.fetchQueueARN()
 }
 
 // ─── Data fetching ──────────────────────────────────────────────────────────
@@ -643,6 +642,8 @@ func (s *SQSMessages) View() tea.View {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+	} else if len(s.messages) == 0 {
+		content = "\n  Press l to peek at messages"
 	} else {
 		content = s.table.View()
 		if s.filter.Active() {
