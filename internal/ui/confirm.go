@@ -13,13 +13,14 @@ type ConfirmResultMsg struct {
 	Action    string
 }
 
-// Confirm is a type-to-confirm dialog for destructive actions.
-// The user must type "confirm" and press enter to proceed.
+// Confirm is a confirmation dialog. In normal mode, the user must type
+// "confirm" and press enter. In quick mode, a single y/n keypress suffices.
 type Confirm struct {
 	message string
 	action  string
 	input   textinput.Model
 	visible bool
+	quick   bool   // true = y/n mode, false = type "confirm" mode
 	err     string // shown when user types wrong text
 }
 
@@ -31,14 +32,25 @@ func NewConfirm() Confirm {
 	return Confirm{input: ti}
 }
 
-// Show displays the confirmation dialog with the given message and action ID.
+// Show displays the type-to-confirm dialog with the given message and action ID.
 func (c *Confirm) Show(message, action string) {
 	c.message = message
 	c.action = action
 	c.err = ""
 	c.visible = true
+	c.quick = false
 	c.input.SetValue("")
 	c.input.Focus()
+}
+
+// ShowQuick displays a y/n confirmation dialog for non-destructive actions.
+func (c *Confirm) ShowQuick(message, action string) {
+	c.message = message
+	c.action = action
+	c.err = ""
+	c.visible = true
+	c.quick = true
+	c.input.Blur()
 }
 
 // Hide dismisses the dialog.
@@ -60,6 +72,23 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
+		if c.quick {
+			action := c.action
+			switch msg.String() {
+			case "y", "Y", "enter":
+				c.visible = false
+				return c, func() tea.Msg {
+					return ConfirmResultMsg{Confirmed: true, Action: action}
+				}
+			case "n", "N", "esc":
+				c.visible = false
+				return c, func() tea.Msg {
+					return ConfirmResultMsg{Confirmed: false, Action: action}
+				}
+			}
+			return c, nil
+		}
+
 		switch msg.String() {
 		case "enter":
 			if strings.EqualFold(strings.TrimSpace(c.input.Value()), "confirm") {
@@ -97,13 +126,20 @@ func (c Confirm) View() string {
 	s := S
 
 	content := s.ModeIndicator.Render(c.message) + "\n\n"
-	content += c.input.View() + "\n"
 
-	if c.err != "" {
-		content += s.Error.Render(c.err) + "\n"
+	if c.quick {
+		keyStyle := s.StatusKey
+		descStyle := s.Muted
+		content += keyStyle.Render("y") + descStyle.Render(" yes") +
+			descStyle.Render("  ") +
+			keyStyle.Render("n") + descStyle.Render(" cancel")
+	} else {
+		content += c.input.View() + "\n"
+		if c.err != "" {
+			content += s.Error.Render(c.err) + "\n"
+		}
+		content += "\n" + s.Muted.Render("type 'confirm' + enter to proceed  esc cancel")
 	}
-
-	content += "\n" + s.Muted.Render("type 'confirm' + enter to proceed  esc cancel")
 
 	box := s.DialogErrorBorder
 
