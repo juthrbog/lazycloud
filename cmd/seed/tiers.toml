@@ -113,6 +113,32 @@ instance_type = "t2.micro"
 stopped = true
 sg_refs = ["bastion-sg"]
 
+[[base.sqs.queues]]
+name = "order-processing"
+dlq_ref = "order-processing-dlq"
+max_receive_count = 5
+seed_messages = 8
+
+[[base.sqs.queues]]
+name = "order-processing-dlq"
+seed_messages = 3
+
+[[base.sqs.queues]]
+name = "notifications"
+seed_messages = 5
+
+[[base.sqs.queues]]
+name = "analytics-events"
+
+[[base.sqs.queues]]
+name = "payment-processing.fifo"
+fifo = true
+seed_messages = 4
+
+[[base.sqs.queues]]
+name = "audit-log.fifo"
+fifo = true
+
 # ─── Tier: small ─────────────────────────────────────────────────────────────
 # Base resources only, no extras. Default for quick dev iteration.
 
@@ -120,6 +146,9 @@ sg_refs = ["bastion-sg"]
 
 # ─── Tier: medium ────────────────────────────────────────────────────────────
 # Realistic browsing with 20-50 resources per type.
+
+[tiers.medium.sqs]
+extra_queues = 10
 
 [tiers.medium.s3]
 extra_buckets = 10
@@ -134,6 +163,9 @@ extra_sgs = 5
 # ─── Tier: large ─────────────────────────────────────────────────────────────
 # Pagination and progressive loading testing.
 
+[tiers.large.sqs]
+extra_queues = 50
+
 [tiers.large.s3]
 extra_buckets = 50
 objects_per_extra_bucket = 20
@@ -146,6 +178,9 @@ extra_sgs = 20
 
 # ─── Tier: enterprise ────────────────────────────────────────────────────────
 # Performance stress testing.
+
+[tiers.enterprise.sqs]
+extra_queues = 200
 
 [tiers.enterprise.s3]
 extra_buckets = 200
