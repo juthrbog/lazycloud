@@ -92,3 +92,27 @@ func (m *MockEC2Service) GetSecurityGroup(ctx context.Context, groupID string) (
 	val, _ := args.Get(0).(*aws.SecurityGroup)
 	return val, args.Error(1)
 }
+
+func (m *MockEC2Service) ListVPCsPage(ctx context.Context, token *string) (*aws.VPCPage, error) {
+	args := m.Called(ctx, token)
+	val, _ := args.Get(0).(*aws.VPCPage)
+	return val, args.Error(1)
+}
+
+func (m *MockEC2Service) GetVPC(ctx context.Context, vpcID string) (*aws.VPC, error) {
+	args := m.Called(ctx, vpcID)
+	val, _ := args.Get(0).(*aws.VPC)
+	return val, args.Error(1)
+}
+
+func (m *MockEC2Service) ListSubnetsPage(ctx context.Context, token *string, vpcID string) (*aws.SubnetPage, error) {
+	args := m.Called(ctx, token, vpcID)
+	val, _ := args.Get(0).(*aws.SubnetPage)
+	return val, args.Error(1)
+}
+
+func (m *MockEC2Service) GetSubnet(ctx context.Context, subnetID string) (*aws.Subnet, error) {
+	args := m.Called(ctx, subnetID)
+	val, _ := args.Get(0).(*aws.Subnet)
+	return val, args.Error(1)
+}

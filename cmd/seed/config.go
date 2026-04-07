@@ -43,6 +43,8 @@ type baseS3Config struct {
 }
 
 type baseEC2Config struct {
+	VPCs           []vpcDef      `toml:"vpcs"`
+	Subnets        []subnetDef   `toml:"subnets"`
 	AMIs           []amiDef      `toml:"amis"`
 	Instances      []instanceDef `toml:"instances"`
 	SecurityGroups []sgDef       `toml:"security_groups"`
@@ -75,11 +77,13 @@ type instanceDef struct {
 	InstanceType string   `toml:"instance_type"`
 	Stopped      bool     `toml:"stopped"`
 	SGRefs       []string `toml:"sg_refs"`
+	SubnetRef    string   `toml:"subnet_ref"`
 }
 
 type sgDef struct {
 	Name        string      `toml:"name"`
 	Description string      `toml:"description"`
+	VPCRef      string      `toml:"vpc_ref"`
 	Inbound     []sgRuleDef `toml:"inbound"`
 	Outbound    []sgRuleDef `toml:"outbound"`
 }
@@ -93,6 +97,20 @@ type sgRuleDef struct {
 	Description string `toml:"description"`
 }
 
+type vpcDef struct {
+	Name    string `toml:"name"`
+	CIDR    string `toml:"cidr"`
+	Tenancy string `toml:"tenancy"` // "default" or "dedicated"
+}
+
+type subnetDef struct {
+	Name   string `toml:"name"`
+	VPCRef string `toml:"vpc_ref"` // references a vpcDef.Name
+	CIDR   string `toml:"cidr"`
+	AZ     string `toml:"az"`
+	Public bool   `toml:"public"` // MapPublicIpOnLaunch
+}
+
 // ─── Tier extras ────────────────────────────────────────────────────────────
 
 type tierS3Extras struct {
@@ -101,6 +119,7 @@ type tierS3Extras struct {
 }
 
 type tierEC2Extras struct {
+	ExtraVPCs      int     `toml:"extra_vpcs"`
 	ExtraAMIs      int     `toml:"extra_amis"`
 	ExtraInstances int     `toml:"extra_instances"`
 	StopFraction   float64 `toml:"stop_fraction"`
@@ -128,9 +147,12 @@ type S3SeedConfig struct {
 }
 
 type EC2SeedConfig struct {
+	VPCs           []vpcDef
+	Subnets        []subnetDef
 	AMIs           []amiDef
 	Instances      []instanceDef
 	SecurityGroups []sgDef
+	ExtraVPCs      int
 	ExtraAMIs      int
 	ExtraInstances int
 	StopFraction   float64
@@ -156,9 +178,12 @@ func loadConfig(tier string) (*SeedConfig, error) {
 			ObjectsPerExtraBucket: entry.S3.ObjectsPerExtraBucket,
 		},
 		EC2: EC2SeedConfig{
+			VPCs:           f.Base.EC2.VPCs,
+			Subnets:        f.Base.EC2.Subnets,
 			AMIs:           f.Base.EC2.AMIs,
 			Instances:      f.Base.EC2.Instances,
 			SecurityGroups: f.Base.EC2.SecurityGroups,
+			ExtraVPCs:      entry.EC2.ExtraVPCs,
 			ExtraAMIs:      entry.EC2.ExtraAMIs,
 			ExtraInstances: entry.EC2.ExtraInstances,
 			StopFraction:   entry.EC2.StopFraction,

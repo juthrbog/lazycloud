@@ -14,6 +14,55 @@ name = "test-bucket-2"
 [[base.s3.buckets]]
 name = "logs-bucket"
 
+[[base.ec2.vpcs]]
+name = "main-vpc"
+cidr = "10.0.0.0/16"
+tenancy = "default"
+
+[[base.ec2.vpcs]]
+name = "staging-vpc"
+cidr = "10.1.0.0/16"
+tenancy = "default"
+
+[[base.ec2.subnets]]
+name = "main-public-1a"
+vpc_ref = "main-vpc"
+cidr = "10.0.1.0/24"
+az = "us-east-1a"
+public = true
+
+[[base.ec2.subnets]]
+name = "main-public-1b"
+vpc_ref = "main-vpc"
+cidr = "10.0.2.0/24"
+az = "us-east-1b"
+public = true
+
+[[base.ec2.subnets]]
+name = "main-private-1a"
+vpc_ref = "main-vpc"
+cidr = "10.0.10.0/24"
+az = "us-east-1a"
+
+[[base.ec2.subnets]]
+name = "main-private-1b"
+vpc_ref = "main-vpc"
+cidr = "10.0.11.0/24"
+az = "us-east-1b"
+
+[[base.ec2.subnets]]
+name = "staging-public-1a"
+vpc_ref = "staging-vpc"
+cidr = "10.1.1.0/24"
+az = "us-east-1a"
+public = true
+
+[[base.ec2.subnets]]
+name = "staging-private-1a"
+vpc_ref = "staging-vpc"
+cidr = "10.1.10.0/24"
+az = "us-east-1a"
+
 [[base.ec2.amis]]
 name = "lazycloud-amazonlinux2-x86_64"
 architecture = "x86_64"
@@ -33,6 +82,7 @@ architecture = "x86_64"
 [[base.ec2.security_groups]]
 name = "web-sg"
 description = "Web server security group"
+vpc_ref = "main-vpc"
 
   [[base.ec2.security_groups.inbound]]
   protocol = "tcp"
@@ -51,6 +101,7 @@ description = "Web server security group"
 [[base.ec2.security_groups]]
 name = "api-sg"
 description = "API server security group"
+vpc_ref = "main-vpc"
 
   [[base.ec2.security_groups.inbound]]
   protocol = "tcp"
@@ -62,6 +113,7 @@ description = "API server security group"
 [[base.ec2.security_groups]]
 name = "db-sg"
 description = "Database security group"
+vpc_ref = "main-vpc"
 
   [[base.ec2.security_groups.inbound]]
   protocol = "tcp"
@@ -73,6 +125,7 @@ description = "Database security group"
 [[base.ec2.security_groups]]
 name = "bastion-sg"
 description = "SSH bastion host"
+vpc_ref = "main-vpc"
 
   [[base.ec2.security_groups.inbound]]
   protocol = "tcp"
@@ -86,12 +139,14 @@ name = "web-server-1"
 ami_ref = "lazycloud-amazonlinux2-x86_64"
 instance_type = "t3.micro"
 sg_refs = ["web-sg"]
+subnet_ref = "main-public-1a"
 
 [[base.ec2.instances]]
 name = "api-server-1"
 ami_ref = "lazycloud-ubuntu2204-x86_64"
 instance_type = "t3.small"
 sg_refs = ["api-sg"]
+subnet_ref = "main-private-1a"
 
 [[base.ec2.instances]]
 name = "db-primary"
@@ -99,12 +154,14 @@ ami_ref = "lazycloud-ubuntu2204-x86_64"
 instance_type = "t3.medium"
 stopped = true
 sg_refs = ["db-sg"]
+subnet_ref = "main-private-1b"
 
 [[base.ec2.instances]]
 name = "worker-arm-1"
 ami_ref = "lazycloud-ubuntu2204-arm64"
 instance_type = "t4g.micro"
 sg_refs = ["web-sg"]
+subnet_ref = "main-public-1b"
 
 [[base.ec2.instances]]
 name = "old-bastion"
@@ -112,6 +169,7 @@ ami_ref = "lazycloud-minimal-x86_64"
 instance_type = "t2.micro"
 stopped = true
 sg_refs = ["bastion-sg"]
+subnet_ref = "staging-public-1a"
 
 [[base.sqs.queues]]
 name = "order-processing"
@@ -155,6 +213,7 @@ extra_buckets = 10
 objects_per_extra_bucket = 5
 
 [tiers.medium.ec2]
+extra_vpcs = 3
 extra_amis = 4
 extra_instances = 15
 stop_fraction = 0.3
@@ -171,6 +230,7 @@ extra_buckets = 50
 objects_per_extra_bucket = 20
 
 [tiers.large.ec2]
+extra_vpcs = 10
 extra_amis = 10
 extra_instances = 200
 stop_fraction = 0.25
@@ -187,6 +247,7 @@ extra_buckets = 200
 objects_per_extra_bucket = 50
 
 [tiers.enterprise.ec2]
+extra_vpcs = 25
 extra_amis = 20
 extra_instances = 1000
 stop_fraction = 0.2

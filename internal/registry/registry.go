@@ -37,6 +37,8 @@ var Services = []Service{
 		{Name: "Instances", ViewID: "ec2_list", Icon: ui.IconEC2},
 		{Name: "AMIs", ViewID: "ami_list", Icon: ui.IconCloud},
 		{Name: "Security Groups", ViewID: "sg_list", Icon: ui.IconShield},
+		{Name: "VPCs", ViewID: "vpc_list", Icon: ui.IconNetwork},
+		{Name: "Subnets", ViewID: "subnet_list", Icon: ui.IconNetwork},
 	}},
 	{Name: "S3", Icon: ui.IconS3, Features: []Feature{
 		{Name: "Buckets", ViewID: "s3_list", Icon: ui.IconS3},
@@ -53,6 +55,8 @@ var Commands = []Command{
 	{Name: "ec2", Aliases: []string{"instances"}, Description: "EC2 instances", ViewID: "ec2_list"},
 	{Name: "ec2/amis", Aliases: []string{"amis"}, Description: "EC2 AMIs", ViewID: "ami_list"},
 	{Name: "ec2/sgs", Aliases: []string{"sgs", "security-groups"}, Description: "EC2 Security Groups", ViewID: "sg_list"},
+	{Name: "ec2/vpcs", Aliases: []string{"vpcs"}, Description: "EC2 VPCs", ViewID: "vpc_list"},
+	{Name: "ec2/subnets", Aliases: []string{"subnets"}, Description: "EC2 Subnets", ViewID: "subnet_list"},
 	{Name: "s3", Aliases: []string{"buckets"}, Description: "S3 buckets", ViewID: "s3_list"},
 	{Name: "sqs", Aliases: []string{"queues"}, Description: "SQS queues", ViewID: "sqs_queues"},
 	{Name: "logs", Aliases: []string{"log", "events"}, Description: "Event log", ViewID: "eventlog"},
