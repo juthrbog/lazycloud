@@ -35,9 +35,14 @@ type sqsQueueDetailMsg struct {
 	err          error
 }
 
+type sqsQueueRefreshedMsg struct {
+	queue *aws.Queue
+	err   error
+}
+
 type sqsQueuePurgedMsg struct {
-	url string
-	err error
+	urls []string
+	err  error
 }
 
 type sqsQueueDeletedMsg struct {
@@ -192,6 +197,14 @@ func (s *SQSQueues) fetchAllAttributes(urls []string) tea.Cmd {
 	}
 }
 
+func (s *SQSQueues) refreshQueue(queueURL string) tea.Cmd {
+	svc := s.sqs
+	return func() tea.Msg {
+		queue, err := svc.GetQueueAttributes(context.Background(), queueURL)
+		return sqsQueueRefreshedMsg{queue: queue, err: err}
+	}
+}
+
 func (s *SQSQueues) fetchQueueDetail(queueURL string) tea.Cmd {
 	svc := s.sqs
 	return func() tea.Msg {
@@ -264,14 +277,29 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return msg.ToastError("Purge failed: " + m.err.Error())
 			}
 		}
-		// Refresh to pick up new message counts.
-		s.loading = true
-		s.queues = nil
-		s.queueURLs = nil
-		s.spinner.Show("Refreshing queues...")
-		return s, tea.Batch(s.spinner.Tick(), s.fetchQueuesPage(nil, 1), func() tea.Msg {
+		// Re-fetch attributes for just the purged queues.
+		cmds := []tea.Cmd{func() tea.Msg {
 			return msg.ToastSuccess("Queue purged (60s cooldown before next purge)")
-		})
+		}}
+		for _, url := range m.urls {
+			cmds = append(cmds, s.refreshQueue(url))
+		}
+		return s, tea.Batch(cmds...)
+
+	case sqsQueueRefreshedMsg:
+		if m.err != nil || m.queue == nil {
+			return s, nil
+		}
+		for i := range s.queues {
+			if s.queues[i].URL == m.queue.URL {
+				m.queue.IsDLQ = s.queues[i].IsDLQ // preserve derived field
+				s.queues[i] = *m.queue
+				break
+			}
+		}
+		rows, sortKeys := s.buildRows(s.queues)
+		s.table.SetRowsWithSortKeys(rows, sortKeys)
+		return s, nil
 
 	case sqsQueueDeletedMsg:
 		if m.err != nil {
@@ -534,10 +562,10 @@ func (s *SQSQueues) purgeQueues(urls []string) tea.Cmd {
 		for _, url := range urls {
 			eventlog.Infof(eventlog.CatAWS, "Purging queue: %s", url)
 			if err := svc.PurgeQueue(context.Background(), url); err != nil {
-				return sqsQueuePurgedMsg{url: url, err: err}
+				return sqsQueuePurgedMsg{urls: urls, err: err}
 			}
 		}
-		return sqsQueuePurgedMsg{url: urls[0]}
+		return sqsQueuePurgedMsg{urls: urls}
 	}
 }
 
