@@ -1157,6 +1157,10 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 		return views.NewAMIList(m.ec2)
 	case "sg_list":
 		return views.NewSGList(m.ec2)
+	case "vpc_list":
+		return views.NewVPCList(m.ec2)
+	case "subnet_list":
+		return views.NewSubnetList(m.ec2, n.Params["vpc_id"])
 	case "s3_list":
 		return views.NewS3List(m.s3, m.config.AWS.Region)
 	case "s3_objects":

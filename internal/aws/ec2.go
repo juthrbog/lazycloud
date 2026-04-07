@@ -37,6 +37,10 @@ type EC2Service interface {
 	SearchAMIs(ctx context.Context, query string) ([]AMI, error)
 	ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
 	GetSecurityGroup(ctx context.Context, groupID string) (*SecurityGroup, error)
+	ListVPCsPage(ctx context.Context, token *string) (*VPCPage, error)
+	GetVPC(ctx context.Context, vpcID string) (*VPC, error)
+	ListSubnetsPage(ctx context.Context, token *string, vpcID string) (*SubnetPage, error)
+	GetSubnet(ctx context.Context, subnetID string) (*Subnet, error)
 }
 
 // EC2ServiceImpl is the real AWS-backed implementation of EC2Service.
@@ -169,6 +173,80 @@ func (sg *SecurityGroup) DetailJSON() string {
 // DetailJSON returns the instance detail as indented JSON.
 func (d *InstanceDetail) DetailJSON() string {
 	b, _ := json.MarshalIndent(d, "", "  ")
+	return string(b)
+}
+
+// VPCPage holds one page of VPCs for progressive loading.
+type VPCPage struct {
+	VPCs         []VPC
+	HasMorePages bool
+	Token        *string
+}
+
+// VPC represents an EC2 VPC in list views.
+type VPC struct {
+	ID               string                `json:"id"`
+	Name             string                `json:"name,omitempty"`
+	CIDRBlock        string                `json:"cidr_block"`
+	State            string                `json:"state"`
+	IsDefault        bool                  `json:"is_default"`
+	InstanceTenancy  string                `json:"instance_tenancy"`
+	DHCPOptionsID    string                `json:"dhcp_options_id,omitempty"`
+	OwnerID          string                `json:"owner_id,omitempty"`
+	IPv4Associations []CIDRAssociation     `json:"ipv4_associations,omitempty"`
+	IPv6Associations []IPv6CIDRAssociation `json:"ipv6_associations,omitempty"`
+	Tags             map[string]string     `json:"tags,omitempty"`
+}
+
+// CIDRAssociation represents an IPv4 CIDR block association.
+type CIDRAssociation struct {
+	CIDRBlock string `json:"cidr_block"`
+	State     string `json:"state"`
+}
+
+// IPv6CIDRAssociation represents an IPv6 CIDR block association.
+type IPv6CIDRAssociation struct {
+	IPv6CIDRBlock string `json:"ipv6_cidr_block"`
+	State         string `json:"state"`
+}
+
+// DetailJSON returns the VPC as indented JSON.
+func (v *VPC) DetailJSON() string {
+	b, _ := json.MarshalIndent(v, "", "  ")
+	return string(b)
+}
+
+// SubnetPage holds one page of subnets for progressive loading.
+type SubnetPage struct {
+	Subnets      []Subnet
+	HasMorePages bool
+	Token        *string
+}
+
+// Subnet represents an EC2 subnet in list views.
+type Subnet struct {
+	ID                   string                `json:"id"`
+	ARN                  string                `json:"arn,omitempty"`
+	Name                 string                `json:"name,omitempty"`
+	VpcID                string                `json:"vpc_id"`
+	CIDRBlock            string                `json:"cidr_block"`
+	AvailabilityZone     string                `json:"availability_zone"`
+	AvailabilityZoneID   string                `json:"availability_zone_id,omitempty"`
+	AvailableIPCount     int32                 `json:"available_ip_count"`
+	State                string                `json:"state"`
+	MapPublicIPOnLaunch  bool                  `json:"map_public_ip_on_launch"`
+	DefaultForAZ         bool                  `json:"default_for_az"`
+	AssignIPv6OnCreation bool                  `json:"assign_ipv6_on_creation"`
+	EnableDNS64          bool                  `json:"enable_dns64"`
+	IPv6Native           bool                  `json:"ipv6_native"`
+	OwnerID              string                `json:"owner_id,omitempty"`
+	IPv6Associations     []IPv6CIDRAssociation `json:"ipv6_associations,omitempty"`
+	Tags                 map[string]string     `json:"tags,omitempty"`
+}
+
+// DetailJSON returns the subnet as indented JSON.
+func (s *Subnet) DetailJSON() string {
+	b, _ := json.MarshalIndent(s, "", "  ")
 	return string(b)
 }
 
@@ -580,4 +658,179 @@ func mapInstanceDetail(inst ec2types.Instance) *InstanceDetail {
 	}
 
 	return d
+}
+
+// ListVPCsPage returns a single page of VPCs for progressive loading.
+func (svc *EC2ServiceImpl) ListVPCsPage(ctx context.Context, token *string) (*VPCPage, error) {
+	ec2c := svc.client.EC2Client()
+
+	output, err := ec2c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
+		NextToken: token,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	vpcs := make([]VPC, 0, len(output.Vpcs))
+	for _, v := range output.Vpcs {
+		vpcs = append(vpcs, mapVPC(v))
+	}
+
+	return &VPCPage{
+		VPCs:         vpcs,
+		HasMorePages: output.NextToken != nil,
+		Token:        output.NextToken,
+	}, nil
+}
+
+// GetVPC returns a single VPC by ID.
+func (svc *EC2ServiceImpl) GetVPC(ctx context.Context, vpcID string) (*VPC, error) {
+	ec2c := svc.client.EC2Client()
+
+	output, err := ec2c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
+		VpcIds: []string{vpcID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(output.Vpcs) == 0 {
+		return nil, nil
+	}
+
+	vpc := mapVPC(output.Vpcs[0])
+	return &vpc, nil
+}
+
+// ListSubnetsPage returns a single page of subnets for progressive loading.
+// When vpcID is non-empty, results are filtered to that VPC.
+func (svc *EC2ServiceImpl) ListSubnetsPage(ctx context.Context, token *string, vpcID string) (*SubnetPage, error) {
+	ec2c := svc.client.EC2Client()
+
+	input := &ec2.DescribeSubnetsInput{
+		NextToken: token,
+	}
+	if vpcID != "" {
+		input.Filters = []ec2types.Filter{
+			{Name: aws.String("vpc-id"), Values: []string{vpcID}},
+		}
+	}
+
+	output, err := ec2c.DescribeSubnets(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	subnets := make([]Subnet, 0, len(output.Subnets))
+	for _, s := range output.Subnets {
+		subnets = append(subnets, mapSubnet(s))
+	}
+
+	return &SubnetPage{
+		Subnets:      subnets,
+		HasMorePages: output.NextToken != nil,
+		Token:        output.NextToken,
+	}, nil
+}
+
+// GetSubnet returns a single subnet by ID.
+func (svc *EC2ServiceImpl) GetSubnet(ctx context.Context, subnetID string) (*Subnet, error) {
+	ec2c := svc.client.EC2Client()
+
+	output, err := ec2c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
+		SubnetIds: []string{subnetID},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(output.Subnets) == 0 {
+		return nil, nil
+	}
+
+	subnet := mapSubnet(output.Subnets[0])
+	return &subnet, nil
+}
+
+func mapVPC(v ec2types.Vpc) VPC {
+	vpc := VPC{
+		ID:              aws.ToString(v.VpcId),
+		CIDRBlock:       aws.ToString(v.CidrBlock),
+		State:           string(v.State),
+		IsDefault:       aws.ToBool(v.IsDefault),
+		InstanceTenancy: string(v.InstanceTenancy),
+		DHCPOptionsID:   aws.ToString(v.DhcpOptionsId),
+		OwnerID:         aws.ToString(v.OwnerId),
+	}
+
+	for _, assoc := range v.CidrBlockAssociationSet {
+		a := CIDRAssociation{CIDRBlock: aws.ToString(assoc.CidrBlock)}
+		if assoc.CidrBlockState != nil {
+			a.State = string(assoc.CidrBlockState.State)
+		}
+		vpc.IPv4Associations = append(vpc.IPv4Associations, a)
+	}
+
+	for _, assoc := range v.Ipv6CidrBlockAssociationSet {
+		a := IPv6CIDRAssociation{IPv6CIDRBlock: aws.ToString(assoc.Ipv6CidrBlock)}
+		if assoc.Ipv6CidrBlockState != nil {
+			a.State = string(assoc.Ipv6CidrBlockState.State)
+		}
+		vpc.IPv6Associations = append(vpc.IPv6Associations, a)
+	}
+
+	tags := make(map[string]string, len(v.Tags))
+	for _, tag := range v.Tags {
+		k := aws.ToString(tag.Key)
+		val := aws.ToString(tag.Value)
+		tags[k] = val
+		if k == "Name" {
+			vpc.Name = val
+		}
+	}
+	if len(tags) > 0 {
+		vpc.Tags = tags
+	}
+
+	return vpc
+}
+
+func mapSubnet(s ec2types.Subnet) Subnet {
+	subnet := Subnet{
+		ID:                   aws.ToString(s.SubnetId),
+		ARN:                  aws.ToString(s.SubnetArn),
+		VpcID:                aws.ToString(s.VpcId),
+		CIDRBlock:            aws.ToString(s.CidrBlock),
+		AvailabilityZone:     aws.ToString(s.AvailabilityZone),
+		AvailabilityZoneID:   aws.ToString(s.AvailabilityZoneId),
+		AvailableIPCount:     aws.ToInt32(s.AvailableIpAddressCount),
+		State:                string(s.State),
+		MapPublicIPOnLaunch:  aws.ToBool(s.MapPublicIpOnLaunch),
+		DefaultForAZ:         aws.ToBool(s.DefaultForAz),
+		AssignIPv6OnCreation: aws.ToBool(s.AssignIpv6AddressOnCreation),
+		EnableDNS64:          aws.ToBool(s.EnableDns64),
+		IPv6Native:           aws.ToBool(s.Ipv6Native),
+		OwnerID:              aws.ToString(s.OwnerId),
+	}
+
+	for _, assoc := range s.Ipv6CidrBlockAssociationSet {
+		a := IPv6CIDRAssociation{IPv6CIDRBlock: aws.ToString(assoc.Ipv6CidrBlock)}
+		if assoc.Ipv6CidrBlockState != nil {
+			a.State = string(assoc.Ipv6CidrBlockState.State)
+		}
+		subnet.IPv6Associations = append(subnet.IPv6Associations, a)
+	}
+
+	tags := make(map[string]string, len(s.Tags))
+	for _, tag := range s.Tags {
+		k := aws.ToString(tag.Key)
+		val := aws.ToString(tag.Value)
+		tags[k] = val
+		if k == "Name" {
+			subnet.Name = val
+		}
+	}
+	if len(tags) > 0 {
+		subnet.Tags = tags
+	}
+
+	return subnet
 }

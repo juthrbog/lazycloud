@@ -28,20 +28,194 @@ func (e *ec2Seeder) Name() string { return "ec2" }
 func (e *ec2Seeder) Seed(ctx context.Context) error {
 	ec2c := e.client.EC2Client()
 
-	// Phase 1: AMIs (must complete before instances).
+	// Phase 1: VPCs and subnets (must complete before SGs and instances).
+	vpcMap, subnetMap, err := e.seedVPCsAndSubnets(ctx, ec2c)
+	if err != nil {
+		return err
+	}
+
+	// Phase 2: AMIs (must complete before instances).
 	amiMap, err := e.seedAMIs(ctx, ec2c)
 	if err != nil {
 		return err
 	}
 
-	// Phase 2: Security groups (must complete before instances).
-	sgMap, err := e.seedSecurityGroups(ctx, ec2c)
+	// Phase 3: Security groups (must complete before instances).
+	sgMap, err := e.seedSecurityGroups(ctx, ec2c, vpcMap)
 	if err != nil {
 		return err
 	}
 
-	// Phase 3: Instances (depends on AMI and SG IDs).
-	return e.seedInstances(ctx, ec2c, amiMap, sgMap)
+	// Phase 4: Instances (depends on AMI, SG, and subnet IDs).
+	return e.seedInstances(ctx, ec2c, amiMap, sgMap, subnetMap)
+}
+
+// seedVPCsAndSubnets creates VPCs and subnets, returning name→ID maps for both.
+func (e *ec2Seeder) seedVPCsAndSubnets(ctx context.Context, ec2c *ec2.Client) (map[string]string, map[string]string, error) {
+	existingVPCs, err := e.listExistingVPCs(ctx, ec2c)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing VPCs: %w", err)
+	}
+	existingSubnets, err := e.listExistingSubnets(ctx, ec2c)
+	if err != nil {
+		return nil, nil, fmt.Errorf("listing subnets: %w", err)
+	}
+
+	fmt.Printf("  EC2 VPCs...")
+
+	// Create base VPCs.
+	for _, v := range e.config.VPCs {
+		id, err := e.ensureVPC(ctx, ec2c, v.Name, v.CIDR, v.Tenancy, existingVPCs)
+		if err != nil {
+			return nil, nil, err
+		}
+		existingVPCs[v.Name] = id
+	}
+
+	// Create extra generated VPCs, each with 2 subnets.
+	for i := range e.config.ExtraVPCs {
+		name := fmt.Sprintf("gen-vpc-%03d", i+1)
+		cidr := fmt.Sprintf("10.%d.0.0/16", 100+i)
+		id, err := e.ensureVPC(ctx, ec2c, name, cidr, "default", existingVPCs)
+		if err != nil {
+			return nil, nil, err
+		}
+		existingVPCs[name] = id
+
+		// Create 2 subnets per extra VPC.
+		for j, suffix := range []string{"a", "b"} {
+			subnetName := fmt.Sprintf("%s-subnet-%s", name, suffix)
+			subnetCIDR := fmt.Sprintf("10.%d.%d.0/24", 100+i, j+1)
+			subnetID, err := e.ensureSubnet(ctx, ec2c, subnetName, id, subnetCIDR, "us-east-1"+suffix, j == 0, existingSubnets)
+			if err != nil {
+				return nil, nil, err
+			}
+			existingSubnets[subnetName] = subnetID
+		}
+	}
+
+	fmt.Println(" done")
+
+	fmt.Printf("  EC2 subnets...")
+
+	// Create base subnets.
+	for _, s := range e.config.Subnets {
+		vpcID, ok := existingVPCs[s.VPCRef]
+		if !ok {
+			return nil, nil, fmt.Errorf("subnet %q references unknown VPC %q", s.Name, s.VPCRef)
+		}
+		id, err := e.ensureSubnet(ctx, ec2c, s.Name, vpcID, s.CIDR, s.AZ, s.Public, existingSubnets)
+		if err != nil {
+			return nil, nil, err
+		}
+		existingSubnets[s.Name] = id
+	}
+
+	fmt.Println(" done")
+
+	return existingVPCs, existingSubnets, nil
+}
+
+func (e *ec2Seeder) listExistingVPCs(ctx context.Context, ec2c *ec2.Client) (map[string]string, error) {
+	out, err := ec2c.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{})
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string, len(out.Vpcs))
+	for _, v := range out.Vpcs {
+		for _, tag := range v.Tags {
+			if aws.ToString(tag.Key) == "Name" {
+				m[aws.ToString(tag.Value)] = aws.ToString(v.VpcId)
+			}
+		}
+	}
+	return m, nil
+}
+
+func (e *ec2Seeder) listExistingSubnets(ctx context.Context, ec2c *ec2.Client) (map[string]string, error) {
+	out, err := ec2c.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{})
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string, len(out.Subnets))
+	for _, s := range out.Subnets {
+		for _, tag := range s.Tags {
+			if aws.ToString(tag.Key) == "Name" {
+				m[aws.ToString(tag.Value)] = aws.ToString(s.SubnetId)
+			}
+		}
+	}
+	return m, nil
+}
+
+func (e *ec2Seeder) ensureVPC(ctx context.Context, ec2c *ec2.Client, name, cidr, tenancy string, existing map[string]string) (string, error) {
+	if id, ok := existing[name]; ok {
+		return id, nil
+	}
+	t := ec2types.TenancyDefault
+	if tenancy == "dedicated" {
+		t = ec2types.TenancyDedicated
+	}
+	out, err := ec2c.CreateVpc(ctx, &ec2.CreateVpcInput{
+		CidrBlock:       aws.String(cidr),
+		InstanceTenancy: t,
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeVpc,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("Name"), Value: aws.String(name)},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("creating VPC %q: %w", name, err)
+	}
+	return aws.ToString(out.Vpc.VpcId), nil
+}
+
+func (e *ec2Seeder) ensureSubnet(ctx context.Context, ec2c *ec2.Client, name, vpcID, cidr, az string, public bool, existing map[string]string) (string, error) {
+	if id, ok := existing[name]; ok {
+		return id, nil
+	}
+	out, err := ec2c.CreateSubnet(ctx, &ec2.CreateSubnetInput{
+		VpcId:            aws.String(vpcID),
+		CidrBlock:        aws.String(cidr),
+		AvailabilityZone: aws.String(az),
+		TagSpecifications: []ec2types.TagSpecification{
+			{
+				ResourceType: ec2types.ResourceTypeSubnet,
+				Tags: []ec2types.Tag{
+					{Key: aws.String("Name"), Value: aws.String(name)},
+					{Key: aws.String("Network"), Value: aws.String(publicOrPrivate(public))},
+				},
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("creating subnet %q: %w", name, err)
+	}
+	subnetID := aws.ToString(out.Subnet.SubnetId)
+
+	// Set MapPublicIpOnLaunch for public subnets.
+	if public {
+		_, err = ec2c.ModifySubnetAttribute(ctx, &ec2.ModifySubnetAttributeInput{
+			SubnetId:            aws.String(subnetID),
+			MapPublicIpOnLaunch: &ec2types.AttributeBooleanValue{Value: aws.Bool(true)},
+		})
+		if err != nil {
+			return "", fmt.Errorf("setting public IP on subnet %q: %w", name, err)
+		}
+	}
+
+	return subnetID, nil
+}
+
+func publicOrPrivate(public bool) string {
+	if public {
+		return "public"
+	}
+	return "private"
 }
 
 // seedAMIs registers base and extra AMIs, returning a name→ID map of all AMIs.
@@ -79,7 +253,7 @@ func (e *ec2Seeder) seedAMIs(ctx context.Context, ec2c *ec2.Client) (map[string]
 }
 
 // seedInstances launches base and extra instances, stopping some as configured.
-func (e *ec2Seeder) seedInstances(ctx context.Context, ec2c *ec2.Client, amiMap, sgMap map[string]string) error {
+func (e *ec2Seeder) seedInstances(ctx context.Context, ec2c *ec2.Client, amiMap, sgMap, subnetMap map[string]string) error {
 	existing, err := e.listExistingInstances(ctx, ec2c)
 	if err != nil {
 		return fmt.Errorf("listing instances: %w", err)
@@ -101,7 +275,8 @@ func (e *ec2Seeder) seedInstances(ctx context.Context, ec2c *ec2.Client, amiMap,
 				sgIDs = append(sgIDs, sgID)
 			}
 		}
-		id, err := e.ensureInstance(ctx, ec2c, inst.Name, amiID, inst.InstanceType, sgIDs, existing)
+		subnetID := subnetMap[inst.SubnetRef] // empty string if no ref
+		id, err := e.ensureInstance(ctx, ec2c, inst.Name, amiID, inst.InstanceType, sgIDs, subnetID, existing)
 		if err != nil {
 			return err
 		}
@@ -111,10 +286,14 @@ func (e *ec2Seeder) seedInstances(ctx context.Context, ec2c *ec2.Client, amiMap,
 	}
 
 	// Launch extra generated instances.
-	// Pick AMIs round-robin from the base AMI list.
+	// Pick AMIs and subnets round-robin from the base lists.
 	baseAMINames := make([]string, len(e.config.AMIs))
 	for i, a := range e.config.AMIs {
 		baseAMINames[i] = a.Name
+	}
+	baseSubnetNames := make([]string, 0, len(e.config.Subnets))
+	for _, s := range e.config.Subnets {
+		baseSubnetNames = append(baseSubnetNames, s.Name)
 	}
 	instanceTypes := []string{"t3.micro", "t3.small", "t3.medium", "t2.micro"}
 	stopCount := int(e.config.StopFraction * float64(e.config.ExtraInstances))
@@ -124,8 +303,12 @@ func (e *ec2Seeder) seedInstances(ctx context.Context, ec2c *ec2.Client, amiMap,
 		amiName := baseAMINames[i%len(baseAMINames)]
 		amiID := amiMap[amiName]
 		iType := instanceTypes[i%len(instanceTypes)]
+		var subnetID string
+		if len(baseSubnetNames) > 0 {
+			subnetID = subnetMap[baseSubnetNames[i%len(baseSubnetNames)]]
+		}
 
-		id, err := e.ensureInstance(ctx, ec2c, name, amiID, iType, nil, existing)
+		id, err := e.ensureInstance(ctx, ec2c, name, amiID, iType, nil, subnetID, existing)
 		if err != nil {
 			return err
 		}
@@ -146,7 +329,7 @@ func (e *ec2Seeder) seedInstances(ctx context.Context, ec2c *ec2.Client, amiMap,
 }
 
 // seedSecurityGroups creates base and extra security groups, returning a name→ID map.
-func (e *ec2Seeder) seedSecurityGroups(ctx context.Context, ec2c *ec2.Client) (map[string]string, error) {
+func (e *ec2Seeder) seedSecurityGroups(ctx context.Context, ec2c *ec2.Client, vpcMap map[string]string) (map[string]string, error) {
 	existing, err := e.listExistingSecurityGroups(ctx, ec2c)
 	if err != nil {
 		return nil, fmt.Errorf("listing security groups: %w", err)
@@ -156,16 +339,26 @@ func (e *ec2Seeder) seedSecurityGroups(ctx context.Context, ec2c *ec2.Client) (m
 
 	// Pass 1: Create all security groups (no rules yet).
 	for _, sg := range e.config.SecurityGroups {
-		id, err := e.ensureSecurityGroup(ctx, ec2c, sg.Name, sg.Description, existing)
+		vpcID := vpcMap[sg.VPCRef] // empty string if no ref
+		id, err := e.ensureSecurityGroup(ctx, ec2c, sg.Name, sg.Description, vpcID, existing)
 		if err != nil {
 			return nil, err
 		}
 		existing[sg.Name] = id
 	}
 
+	// Pick a VPC for extra SGs round-robin from base VPCs.
+	baseVPCNames := make([]string, 0, len(e.config.VPCs))
+	for _, v := range e.config.VPCs {
+		baseVPCNames = append(baseVPCNames, v.Name)
+	}
 	for i := range e.config.ExtraSGs {
 		name := fmt.Sprintf("gen-sg-%03d", i+1)
-		id, err := e.ensureSecurityGroup(ctx, ec2c, name, fmt.Sprintf("Generated security group %d", i+1), existing)
+		var vpcID string
+		if len(baseVPCNames) > 0 {
+			vpcID = vpcMap[baseVPCNames[i%len(baseVPCNames)]]
+		}
+		id, err := e.ensureSecurityGroup(ctx, ec2c, name, fmt.Sprintf("Generated security group %d", i+1), vpcID, existing)
 		if err != nil {
 			return nil, err
 		}
@@ -210,11 +403,11 @@ func (e *ec2Seeder) listExistingSecurityGroups(ctx context.Context, ec2c *ec2.Cl
 	return m, nil
 }
 
-func (e *ec2Seeder) ensureSecurityGroup(ctx context.Context, ec2c *ec2.Client, name, description string, existing map[string]string) (string, error) {
+func (e *ec2Seeder) ensureSecurityGroup(ctx context.Context, ec2c *ec2.Client, name, description, vpcID string, existing map[string]string) (string, error) {
 	if id, ok := existing[name]; ok {
 		return id, nil
 	}
-	out, err := ec2c.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
+	input := &ec2.CreateSecurityGroupInput{
 		GroupName:   aws.String(name),
 		Description: aws.String(description),
 		TagSpecifications: []ec2types.TagSpecification{
@@ -225,7 +418,11 @@ func (e *ec2Seeder) ensureSecurityGroup(ctx context.Context, ec2c *ec2.Client, n
 				},
 			},
 		},
-	})
+	}
+	if vpcID != "" {
+		input.VpcId = aws.String(vpcID)
+	}
+	out, err := ec2c.CreateSecurityGroup(ctx, input)
 	if err != nil {
 		return "", fmt.Errorf("creating security group %q: %w", name, err)
 	}
@@ -383,7 +580,7 @@ func (e *ec2Seeder) ensureAMI(ctx context.Context, ec2c *ec2.Client, name, arch 
 	return aws.ToString(out.ImageId), nil
 }
 
-func (e *ec2Seeder) ensureInstance(ctx context.Context, ec2c *ec2.Client, name, amiID, instanceType string, sgIDs []string, existing map[string]string) (string, error) {
+func (e *ec2Seeder) ensureInstance(ctx context.Context, ec2c *ec2.Client, name, amiID, instanceType string, sgIDs []string, subnetID string, existing map[string]string) (string, error) {
 	if id, ok := existing[name]; ok {
 		return id, nil
 	}
@@ -403,6 +600,9 @@ func (e *ec2Seeder) ensureInstance(ctx context.Context, ec2c *ec2.Client, name, 
 	}
 	if len(sgIDs) > 0 {
 		input.SecurityGroupIds = sgIDs
+	}
+	if subnetID != "" {
+		input.SubnetId = aws.String(subnetID)
 	}
 	out, err := ec2c.RunInstances(ctx, input)
 	if err != nil {

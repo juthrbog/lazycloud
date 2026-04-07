@@ -26,7 +26,8 @@ var (
 	IconEC2   = ServiceIcon{Nerd: "\U000f01c4", Fallback: "◈"} // nf-md-server
 	IconCloud  = ServiceIcon{Nerd: "\U000f015f", Fallback: "☁"} // nf-md-cloud
 	IconShield = ServiceIcon{Nerd: "\U000f0498", Fallback: "🛡"} // nf-md-shield
-	IconSQS    = ServiceIcon{Nerd: "\U000f01ee", Fallback: "≡"} // nf-md-message_text
+	IconSQS     = ServiceIcon{Nerd: "\U000f01ee", Fallback: "≡"} // nf-md-message_text
+	IconNetwork = ServiceIcon{Nerd: "\U000f0317", Fallback: "⊞"} // nf-md-lan
 
 	// State indicators
 	IconRunning = ServiceIcon{Nerd: "\U000f012c", Fallback: "●"} // nf-md-check_circle
@@ -40,7 +41,7 @@ func StateColor(state string) string {
 	switch state {
 	case "running", "available", "active":
 		return lipgloss.NewStyle().Foreground(t.StateRunning).Render(IconRunning.Icon() + " " + state)
-	case "stopped", "terminated", "deleted":
+	case "stopped", "terminated", "deleted", "failed", "unavailable":
 		return lipgloss.NewStyle().Foreground(t.StateStopped).Render(IconStopped.Icon() + " " + state)
 	case "pending", "starting", "stopping", "shutting-down", "creating":
 		return lipgloss.NewStyle().Foreground(t.StatePending).Render(IconPending.Icon() + " " + state)

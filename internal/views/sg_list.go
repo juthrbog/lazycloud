@@ -318,7 +318,7 @@ func buildSGInfoContent(sg *aws.SecurityGroup) (string, []msg.TabLink) {
 		{k: "Name", v: sg.Name},
 		{k: "ARN", v: sg.ARN},
 		{k: "Description", v: sg.Description},
-		{k: "VPC", v: sg.VpcID},
+		{k: "VPC", v: sg.VpcID, viewID: "vpc_list", params: map[string]string{"focus": sg.VpcID}},
 		{k: "Owner", v: sg.OwnerID},
 	}
 	var b strings.Builder
