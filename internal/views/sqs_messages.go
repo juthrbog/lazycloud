@@ -96,7 +96,7 @@ type SQSMessages struct {
 	widthTier ui.WidthTier
 }
 
-func (s *SQSMessages) ID() string    { return "sqs_messages" }
+func (s *SQSMessages) ID() string    { return "sqs_messages:" + s.queueURL }
 func (s *SQSMessages) Title() string { return s.queueName + " Messages" }
 func (s *SQSMessages) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
