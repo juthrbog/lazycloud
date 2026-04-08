@@ -1,32 +1,20 @@
 package views
 
 import (
-	"charm.land/bubbles/v2/key"
-	"charm.land/bubbles/v2/table"
+	"math/rand/v2"
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/juthrbog/lazycloud/internal/msg"
-	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-type homeKeyMap struct {
-	Select key.Binding
-	Filter key.Binding
-}
-
-var defaultHomeKeyMap = homeKeyMap{
-	Select: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
-	Filter: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-}
-
-// Home is the service selector dashboard.
+// Home is the landing screen — displays an idle animation and provides
+// access to services via the `s` / Enter picker (handled in app.go).
 type Home struct {
-	keys   homeKeyMap
-	table  ui.Table
-	filter ui.Filter
-	width  int
-	height int
+	animation ui.Animation
+	width     int
+	height    int
 }
 
 func (h *Home) ID() string    { return "home" }
@@ -34,33 +22,25 @@ func (h *Home) Title() string { return "Services" }
 func (h *Home) Footer() string    { return "" }
 func (h *Home) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
-		{Binding: h.keys.Select},
-		{Binding: h.keys.Filter},
+		ui.NewHintBinding([]string{"+"}, "+/-", "cloud speed"),
 	}
 }
 
-// NewHome creates the home service selector view.
+// NewHome creates the home landing view.
+// There's a 5% chance of a storm animation on launch.
 func NewHome() *Home {
-	columns := []table.Column{
-		{Title: "", Width: 4},
-		{Title: "Service", Width: 26},
+	seed := time.Now().UnixNano()
+	var anim ui.Animation
+	if rand.IntN(20) == 0 { //nolint:gosec // cosmetic randomness, not security
+		anim = ui.NewStormAnimation(seed)
+	} else {
+		anim = ui.NewCloudAnimation(seed)
 	}
-
-	var rows []table.Row
-	for _, s := range registry.Services {
-		rows = append(rows, table.Row{s.Icon.Icon(), s.Name})
-	}
-
-	t := ui.NewTable(columns, rows)
-	return &Home{
-		keys:   defaultHomeKeyMap,
-		table:  t,
-		filter: ui.NewFilter(),
-	}
+	return &Home{animation: anim}
 }
 
 func (h *Home) Init() tea.Cmd {
-	return nil
+	return ui.AnimationTick()
 }
 
 func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
@@ -68,71 +48,24 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		h.width = m.Width
 		h.height = m.Height
-		h.table.SetSize(m.Width, m.Height-2)
-		h.filter.SetWidth(m.Width)
 		return h, nil
-
-	case ui.FilterChangedMsg:
-		h.table.Filter(m.Text)
-		return h, nil
-
+	case ui.AnimationFrameMsg:
+		h.animation.Update()
+		return h, ui.AnimationTick()
 	case tea.KeyPressMsg:
-		if h.filter.Active() {
-			var cmd tea.Cmd
-			h.filter, cmd = h.filter.Update(m)
-			return h, cmd
-		}
-
-		switch {
-		case key.Matches(m, h.keys.Filter):
-			h.filter.Activate()
+		switch m.String() {
+		case "+", "=":
+			h.animation.SpeedUp()
 			return h, nil
-		case key.Matches(m, h.keys.Select):
-			selected := h.table.SelectedRow()
-			if selected == nil {
-				return h, nil
-			}
-			for _, svc := range registry.Services {
-				if svc.Name == selected[1] {
-					return h, h.navigateService(svc)
-				}
-			}
+		case "-", "_":
+			h.animation.SlowDown()
+			return h, nil
 		}
 	}
-
-	var cmd tea.Cmd
-	h.table, cmd = h.table.Update(m)
-	return h, cmd
-}
-
-// navigateService either goes directly to the resource view (single feature)
-// or shows a feature picker popup (multiple features).
-func (h *Home) navigateService(svc registry.Service) tea.Cmd {
-	if len(svc.Features) == 1 {
-		return func() tea.Msg {
-			return msg.NavigateMsg{ViewID: svc.Features[0].ViewID}
-		}
-	}
-	labels := make([]string, len(svc.Features))
-	viewIDs := make([]string, len(svc.Features))
-	for i, f := range svc.Features {
-		labels[i] = f.Name
-		viewIDs[i] = f.ViewID
-	}
-	name := svc.Name
-	return func() tea.Msg {
-		return msg.RequestFeaturePickerMsg{
-			Service: name,
-			Labels:  labels,
-			ViewIDs: viewIDs,
-		}
-	}
+	return h, nil
 }
 
 func (h *Home) View() tea.View {
-	content := h.table.View()
-	if h.filter.Active() {
-		content = h.filter.View() + "\n" + content
-	}
+	content := h.animation.View(h.width, h.height)
 	return tea.NewView(content)
 }
