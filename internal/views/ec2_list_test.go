@@ -220,6 +220,13 @@ func TestEC2List_NarrowTierHidesColumns(t *testing.T) {
 	assert.Equal(t, "Type", cols[3].Title)
 }
 
+func TestEC2List_MediumTierColumns(t *testing.T) {
+	cols := ec2Columns(ui.TierMedium)
+	assert.Equal(t, 5, len(cols), "medium tier should show 5 columns")
+	assert.Equal(t, "Instance ID", cols[0].Title)
+	assert.Equal(t, "Private IP", cols[4].Title)
+}
+
 func TestEC2List_WideTierShowsAllColumns(t *testing.T) {
 	cols := ec2Columns(ui.TierWide)
 	assert.Equal(t, 8, len(cols), "wide tier should show 8 columns")

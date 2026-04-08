@@ -118,6 +118,12 @@ func TestAMIList_NarrowTierHidesColumns(t *testing.T) {
 	assert.Equal(t, "State", cols[2].Title)
 }
 
+func TestAMIList_MediumTierColumns(t *testing.T) {
+	cols := amiColumns(ui.TierMedium)
+	assert.Equal(t, 4, len(cols), "medium tier should show 4 columns")
+	assert.Equal(t, "State", cols[3].Title)
+}
+
 func TestAMIList_WideTierShowsAllColumns(t *testing.T) {
 	cols := amiColumns(ui.TierWide)
 	assert.Equal(t, 6, len(cols), "wide tier should show 6 columns")

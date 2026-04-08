@@ -95,6 +95,15 @@ func subnetColumns(tier ui.WidthTier) []ui.Column {
 			{Title: "State", Width: 16},
 		}
 	}
+	if tier == ui.TierMedium {
+		return []ui.Column{
+			{Title: "Subnet ID", Width: 15, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 15, Weight: 2, MaxWidth: 60},
+			{Title: "AZ", Width: 13},
+			{Title: "CIDR Block", Width: 15},
+			{Title: "State", Width: 10},
+		}
+	}
 	return []ui.Column{
 		{Title: "Subnet ID", Width: 24, Weight: 1, MaxWidth: 35},
 		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
@@ -194,14 +203,8 @@ func (s *SubnetList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, subnetColumns)
 		s.widthTier = newTier
-
-		cols := subnetColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = subnetColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.subnets) > 0 {
@@ -329,12 +332,16 @@ func (s *SubnetList) openDetailCmd(subnet *aws.Subnet) tea.Cmd {
 
 func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []table.Row {
 	rows := make([]table.Row, 0, len(subnets))
-	narrow := tier == ui.TierNarrow
 	for _, s := range subnets {
 		state := ui.StateColor(s.State)
-		if narrow {
+		switch tier {
+		case ui.TierNarrow:
 			rows = append(rows, table.Row{s.ID, s.Name, s.AvailabilityZone, s.CIDRBlock, state})
-		} else {
+		case ui.TierMedium:
+			rows = append(rows, table.Row{
+				s.ID, s.Name, s.AvailabilityZone, s.CIDRBlock, state,
+			})
+		default:
 			pub := "Private"
 			if s.MapPublicIPOnLaunch {
 				pub = "Public"

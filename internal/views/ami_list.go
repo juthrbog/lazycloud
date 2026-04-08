@@ -98,6 +98,14 @@ func amiColumns(tier ui.WidthTier) []ui.Column {
 			{Title: "State", Width: 14},
 		}
 	}
+	if tier == ui.TierMedium {
+		return []ui.Column{
+			{Title: "AMI ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 20, Weight: 2, MaxWidth: 60},
+			{Title: "Architecture", Width: 12},
+			{Title: "State", Width: 10},
+		}
+	}
 	return []ui.Column{
 		{Title: "AMI ID", Width: 21, Weight: 1, MaxWidth: 35},
 		{Title: "Name", Width: 34, Weight: 2, MaxWidth: 60},
@@ -223,14 +231,8 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = m.Width
 		a.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, amiColumns)
 		a.widthTier = newTier
-
-		cols := amiColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = amiColumns(ui.TierNarrow)
-			a.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(a.table.Columns()) {
 			a.table.SetColumns(cols)
 			if len(a.amis) > 0 {
@@ -432,21 +434,26 @@ func (a *AMIList) openDetailCmd(ami *aws.AMI) tea.Cmd {
 
 func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []table.Row {
 	rows := make([]table.Row, 0, len(amis))
-	narrow := tier == ui.TierNarrow
 	for _, ami := range amis {
 		owner := ami.OwnerID
 		if ami.OwnerAlias != "" {
 			owner = ami.OwnerAlias
 		}
-		created := ami.CreationDate
-		if len(created) >= 10 {
-			created = created[:10]
-		}
-		if narrow {
+		switch tier {
+		case ui.TierNarrow:
 			rows = append(rows, table.Row{
 				ami.ID, ami.Name, ui.StateColor(ami.State),
 			})
-		} else {
+		case ui.TierMedium:
+			rows = append(rows, table.Row{
+				ami.ID, ami.Name, ami.Architecture,
+				ui.StateColor(ami.State),
+			})
+		default:
+			created := ami.CreationDate
+			if len(created) >= 10 {
+				created = created[:10]
+			}
 			rows = append(rows, table.Row{
 				ami.ID, ami.Name, owner, ami.Architecture,
 				ui.StateColor(ami.State), created,
