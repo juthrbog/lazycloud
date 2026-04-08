@@ -404,6 +404,10 @@ func (t *Table) applyFilterAndSort() {
 	}
 
 	t.inner.SetRows(rows)
+	// inner.SetRows(nil) clamps cursor to -1; restore it when data arrives.
+	if t.inner.Cursor() < 0 && len(rows) > 0 {
+		t.inner.SetCursor(0)
+	}
 }
 
 func (t *Table) buildFilteredMap() {

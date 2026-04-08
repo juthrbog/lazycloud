@@ -50,6 +50,18 @@ func ColumnsFit(cols []Column, width int) bool {
 	return total <= width
 }
 
+// BestFitTier tries tiers from the width-appropriate tier down to TierNarrow,
+// returning the first column set that fits within the available width.
+func BestFitTier(width int, colsForTier func(WidthTier) []Column) ([]Column, WidthTier) {
+	for tier := GetWidthTier(width); tier > TierNarrow; tier-- {
+		cols := colsForTier(tier)
+		if ColumnsFit(cols, width) {
+			return cols, tier
+		}
+	}
+	return colsForTier(TierNarrow), TierNarrow
+}
+
 // DistributeWidths converts flex columns to fixed-width table columns,
 // distributing extra terminal space proportionally by weight.
 func DistributeWidths(cols []Column, totalWidth int) []table.Column {
@@ -65,7 +77,28 @@ func DistributeWidths(cols []Column, totalWidth int) []table.Column {
 		used += w + cellPadding
 	}
 	extra := totalWidth - used
-	if extra <= 0 {
+	if extra < 0 {
+		// Shrink columns proportionally to their base width.
+		deficit := -extra
+		baseTotal := 0
+		for _, w := range widths {
+			baseTotal += w
+		}
+		if baseTotal > 0 {
+			for i := range widths {
+				shrink := deficit * widths[i] / baseTotal
+				widths[i] -= shrink
+				if widths[i] < 2 {
+					widths[i] = 2
+				}
+			}
+		}
+		for i := range result {
+			result[i].Width = widths[i]
+		}
+		return result
+	}
+	if extra == 0 {
 		for i := range result {
 			result[i].Width = widths[i]
 		}
