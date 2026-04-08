@@ -402,7 +402,7 @@ Follow vim-style keybindings consistent with lazygit/k9s. See the README for the
 | `esc`             | Go back / close panel     |
 | `/`               | Filter/search             |
 | `s`/`S`           | Sort / reverse sort       |
-| `r`               | Refresh                   |
+| `r`               | Refresh (selective if multi-selected) |
 | `W`               | Toggle ReadOnly/ReadWrite |
 | `tab`             | Toggle panel focus        |
 | `L`               | Event log                 |
@@ -412,6 +412,61 @@ Follow vim-style keybindings consistent with lazygit/k9s. See the README for the
 | `:`               | Command bar               |
 | `?`               | Help overlay              |
 | `q`               | Quit                      |
+
+## Selective Refresh Pattern
+
+Views that support multi-select (`space`) must implement selective refresh on `r`. The pattern:
+
+1. **Branch on selection count** in the `r` key handler:
+
+```go
+case key.Matches(m, v.keys.Refresh):
+    if ids := v.selectedResourceIDs(); len(ids) > 0 && v.table.SelectionCount() > 0 {
+        eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d resources", len(ids))
+        v.spinner.Show(fmt.Sprintf("Refreshing %d resources...", len(ids)))
+        return v, tea.Batch(v.spinner.Tick(), v.refreshResources(ids))
+    }
+    // Fall through to full refresh
+    v.loading = true
+    v.spinner.Show("Loading resources...")
+    return v, tea.Batch(v.spinner.Tick(), v.fetchAll())
+```
+
+2. **Add a batch-by-ID service method** (e.g., `RefreshInstances(ctx, ids) ([]Instance, error)`) that calls the AWS Describe API with an ID filter. Reuse the existing `map*()` functions to return the same type as the list view uses.
+
+3. **Add a refresh message type and handler** that updates items in-place without clearing the slice:
+
+```go
+type resourcesRefreshedMsg struct {
+    resources []aws.Resource
+    err       error
+}
+
+// In Update():
+case resourcesRefreshedMsg:
+    v.spinner.Hide()
+    if m.err != nil {
+        return v, func() tea.Msg { return msg.ToastError("Refresh failed: " + m.err.Error()) }
+    }
+    for _, updated := range m.resources {
+        for i := range v.resources {
+            if v.resources[i].ID == updated.ID {
+                v.resources[i] = updated
+                break
+            }
+        }
+    }
+    v.rebuildRows()
+    return v, nil
+```
+
+**Key rules:**
+- Do NOT clear the items slice or call `DeselectAll()` — the in-place update preserves selection automatically
+- Do NOT set `v.loading = true` — selective refresh is non-destructive, the existing table stays visible
+- Hide the spinner in the response handler (not just on success — also on error)
+- Log the selective refresh to the event log with the count
+
+Reference implementations: `sqs_queues.go` (per-resource), `ec2_list.go` (batch API), `ami_list.go` (batch API).
 
 ## Dependencies
 
