@@ -324,6 +324,36 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ui.PickerResultMsg:
+		// Service picker: navigate to selected service (or show feature picker for multi-feature)
+		if msg.ID == "service" {
+			if msg.Selected < 0 {
+				return m, nil
+			}
+			for _, svc := range registry.Services {
+				if svc.Name == msg.Value {
+					if len(svc.Features) == 1 {
+						viewID := svc.Features[0].ViewID
+						return m, func() tea.Msg {
+							return appmsg.NavigateMsg{ViewID: viewID}
+						}
+					}
+					labels := make([]string, len(svc.Features))
+					viewIDs := make([]string, len(svc.Features))
+					for i, f := range svc.Features {
+						labels[i] = f.Name
+						viewIDs[i] = f.ViewID
+					}
+					return m, func() tea.Msg {
+						return appmsg.RequestFeaturePickerMsg{
+							Service: svc.Name,
+							Labels:  labels,
+							ViewIDs: viewIDs,
+						}
+					}
+				}
+			}
+			return m, nil
+		}
 		// Feature picker: navigate to the selected view
 		if msg.ID == "feature" {
 			if msg.Selected < 0 {
@@ -420,6 +450,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.CommandBar.Binding):
 			m.commandBar.Show(registry.CommandBarEntries(), m.width)
 			return m, nil
+		case key.Matches(msg, m.keys.ServicePicker.Binding):
+			if m.nav.Depth() == 1 {
+				m.showServicePicker()
+				return m, nil
+			}
 		case key.Matches(msg, m.keys.Help.Binding):
 			hints := m.collectAllKeyHints()
 			m.help.Show(hints, m.width, m.height)
@@ -466,6 +501,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			// Delegate to child — it may need to dismiss a filter
 			cmd := m.nav.UpdateCurrent(teaMsg)
 			return m, cmd
+		}
+
+		// Enter on home screen opens the service picker
+		if msg.String() == "enter" && m.nav.Depth() == 1 {
+			m.showServicePicker()
+			return m, nil
 		}
 	}
 
@@ -690,9 +731,13 @@ func (m *Model) trimCrossNavHistory() {
 
 // chromeHeight returns the vertical lines consumed by fixed layout chrome:
 // header (2: title bar + gradient) + status bar (1) + content border (2: top + bottom)
-// + footer (2: gradient line + text).
+// + footer (0 or 2: gradient line + text when present).
 func (m Model) chromeHeight() int {
-	return 7
+	h := 5 // header (2) + status bar (1) + content border (2)
+	if m.nav.Current().Footer() != "" {
+		h += 2 // gradient line + footer text
+	}
+	return h
 }
 
 func (m *Model) resizeViews() {
@@ -723,6 +768,15 @@ func (m *Model) showThemePicker() {
 		options = append(options, ui.PickerOption{Label: label, Value: name})
 	}
 	m.picker.Show("theme", "Select Theme", options, currentIdx)
+}
+
+func (m *Model) showServicePicker() {
+	var options []ui.PickerOption
+	for _, svc := range registry.Services {
+		label := svc.Icon.Icon() + "  " + svc.Name
+		options = append(options, ui.PickerOption{Label: label, Value: svc.Name})
+	}
+	m.picker.Show("service", "Select Service", options, 0)
 }
 
 // Common AWS regions, ordered by popularity.
@@ -1224,6 +1278,13 @@ func (m Model) currentKeyHints() []ui.HintBinding {
 		hints = append(hints, ui.NewHintBinding([]string{"tab"}, "tab", "focus panel"))
 	}
 
+	// Service picker hints on home screen
+	if m.nav.Depth() == 1 {
+		hints = append(hints,
+			ui.NewHintBinding([]string{"enter", "s"}, "enter/s", "services"),
+		)
+	}
+
 	// Global hints
 	if len(m.crossNavHistory) > 0 {
 		hints = append(hints, m.keys.CrossNavBack)
@@ -1251,6 +1312,9 @@ func (m Model) collectAllKeyHints() []ui.HintBinding {
 
 	// View-specific hints (Category empty — rendered as "Current View")
 	hints = append(hints, m.nav.Current().KeyMap()...)
+	if m.nav.Depth() == 1 {
+		hints = append(hints, ui.NewHintBinding([]string{"enter", "s"}, "enter/s", "services"))
+	}
 
 	// Navigation hints
 	if m.panelOpen {
