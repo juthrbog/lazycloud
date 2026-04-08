@@ -14,7 +14,9 @@ import (
 )
 
 func newTestModel(width, height int) Model {
-	m := New(config.DefaultConfig())
+	cfg := config.DefaultConfig()
+	cfg.Display.Animations = false // disable animations for deterministic tests
+	m := New(cfg)
 	m.width = width
 	m.height = height
 	return m

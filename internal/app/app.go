@@ -2,12 +2,14 @@ package app
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/harmonica"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/config"
@@ -30,6 +32,9 @@ const (
 
 // Cross-navigation history for back traversal.
 const crossNavHistoryMax = 10
+
+// panelAnimTickMsg drives the spring animation frame loop for panel resize.
+type panelAnimTickMsg struct{}
 
 type crossNavEntry struct {
 	navDepth   int                  // nav stack depth when saved
@@ -73,6 +78,13 @@ type Model struct {
 
 	// Pending theme name awaiting confirmation when nav stack is deep
 	pendingTheme string
+
+	// Panel resize animation (spring physics)
+	panelSpring      harmonica.Spring
+	panelAnimWidth   float64 // current animated width
+	panelAnimVel     float64 // current velocity
+	panelTargetWidth float64 // target width
+	panelAnimating   bool    // true while spring is settling
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -103,8 +115,9 @@ func New(cfg config.Config) Model {
 		help:       ui.NewHelpOverlay(),
 		commandBar: ui.NewCommandBar(),
 		toasts:     ui.NewToastManager(),
-		keys:       ui.DefaultAppKeyMap(),
-		isDark:     true,
+		keys:        ui.DefaultAppKeyMap(),
+		isDark:      true,
+		panelSpring: harmonica.NewSpring(harmonica.FPS(30), 14.0, 1.0),
 	}
 }
 
@@ -149,6 +162,31 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isDark = msg.IsDark()
 		return m, nil
 
+	case panelAnimTickMsg:
+		if !m.panelAnimating {
+			return m, nil
+		}
+		m.panelAnimWidth, m.panelAnimVel = m.panelSpring.Update(
+			m.panelAnimWidth, m.panelAnimVel, m.panelTargetWidth,
+		)
+		if math.Abs(m.panelAnimWidth-m.panelTargetWidth) < 0.5 &&
+			math.Abs(m.panelAnimVel) < 0.1 {
+			m.panelAnimWidth = m.panelTargetWidth
+			m.panelAnimVel = 0
+			m.panelAnimating = false
+		}
+		newWidth := int(math.Round(m.panelAnimWidth))
+		if m.panelTargetWidth == 0 {
+			m.panelWidthOverride = 0
+		} else {
+			m.panelWidthOverride = newWidth
+		}
+		m.resizeViews()
+		if m.panelAnimating {
+			return m, m.nextPanelFrame()
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -157,8 +195,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.closePanel()
 		}
 		if !m.panelOpen && m.canShowPanel() && m.stashedPanelTitle != "" {
-			m.openTabbedPanel(m.stashedPanelTitle, m.stashedPanelTabs)
+			animCmd := m.openTabbedPanel(m.stashedPanelTitle, m.stashedPanelTabs)
 			m.clearStashedPanel()
+			m.resizeViews()
+			return m, animCmd
 		}
 		m.resizeViews()
 		return m, nil
@@ -167,8 +207,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		// Show content in side panel when space permits
 		if msg.ViewID == "content" && m.canShowPanel() {
 			format := ui.ContentFormat(msg.Params["format"])
-			m.openPanel(msg.Params["title"], msg.Params["content"], format)
-			return m, nil
+			animCmd := m.openPanel(msg.Params["title"], msg.Params["content"], format)
+			return m, animCmd
 		}
 		// Non-content navigation closes the panel
 		if m.panelOpen {
@@ -205,8 +245,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.TabbedContentMsg:
 		if m.canShowPanel() {
-			m.openTabbedPanel(msg.PanelTitle, msg.Tabs)
-			return m, nil
+			animCmd := m.openTabbedPanel(msg.PanelTitle, msg.Tabs)
+			return m, animCmd
 		}
 		// Narrow terminal fallback: push first tab as full-screen content
 		if len(msg.Tabs) > 0 {
@@ -426,8 +466,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.CrossNavBack.Binding):
 			if len(m.crossNavHistory) > 0 {
-				m.popCrossNavBack()
-				return m, nil
+				animCmd := m.popCrossNavBack()
+				return m, animCmd
 			}
 			return m, nil
 		}
@@ -442,17 +482,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			case key.Matches(msg, m.keys.PanelEditor.Binding):
 				return m, m.panel.OpenInEditorCmd()
 			case key.Matches(msg, m.keys.PanelGrow.Binding):
-				m.panelWidthOverride = m.panelWidth() + panelResizeStep
-				m.resizeViews()
-				return m, nil
+				return m, m.animatePanelWidth(float64(m.panelWidth() + panelResizeStep))
 			case key.Matches(msg, m.keys.PanelShrink.Binding):
-				m.panelWidthOverride = m.panelWidth() - panelResizeStep
-				m.resizeViews()
-				return m, nil
+				return m, m.animatePanelWidth(float64(m.panelWidth() - panelResizeStep))
 			case key.Matches(msg, m.keys.PanelReset.Binding):
-				m.panelWidthOverride = 0
-				m.resizeViews()
-				return m, nil
+				return m, m.animatePanelWidth(0)
 			default:
 				// Forward scroll/visual/yank keys to panel
 				updated, cmd := m.panel.Update(msg)
@@ -564,13 +598,49 @@ func (m Model) panelWidth() int {
 	return w
 }
 
-func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
-	m.openTabbedPanel(title, []appmsg.TabContent{
+// animatePanelWidth starts a spring animation toward the given target width.
+// When animations are disabled, it jumps immediately.
+// A target of 0 means "reset to default 40% calculation".
+func (m *Model) animatePanelWidth(target float64) tea.Cmd {
+	if !m.config.Display.Animations {
+		if target == 0 {
+			m.panelWidthOverride = 0
+		} else {
+			m.panelWidthOverride = int(math.Round(target))
+		}
+		m.resizeViews()
+		return nil
+	}
+	if target == 0 {
+		// "Reset" means animate to the default 40% width.
+		// Temporarily clear override to calculate default, then restore.
+		saved := m.panelWidthOverride
+		m.panelWidthOverride = 0
+		m.panelTargetWidth = float64(m.panelWidth())
+		m.panelWidthOverride = saved
+	} else {
+		m.panelTargetWidth = target
+	}
+	if !m.panelAnimating {
+		m.panelAnimating = true
+		m.panelAnimWidth = float64(m.panelWidth())
+	}
+	return m.nextPanelFrame()
+}
+
+func (m *Model) nextPanelFrame() tea.Cmd {
+	return tea.Tick(time.Second/30, func(time.Time) tea.Msg {
+		return panelAnimTickMsg{}
+	})
+}
+
+func (m *Model) openPanel(title, content string, format ui.ContentFormat) tea.Cmd {
+	return m.openTabbedPanel(title, []appmsg.TabContent{
 		{Title: title, Content: content, Format: string(format)},
 	})
 }
 
-func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
+func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) tea.Cmd {
 	tabInputs := make([]ui.TabInput, len(tabs))
 	for i, t := range tabs {
 		var links map[int]ui.ContentLink
@@ -592,8 +662,24 @@ func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
 	m.panelOpen = true
 	m.panelFocused = true
 	m.panelTitle = title
+
+	if m.config.Display.Animations {
+		// Start panel at minimum width and animate to target.
+		targetWidth := float64(m.panelWidth())
+		m.panelWidthOverride = panelMinWidth
+		m.panelAnimWidth = float64(panelMinWidth)
+		m.panelAnimVel = 0
+		m.panelTargetWidth = targetWidth
+		m.panelAnimating = true
+	}
+
 	m.resizeViews()
 	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
+
+	if m.panelAnimating {
+		return m.nextPanelFrame()
+	}
+	return nil
 }
 
 func (m *Model) closePanel() {
@@ -601,6 +687,7 @@ func (m *Model) closePanel() {
 	m.panelOpen = false
 	m.panelFocused = false
 	m.panelTitle = ""
+	m.panelAnimating = false
 	m.resizeViews()
 }
 
@@ -659,7 +746,7 @@ func (m *Model) pushCrossNavHistory() {
 }
 
 // popCrossNavBack pops the cross-nav history, navigates back, and restores the panel.
-func (m *Model) popCrossNavBack() {
+func (m *Model) popCrossNavBack() tea.Cmd {
 	n := len(m.crossNavHistory)
 	entry := m.crossNavHistory[n-1]
 	m.crossNavHistory = m.crossNavHistory[:n-1]
@@ -672,7 +759,7 @@ func (m *Model) popCrossNavBack() {
 		m.resizeViews()
 	}
 
-	m.openTabbedPanel(entry.panelTitle, entry.panelTabs)
+	return m.openTabbedPanel(entry.panelTitle, entry.panelTabs)
 }
 
 // trimCrossNavHistory removes stale entries whose source depth is no longer on the stack.
