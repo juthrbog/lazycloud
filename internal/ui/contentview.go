@@ -425,6 +425,16 @@ func (cv *ContentView) renderContent() {
 	selectStyle := lipgloss.NewStyle().Background(t.Secondary).Width(lineWidth)
 	linkPrefix := S.LinkIndicator.Render("→ ")
 	linkPrefixWidth := lipgloss.Width(linkPrefix)
+	linkSpacer := strings.Repeat(" ", linkPrefixWidth)
+
+	// Adjusted styles for lines in panels that have links (prefix takes space)
+	hasLinks := len(cv.links) > 0
+	adjWidth := lineWidth - linkPrefixWidth
+	if adjWidth < 10 {
+		adjWidth = 10
+	}
+	adjCursor := lipgloss.NewStyle().Background(t.Overlay).Width(adjWidth)
+	adjSelect := lipgloss.NewStyle().Background(t.Secondary).Width(adjWidth)
 
 	lo, hi := cv.selectionRange()
 
@@ -436,17 +446,16 @@ func (cv *ContentView) renderContent() {
 			b.WriteString(num)
 		}
 
-		// Link indicator prefix
+		// Link indicator prefix (or spacer for alignment)
 		_, isLinked := cv.links[i]
 		if isLinked && cv.links != nil {
 			b.WriteString(linkPrefix)
-			// Reduce line width for cursor/select styling to account for prefix
-			adjWidth := lineWidth - linkPrefixWidth
-			if adjWidth < 10 {
-				adjWidth = 10
-			}
-			adjCursor := lipgloss.NewStyle().Background(t.Overlay).Width(adjWidth)
-			adjSelect := lipgloss.NewStyle().Background(t.Secondary).Width(adjWidth)
+		} else if hasLinks {
+			b.WriteString(linkSpacer)
+		}
+
+		// Apply cursor/selection highlight
+		if hasLinks {
 			if cv.visualMode && i >= lo && i <= hi {
 				b.WriteString(adjSelect.Render(line))
 			} else if i == cv.cursor {
@@ -455,7 +464,6 @@ func (cv *ContentView) renderContent() {
 				b.WriteString(line)
 			}
 		} else {
-			// Apply cursor/selection highlight
 			if cv.visualMode && i >= lo && i <= hi {
 				b.WriteString(selectStyle.Render(line))
 			} else if i == cv.cursor {
