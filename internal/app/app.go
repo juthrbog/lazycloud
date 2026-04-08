@@ -431,6 +431,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.nav.Pop()
 			m.trimCrossNavHistory()
+			m.resizeViews()
 			return m, nil
 		case key.Matches(msg, m.keys.ThemePicker.Binding):
 			m.showThemePicker()
