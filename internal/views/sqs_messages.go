@@ -114,22 +114,22 @@ func (s *SQSMessages) KeyMap() []ui.HintBinding {
 	return hints
 }
 
-func sqsMessageColumns(tier ui.WidthTier, isFIFO bool) []table.Column {
+func sqsMessageColumns(tier ui.WidthTier, isFIFO bool) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Message ID", Width: 20},
-			{Title: "Body", Width: 30},
+		return []ui.Column{
+			{Title: "Message ID", Width: 20, Weight: 1, MaxWidth: 35},
+			{Title: "Body", Width: 30, Weight: 2, MaxWidth: 80},
 		}
 	}
-	cols := []table.Column{
-		{Title: "Message ID", Width: 20},
-		{Title: "Sent", Width: 20},
+	cols := []ui.Column{
+		{Title: "Message ID", Width: 20, Weight: 1, MaxWidth: 35},
+		{Title: "Sent", Width: 20, Weight: 1, MaxWidth: 25},
 		{Title: "Receives", Width: 10},
 	}
 	if isFIFO {
-		cols = append(cols, table.Column{Title: "Group ID", Width: 16})
+		cols = append(cols, ui.Column{Title: "Group ID", Width: 16, Weight: 1, MaxWidth: 30})
 	}
-	cols = append(cols, table.Column{Title: "Body", Width: 30})
+	cols = append(cols, ui.Column{Title: "Body", Width: 30, Weight: 2, MaxWidth: 80})
 	return cols
 }
 
@@ -335,14 +335,11 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		isFIFO := s.isFIFO
+		cols, newTier := ui.BestFitTier(m.Width, func(t ui.WidthTier) []ui.Column {
+			return sqsMessageColumns(t, isFIFO)
+		})
 		s.widthTier = newTier
-
-		cols := sqsMessageColumns(newTier, s.isFIFO)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = sqsMessageColumns(ui.TierNarrow, s.isFIFO)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			s.rebuildRows()
@@ -585,7 +582,6 @@ func (s *SQSMessages) rebuildRows() {
 	rows := make([]table.Row, 0, len(s.messages))
 	sortKeys := make([]table.Row, 0, len(s.messages))
 	for _, m := range s.messages {
-		id := truncateID(m.MessageID)
 		sent := ""
 		sentSortKey := ""
 		if !m.SentTimestamp.IsZero() {
@@ -593,18 +589,18 @@ func (s *SQSMessages) rebuildRows() {
 			sentSortKey = sent
 		}
 		receives := fmt.Sprintf("%d", m.ApproximateReceiveCount)
-		bodyPreview := truncateBody(m.Body, 40)
+		bodyPreview := sanitizeBody(m.Body)
 
 		switch s.widthTier {
 		case ui.TierNarrow:
-			rows = append(rows, table.Row{id, bodyPreview})
+			rows = append(rows, table.Row{m.MessageID, bodyPreview})
 			sortKeys = append(sortKeys, table.Row{m.MessageID, m.Body})
 		default:
 			if s.isFIFO {
-				rows = append(rows, table.Row{id, sent, receives, m.MessageGroupID, bodyPreview})
+				rows = append(rows, table.Row{m.MessageID, sent, receives, m.MessageGroupID, bodyPreview})
 				sortKeys = append(sortKeys, table.Row{m.MessageID, sentSortKey, receives, m.MessageGroupID, m.Body})
 			} else {
-				rows = append(rows, table.Row{id, sent, receives, bodyPreview})
+				rows = append(rows, table.Row{m.MessageID, sent, receives, bodyPreview})
 				sortKeys = append(sortKeys, table.Row{m.MessageID, sentSortKey, receives, m.Body})
 			}
 		}
@@ -619,13 +615,9 @@ func truncateID(id string) string {
 	return id
 }
 
-func truncateBody(body string, maxLen int) string {
-	// Replace newlines for preview
+func sanitizeBody(body string) string {
 	body = strings.ReplaceAll(body, "\n", " ")
 	body = strings.ReplaceAll(body, "\r", "")
-	if len(body) > maxLen {
-		return body[:maxLen] + "…"
-	}
 	return body
 }
 

@@ -69,21 +69,21 @@ func (s *SGList) KeyMap() []ui.HintBinding {
 	}
 }
 
-func sgColumns(tier ui.WidthTier) []table.Column {
+func sgColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Group ID", Width: 21},
-			{Title: "Name", Width: 24},
-			{Title: "VPC", Width: 21},
+		return []ui.Column{
+			{Title: "Group ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
+			{Title: "VPC", Width: 21, Weight: 1, MaxWidth: 35},
 			{Title: "In", Width: 4},
 			{Title: "Out", Width: 4},
 		}
 	}
-	return []table.Column{
-		{Title: "Group ID", Width: 21},
-		{Title: "Name", Width: 24},
-		{Title: "VPC", Width: 21},
-		{Title: "Description", Width: 30},
+	return []ui.Column{
+		{Title: "Group ID", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
+		{Title: "VPC", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Description", Width: 30, Weight: 2, MaxWidth: 60},
 		{Title: "In", Width: 4},
 		{Title: "Out", Width: 4},
 	}
@@ -165,14 +165,8 @@ func (s *SGList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, sgColumns)
 		s.widthTier = newTier
-
-		cols := sgColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = sgColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.groups) > 0 {

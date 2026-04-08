@@ -545,7 +545,7 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 		home := views.NewHome()
 		m.nav = nav.New(home)
 		m.err = ""
-		return m, m.resizeCmd()
+		return m, tea.Batch(m.resizeCmd(), ui.AnimationTick())
 	case "mode":
 		m.showModePicker()
 		return m, nil

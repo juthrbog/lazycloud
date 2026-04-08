@@ -139,8 +139,9 @@ func TestSubnetList_NarrowTierColumns(t *testing.T) {
 
 func TestSubnetList_MediumTierColumns(t *testing.T) {
 	cols := subnetColumns(ui.TierMedium)
-	assert.Equal(t, 9, len(cols))
-	assert.Equal(t, "Default", cols[8].Title)
+	assert.Equal(t, 5, len(cols))
+	assert.Equal(t, "CIDR Block", cols[3].Title)
+	assert.Equal(t, "State", cols[4].Title)
 }
 
 // --- Footer ---

@@ -75,18 +75,18 @@ func (v *VPCList) KeyMap() []ui.HintBinding {
 	}
 }
 
-func vpcColumns(tier ui.WidthTier) []table.Column {
+func vpcColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "VPC ID", Width: 21},
-			{Title: "Name", Width: 24},
+		return []ui.Column{
+			{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "CIDR Block", Width: 18},
 			{Title: "State", Width: 16},
 		}
 	}
-	return []table.Column{
-		{Title: "VPC ID", Width: 21},
-		{Title: "Name", Width: 24},
+	return []ui.Column{
+		{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 		{Title: "CIDR Block", Width: 18},
 		{Title: "State", Width: 16},
 		{Title: "Default", Width: 8},
@@ -177,14 +177,8 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.width = m.Width
 		v.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, vpcColumns)
 		v.widthTier = newTier
-
-		cols := vpcColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = vpcColumns(ui.TierNarrow)
-			v.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(v.table.Columns()) {
 			v.table.SetColumns(cols)
 			if len(v.vpcs) > 0 {

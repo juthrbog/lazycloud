@@ -171,19 +171,19 @@ func (s *S3Objects) Title() string {
 	return path.Base(trimmed) + "/"
 }
 
-func s3ObjectColumns(tier ui.WidthTier) []table.Column {
+func s3ObjectColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
+		return []ui.Column{
 			{Title: "", Width: 3},
-			{Title: "Name", Width: 40},
+			{Title: "Name", Width: 40, Weight: 2, MaxWidth: 80},
 			{Title: "Size", Width: 10},
 		}
 	}
-	return []table.Column{
+	return []ui.Column{
 		{Title: "", Width: 3},
-		{Title: "Name", Width: 40},
+		{Title: "Name", Width: 40, Weight: 2, MaxWidth: 80},
 		{Title: "Size", Width: 10},
-		{Title: "Modified", Width: 20},
+		{Title: "Modified", Width: 20, Weight: 1, MaxWidth: 25},
 		{Title: "Class", Width: 14},
 	}
 }
@@ -514,14 +514,8 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, s3ObjectColumns)
 		s.widthTier = newTier
-
-		cols := s3ObjectColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = s3ObjectColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.objects) > 0 || len(s.prefixes) > 0 {

@@ -71,18 +71,18 @@ func (s *S3Versions) KeyMap() []ui.HintBinding {
 	}
 }
 
-func s3VersionColumns(tier ui.WidthTier) []table.Column {
+func s3VersionColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Version ID", Width: 36},
+		return []ui.Column{
+			{Title: "Version ID", Width: 36, Weight: 1, MaxWidth: 50},
 			{Title: "Size", Width: 10},
 			{Title: "Latest", Width: 8},
 		}
 	}
-	return []table.Column{
-		{Title: "Version ID", Width: 36},
+	return []ui.Column{
+		{Title: "Version ID", Width: 36, Weight: 1, MaxWidth: 50},
 		{Title: "Size", Width: 10},
-		{Title: "Modified", Width: 20},
+		{Title: "Modified", Width: 20, Weight: 1, MaxWidth: 25},
 		{Title: "Latest", Width: 8},
 		{Title: "Delete Marker", Width: 14},
 	}
@@ -152,14 +152,8 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, s3VersionColumns)
 		s.widthTier = newTier
-
-		cols := s3VersionColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = s3VersionColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			s.rebuildRows()

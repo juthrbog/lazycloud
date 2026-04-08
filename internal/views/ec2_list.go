@@ -112,24 +112,33 @@ func (e *EC2List) KeyMap() []ui.HintBinding {
 	return hints
 }
 
-func ec2Columns(tier ui.WidthTier) []table.Column {
+func ec2Columns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Instance ID", Width: 21},
-			{Title: "Name", Width: 24},
+		return []ui.Column{
+			{Title: "Instance ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "State", Width: 16},
 			{Title: "Type", Width: 14},
 		}
 	}
-	return []table.Column{
-		{Title: "Instance ID", Width: 21},
-		{Title: "Name", Width: 24},
+	if tier == ui.TierMedium {
+		return []ui.Column{
+			{Title: "Instance ID", Width: 19, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 15, Weight: 2, MaxWidth: 60},
+			{Title: "State", Width: 10},
+			{Title: "Type", Width: 10},
+			{Title: "Private IP", Width: 15},
+		}
+	}
+	return []ui.Column{
+		{Title: "Instance ID", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 		{Title: "State", Width: 16},
 		{Title: "Type", Width: 14},
 		{Title: "Private IP", Width: 16},
 		{Title: "Public IP", Width: 16},
 		{Title: "AZ", Width: 14},
-		{Title: "Launched", Width: 12},
+		{Title: "Launched", Width: 12, Weight: 1, MaxWidth: 25},
 	}
 }
 
@@ -386,14 +395,8 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		e.width = m.Width
 		e.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, ec2Columns)
 		e.widthTier = newTier
-
-		cols := ec2Columns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = ec2Columns(ui.TierNarrow)
-			e.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(e.table.Columns()) {
 			e.table.SetColumns(cols)
 			if len(e.instances) > 0 {
@@ -696,20 +699,29 @@ func (e *EC2List) terminateInstances(ids []string) tea.Cmd {
 func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row) {
 	rows := make([]table.Row, 0, len(instances))
 	sortKeys := make([]table.Row, 0, len(instances))
-	narrow := e.widthTier == ui.TierNarrow
 	for _, inst := range instances {
 		launched := ""
 		if !inst.LaunchTime.IsZero() {
 			launched = inst.LaunchTime.Format("2006-01-02")
 		}
-		if narrow {
+		switch e.widthTier {
+		case ui.TierNarrow:
 			rows = append(rows, table.Row{
 				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
 			})
 			sortKeys = append(sortKeys, table.Row{
 				inst.ID, inst.Name, inst.State, inst.Type,
 			})
-		} else {
+		case ui.TierMedium:
+			rows = append(rows, table.Row{
+				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
+				inst.PrivateIP,
+			})
+			sortKeys = append(sortKeys, table.Row{
+				inst.ID, inst.Name, inst.State, inst.Type,
+				inst.PrivateIP,
+			})
+		default:
 			rows = append(rows, table.Row{
 				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
 				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,

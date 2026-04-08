@@ -97,15 +97,15 @@ func (s *S3List) KeyMap() []ui.HintBinding {
 	return hints
 }
 
-func s3BucketColumns(tier ui.WidthTier) []table.Column {
+func s3BucketColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Bucket", Width: 40},
+		return []ui.Column{
+			{Title: "Bucket", Width: 40, Weight: 2, MaxWidth: 80},
 		}
 	}
-	return []table.Column{
-		{Title: "Bucket", Width: 40},
-		{Title: "Created", Width: 22},
+	return []ui.Column{
+		{Title: "Bucket", Width: 40, Weight: 2, MaxWidth: 80},
+		{Title: "Created", Width: 22, Weight: 1, MaxWidth: 30},
 	}
 }
 
@@ -229,14 +229,8 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, s3BucketColumns)
 		s.widthTier = newTier
-
-		cols := s3BucketColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = s3BucketColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			s.rebuildRows()
