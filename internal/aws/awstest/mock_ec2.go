@@ -32,6 +32,11 @@ func (m *MockEC2Service) GetInstanceDetail(ctx context.Context, instanceID strin
 	return val, args.Error(1)
 }
 
+func (m *MockEC2Service) RefreshInstances(ctx context.Context, ids []string) ([]aws.Instance, error) {
+	args := m.Called(ctx, ids)
+	return args.Get(0).([]aws.Instance), args.Error(1)
+}
+
 func (m *MockEC2Service) StartInstance(ctx context.Context, instanceID string) error {
 	args := m.Called(ctx, instanceID)
 	return args.Error(0)
@@ -79,6 +84,11 @@ func (m *MockEC2Service) ListOwnedAMIs(ctx context.Context) ([]aws.AMI, error) {
 
 func (m *MockEC2Service) SearchAMIs(ctx context.Context, query string) ([]aws.AMI, error) {
 	args := m.Called(ctx, query)
+	return args.Get(0).([]aws.AMI), args.Error(1)
+}
+
+func (m *MockEC2Service) RefreshAMIs(ctx context.Context, ids []string) ([]aws.AMI, error) {
+	args := m.Called(ctx, ids)
 	return args.Get(0).([]aws.AMI), args.Error(1)
 }
 

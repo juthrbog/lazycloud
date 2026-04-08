@@ -53,6 +53,55 @@ When the terminal is at least 120 columns wide, pressing `d` (describe) or `ente
 
 When the panel is open, the header breadcrumbs append the panel title (e.g., `Services › EC2 Instances › web-server-1 (i-abc123)`) so it's always clear which resource is being viewed.
 
+### Selective Refresh
+
+Views that support multi-select (`space`) implement selective refresh on `r`. When resources are selected, `r` re-fetches only those items instead of reloading the entire list.
+
+**Branch on selection count** in the `r` key handler:
+
+```go
+case key.Matches(m, v.keys.Refresh):
+    if ids := v.selectedResourceIDs(); len(ids) > 0 && v.table.SelectionCount() > 0 {
+        eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d resources", len(ids))
+        v.spinner.Show(fmt.Sprintf("Refreshing %d resources...", len(ids)))
+        return v, tea.Batch(v.spinner.Tick(), v.refreshResources(ids))
+    }
+    // Fall through to full refresh
+    v.loading = true
+    v.spinner.Show("Loading resources...")
+    return v, tea.Batch(v.spinner.Tick(), v.fetchAll())
+```
+
+**Add a batch-by-ID service method** (e.g., `RefreshInstances(ctx, ids) ([]Instance, error)`) that calls the AWS Describe API with an ID filter. Reuse the existing `map*()` functions to return the same type as the list view uses.
+
+**Handle the response with an in-place update** — find each returned item by ID and replace it in the slice, then rebuild rows:
+
+```go
+case resourcesRefreshedMsg:
+    v.spinner.Hide()
+    if m.err != nil {
+        return v, func() tea.Msg { return msg.ToastError("Refresh failed: " + m.err.Error()) }
+    }
+    for _, updated := range m.resources {
+        for i := range v.resources {
+            if v.resources[i].ID == updated.ID {
+                v.resources[i] = updated
+                break
+            }
+        }
+    }
+    v.rebuildRows()
+    return v, nil
+```
+
+**Rules:**
+- Do NOT clear the items slice or call `DeselectAll()` — the in-place update preserves selection automatically
+- Do NOT set `v.loading = true` — selective refresh is non-destructive, the existing table stays visible
+- Hide the spinner in the response handler on both success and error
+- Log the selective refresh to the event log with the count
+
+Reference implementations: `sqs_queues.go` (per-resource), `ec2_list.go` (batch API), `ami_list.go` (batch API).
+
 ### Cross-Resource Navigation
 
 Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a `focus` parameter, the target view auto-selects the matching resource and opens its detail panel. If the view is still loading data, the focus is deferred until the data arrives. This lets users follow links seamlessly — e.g., clicking a security group in an EC2 instance detail navigates to the SG list with that group's detail panel already open.

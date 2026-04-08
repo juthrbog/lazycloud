@@ -366,6 +366,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsQueueRefreshedMsg:
 		if m.err != nil || m.queue == nil {
+			s.spinner.Hide()
 			return s, nil
 		}
 		for i := range s.queues {
@@ -375,6 +376,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		s.spinner.Hide()
 		rows, sortKeys := s.buildRows(s.queues)
 		s.table.SetRowsWithSortKeys(rows, sortKeys)
 		return s, nil
@@ -507,6 +509,15 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.filter.Activate()
 			return s, nil
 		case key.Matches(m, s.keys.Refresh):
+			if urls := s.selectedQueueURLs(); len(urls) > 0 && s.table.SelectionCount() > 0 {
+				eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d SQS queues", len(urls))
+				s.spinner.Show(fmt.Sprintf("Refreshing %d queues...", len(urls)))
+				cmds := []tea.Cmd{s.spinner.Tick()}
+				for _, url := range urls {
+					cmds = append(cmds, s.refreshQueue(url))
+				}
+				return s, tea.Batch(cmds...)
+			}
 			s.loading = true
 			s.err = nil
 			s.queues = nil

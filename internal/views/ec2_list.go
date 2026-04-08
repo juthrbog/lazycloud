@@ -35,6 +35,11 @@ type ec2SSMSessionFinishedMsg struct {
 	err          error
 }
 
+type ec2InstancesRefreshedMsg struct {
+	instances []aws.Instance
+	err       error
+}
+
 type ec2DelayedRefreshMsg struct{}
 
 type ec2InstanceMutatedMsg struct {
@@ -313,6 +318,25 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return e, nil
 
+	case ec2InstancesRefreshedMsg:
+		e.spinner.Hide()
+		if m.err != nil {
+			return e, func() tea.Msg {
+				return msg.ToastError("Refresh failed: " + m.err.Error())
+			}
+		}
+		for _, updated := range m.instances {
+			for i := range e.instances {
+				if e.instances[i].ID == updated.ID {
+					e.instances[i] = updated
+					break
+				}
+			}
+		}
+		rows, sortKeys := e.buildRows(e.instances)
+		e.table.SetRowsWithSortKeys(rows, sortKeys)
+		return e, nil
+
 	case msg.FocusResourceMsg:
 		if e.loading {
 			e.pendingFocus = m.ResourceID
@@ -411,6 +435,11 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			e.filter.Activate()
 			return e, nil
 		case key.Matches(m, e.keys.Refresh):
+			if ids := e.selectedInstanceIDs(); len(ids) > 0 && e.table.SelectionCount() > 0 {
+				eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d EC2 instances", len(ids))
+				e.spinner.Show(fmt.Sprintf("Refreshing %d instances...", len(ids)))
+				return e, tea.Batch(e.spinner.Tick(), e.refreshInstances(ids))
+			}
 			e.loading = true
 			e.err = nil
 			e.instances = nil
@@ -516,6 +545,14 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	e.table, cmd = e.table.Update(m)
 	cmds = append(cmds, cmd)
 	return e, tea.Batch(cmds...)
+}
+
+func (e *EC2List) refreshInstances(ids []string) tea.Cmd {
+	svc := e.ec2
+	return func() tea.Msg {
+		instances, err := svc.RefreshInstances(context.Background(), ids)
+		return ec2InstancesRefreshedMsg{instances: instances, err: err}
+	}
 }
 
 func (e *EC2List) findInstance(id string) *aws.Instance {
