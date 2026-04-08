@@ -22,6 +22,11 @@ type amiListLoadedMsg struct {
 	query string // non-empty when this is a search result
 }
 
+type amiRefreshedMsg struct {
+	amis []aws.AMI
+	err  error
+}
+
 type amiListKeyMap struct {
 	Esc          key.Binding
 	Details      key.Binding
@@ -183,6 +188,25 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 
+	case amiRefreshedMsg:
+		a.spinner.Hide()
+		if m.err != nil {
+			return a, func() tea.Msg {
+				return msg.ToastError("Refresh failed: " + m.err.Error())
+			}
+		}
+		for _, updated := range m.amis {
+			for i := range a.amis {
+				if a.amis[i].ID == updated.ID {
+					a.amis[i] = updated
+					break
+				}
+			}
+		}
+		rows := buildAMIRows(a.amis, a.widthTier)
+		a.table.SetRows(rows)
+		return a, nil
+
 	case msg.FocusResourceMsg:
 		if a.loading {
 			a.pendingFocus = m.ResourceID
@@ -289,6 +313,11 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				},
 			)
 		case key.Matches(m, a.keys.Refresh):
+			if ids := a.selectedAMIIDs(); len(ids) > 0 && a.table.SelectionCount() > 0 {
+				eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d AMIs", len(ids))
+				a.spinner.Show(fmt.Sprintf("Refreshing %d AMIs...", len(ids)))
+				return a, tea.Batch(a.spinner.Tick(), a.refreshAMIs(ids))
+			}
 			a.loading = true
 			a.err = nil
 			a.ownedMode = true
@@ -360,6 +389,14 @@ func (a *AMIList) selectedAMIIDs() []string {
 		}
 	}
 	return ids
+}
+
+func (a *AMIList) refreshAMIs(ids []string) tea.Cmd {
+	svc := a.ec2
+	return func() tea.Msg {
+		amis, err := svc.RefreshAMIs(context.Background(), ids)
+		return amiRefreshedMsg{amis: amis, err: err}
+	}
 }
 
 func (a *AMIList) focusAndOpenDetail(id string) tea.Cmd {

@@ -25,6 +25,7 @@ type EC2Service interface {
 	ListInstances(ctx context.Context) ([]Instance, error)
 	ListInstancesPage(ctx context.Context, token *string) (*InstancePage, error)
 	GetInstanceDetail(ctx context.Context, instanceID string) (*InstanceDetail, error)
+	RefreshInstances(ctx context.Context, ids []string) ([]Instance, error)
 	StartInstance(ctx context.Context, instanceID string) error
 	StopInstance(ctx context.Context, instanceID string) error
 	RebootInstance(ctx context.Context, instanceID string) error
@@ -35,6 +36,7 @@ type EC2Service interface {
 	TerminateInstances(ctx context.Context, ids []string) error
 	ListOwnedAMIs(ctx context.Context) ([]AMI, error)
 	SearchAMIs(ctx context.Context, query string) ([]AMI, error)
+	RefreshAMIs(ctx context.Context, ids []string) ([]AMI, error)
 	ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
 	GetSecurityGroup(ctx context.Context, groupID string) (*SecurityGroup, error)
 	ListVPCsPage(ctx context.Context, token *string) (*VPCPage, error)
@@ -326,6 +328,24 @@ func (svc *EC2ServiceImpl) GetInstanceDetail(ctx context.Context, instanceID str
 	return nil, nil
 }
 
+// RefreshInstances re-fetches a specific set of instances by ID.
+func (svc *EC2ServiceImpl) RefreshInstances(ctx context.Context, ids []string) ([]Instance, error) {
+	ec2c := svc.client.EC2Client()
+	output, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+		InstanceIds: ids,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("RefreshInstances: %w", err)
+	}
+	var instances []Instance
+	for _, res := range output.Reservations {
+		for _, inst := range res.Instances {
+			instances = append(instances, mapInstance(inst))
+		}
+	}
+	return instances, nil
+}
+
 // StartInstance starts a stopped EC2 instance.
 func (svc *EC2ServiceImpl) StartInstance(ctx context.Context, instanceID string) error {
 	ec2c := svc.client.EC2Client()
@@ -437,6 +457,22 @@ func (svc *EC2ServiceImpl) SearchAMIs(ctx context.Context, query string) ([]AMI,
 	})
 	if err != nil {
 		return nil, err
+	}
+	amis := make([]AMI, 0, len(output.Images))
+	for _, img := range output.Images {
+		amis = append(amis, mapAMI(img))
+	}
+	return amis, nil
+}
+
+// RefreshAMIs re-fetches a specific set of AMIs by ID.
+func (svc *EC2ServiceImpl) RefreshAMIs(ctx context.Context, ids []string) ([]AMI, error) {
+	ec2c := svc.client.EC2Client()
+	output, err := ec2c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+		ImageIds: ids,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("RefreshAMIs: %w", err)
 	}
 	amis := make([]AMI, 0, len(output.Images))
 	for _, img := range output.Images {
