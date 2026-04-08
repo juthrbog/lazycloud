@@ -68,7 +68,8 @@ type AppKeyMap struct {
 	PanelGrow     HintBinding
 	PanelShrink   HintBinding
 	PanelReset    HintBinding
-	CrossNavBack  HintBinding
+	CrossNavBack   HintBinding
+	ServicePicker  HintBinding
 }
 
 // DefaultAppKeyMap returns the default app-level keybindings.
@@ -88,7 +89,8 @@ func DefaultAppKeyMap() AppKeyMap {
 		PanelGrow:     NewHintBinding([]string{"<"}, "<", "grow panel"),
 		PanelShrink:   NewHintBinding([]string{">"}, ">", "shrink panel"),
 		PanelReset:    NewHintBinding([]string{"="}, "=", "reset panel"),
-		CrossNavBack:  NewHintBinding([]string{"backspace"}, "bksp", "cross-nav back"),
+		CrossNavBack:   NewHintBinding([]string{"backspace"}, "bksp", "cross-nav back"),
+		ServicePicker:  NewHintBinding([]string{"s"}, "s", "services"),
 	}
 }
 
