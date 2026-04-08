@@ -460,14 +460,8 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, sqsColumns)
 		s.widthTier = newTier
-
-		cols := sqsColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = sqsColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.queues) > 0 {

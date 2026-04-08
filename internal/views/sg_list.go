@@ -165,14 +165,8 @@ func (s *SGList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, sgColumns)
 		s.widthTier = newTier
-
-		cols := sgColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = sgColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.groups) > 0 {

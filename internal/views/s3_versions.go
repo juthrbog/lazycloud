@@ -152,14 +152,8 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		s.width = m.Width
 		s.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, s3VersionColumns)
 		s.widthTier = newTier
-
-		cols := s3VersionColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = s3VersionColumns(ui.TierNarrow)
-			s.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			s.rebuildRows()

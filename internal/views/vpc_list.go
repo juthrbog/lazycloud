@@ -177,14 +177,8 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		v.width = m.Width
 		v.height = m.Height
-		newTier := ui.GetWidthTier(m.Width)
+		cols, newTier := ui.BestFitTier(m.Width, vpcColumns)
 		v.widthTier = newTier
-
-		cols := vpcColumns(newTier)
-		if !ui.ColumnsFit(cols, m.Width) {
-			cols = vpcColumns(ui.TierNarrow)
-			v.widthTier = ui.TierNarrow
-		}
 		if len(cols) != len(v.table.Columns()) {
 			v.table.SetColumns(cols)
 			if len(v.vpcs) > 0 {
