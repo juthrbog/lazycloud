@@ -71,6 +71,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.6 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
 	github.com/charmbracelet/crush v0.55.1 // indirect
+	github.com/charmbracelet/harmonica v0.2.0 // indirect
 	github.com/charmbracelet/huh v1.0.0 // indirect
 	github.com/charmbracelet/lipgloss v1.1.0 // indirect
 	github.com/charmbracelet/openai-go v0.0.0-20260319145158-d0740cc34266 // indirect

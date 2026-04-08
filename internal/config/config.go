@@ -24,8 +24,9 @@ type AWSConfig struct {
 
 // DisplayConfig holds UI-related settings.
 type DisplayConfig struct {
-	Theme     string `toml:"theme"`
-	NerdFonts bool   `toml:"nerd_fonts"`
+	Theme      string `toml:"theme"`
+	NerdFonts  bool   `toml:"nerd_fonts"`
+	Animations bool   `toml:"animations"`
 }
 
 // LogConfig holds logging settings.
@@ -40,8 +41,9 @@ func DefaultConfig() Config {
 			Region: "us-east-1",
 		},
 		Display: DisplayConfig{
-			Theme:     "catppuccin",
-			NerdFonts: true,
+			Theme:      "catppuccin",
+			NerdFonts:  true,
+			Animations: true,
 		},
 	}
 }
@@ -118,6 +120,9 @@ theme = "catppuccin"
 
 # Use Nerd Font icons (set to false for plain Unicode fallbacks)
 nerd_fonts = true
+
+# Enable smooth animations for panel resize (set to false for instant transitions)
+animations = true
 
 [log]
 # Path to debug log file (empty = no logging)
