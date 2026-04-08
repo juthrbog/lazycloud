@@ -22,8 +22,7 @@ const (
 type Table struct {
 	inner       table.Model
 	allRows     []table.Row
-	columns     []table.Column
-	baseColumns []table.Column // original titles without sort indicators
+	flexColumns []Column // column definitions with flex weights
 	sortCol     int
 	sortDir     SortDirection
 	sortKeys    []table.Row // parallel to allRows; nil = use display value
@@ -35,9 +34,10 @@ type Table struct {
 }
 
 // NewTable creates a Table with the given columns and rows.
-func NewTable(columns []table.Column, rows []table.Row) Table {
+func NewTable(columns []Column, rows []table.Row) Table {
+	resolved := DistributeWidths(columns, 0)
 	t := table.New(
-		table.WithColumns(columns),
+		table.WithColumns(resolved),
 		table.WithRows(rows),
 		table.WithFocused(true),
 	)
@@ -60,14 +60,13 @@ func NewTable(columns []table.Column, rows []table.Row) Table {
 	// for selection without triggering an unwanted page-down.
 	t.KeyMap.PageDown.SetKeys("f", "pgdown")
 
-	baseCols := make([]table.Column, len(columns))
-	copy(baseCols, columns)
+	flex := make([]Column, len(columns))
+	copy(flex, columns)
 
 	tbl := Table{
 		inner:       t,
 		allRows:     rows,
-		columns:     columns,
-		baseColumns: baseCols,
+		flexColumns: flex,
 		sortCol:     -1,
 		selected:    make(map[int]bool),
 	}
@@ -75,36 +74,51 @@ func NewTable(columns []table.Column, rows []table.Row) Table {
 	return tbl
 }
 
-// SetSize sets the table dimensions.
+// SetSize sets the table dimensions and redistributes column widths.
 func (t *Table) SetSize(w, h int) {
 	t.width = w
 	t.height = h
+	t.resolveColumns()
 	t.inner.SetWidth(w)
 	t.inner.SetHeight(h)
 }
 
-// Columns returns the current column definitions.
-func (t Table) Columns() []table.Column {
-	return t.columns
+// Columns returns the flex column definitions.
+func (t Table) Columns() []Column {
+	return t.flexColumns
 }
 
 // SetColumns swaps the column set without recreating the table.
 // Clears rows and resets sort state since column indices may have changed.
 // Selections are preserved — callers repopulate rows with the same data.
-func (t *Table) SetColumns(columns []table.Column) {
-	t.columns = columns
-	baseCols := make([]table.Column, len(columns))
-	copy(baseCols, columns)
-	t.baseColumns = baseCols
+func (t *Table) SetColumns(columns []Column) {
+	flex := make([]Column, len(columns))
+	copy(flex, columns)
+	t.flexColumns = flex
 	saved := t.selected
 	t.allRows = nil
 	t.sortKeys = nil
 	t.inner.SetRows(nil)
-	t.inner.SetColumns(columns)
+	t.resolveColumns()
 	t.sortCol = -1
 	t.sortDir = SortAsc
 	t.selected = saved
 	t.buildFilteredMap()
+}
+
+// resolveColumns computes fixed-width columns from flex definitions
+// and applies them (with sort indicators) to the inner table.
+func (t *Table) resolveColumns() {
+	resolved := DistributeWidths(t.flexColumns, t.width)
+	// Apply sort indicators
+	if t.sortCol >= 0 && t.sortCol < len(resolved) {
+		if t.sortDir == SortAsc {
+			resolved[t.sortCol].Title = t.flexColumns[t.sortCol].Title + " ▲"
+		} else {
+			resolved[t.sortCol].Title = t.flexColumns[t.sortCol].Title + " ▼"
+		}
+	}
+	t.inner.SetColumns(resolved)
 }
 
 // SetRows replaces the table data and reapplies sort/filter.
@@ -243,8 +257,8 @@ func (t *Table) Sort(col int) {
 
 // SortColumnNames returns the base column titles and the currently sorted column index.
 func (t Table) SortColumnNames() ([]string, int) {
-	names := make([]string, len(t.baseColumns))
-	for i, c := range t.baseColumns {
+	names := make([]string, len(t.flexColumns))
+	for i, c := range t.flexColumns {
 		names[i] = c.Title
 	}
 	return names, t.sortCol
@@ -261,7 +275,7 @@ func (t *Table) ClearSort() {
 // SortNext advances to the next sort column (ascending), or clears sort after the last column.
 func (t *Table) SortNext() {
 	next := t.sortCol + 1
-	if next >= len(t.baseColumns) {
+	if next >= len(t.flexColumns) {
 		t.sortCol = -1
 	} else {
 		t.sortCol = next
@@ -310,19 +324,7 @@ func (t Table) View() string {
 
 // updateColumnHeaders rebuilds column titles with sort indicators.
 func (t *Table) updateColumnHeaders() {
-	cols := make([]table.Column, len(t.baseColumns))
-	for i, c := range t.baseColumns {
-		cols[i] = c
-		if i == t.sortCol {
-			if t.sortDir == SortAsc {
-				cols[i].Title = c.Title + " ▲"
-			} else {
-				cols[i].Title = c.Title + " ▼"
-			}
-		}
-	}
-	t.columns = cols
-	t.inner.SetColumns(cols)
+	t.resolveColumns()
 }
 
 func (t *Table) applyFilterAndSort() {
@@ -348,7 +350,7 @@ func (t *Table) applyFilterAndSort() {
 	}
 
 	// Sort — reorder both rows and filteredMap in tandem
-	if t.sortCol >= 0 && t.sortCol < len(t.columns) {
+	if t.sortCol >= 0 && t.sortCol < len(t.flexColumns) {
 		col := t.sortCol
 		dir := t.sortDir
 		indices := make([]int, len(rows))

@@ -13,7 +13,7 @@ func init() {
 }
 
 func testTable() Table {
-	columns := []table.Column{
+	columns := []Column{
 		{Title: "Name", Width: 20},
 		{Title: "Size", Width: 10},
 		{Title: "Date", Width: 12},
@@ -85,7 +85,7 @@ func TestSortReverse(t *testing.T) {
 }
 
 func TestSortWithSortKeys(t *testing.T) {
-	columns := []table.Column{
+	columns := []Column{
 		{Title: "Name", Width: 20},
 		{Title: "Size", Width: 10},
 	}
@@ -123,30 +123,34 @@ func TestSortHeaderIndicators(t *testing.T) {
 	tbl := testTable()
 
 	// No indicator when unsorted
-	cols := tbl.columns
+	cols := tbl.inner.Columns()
 	assert.Equal(t, "Name", cols[0].Title)
 	assert.Equal(t, "Size", cols[1].Title)
 
 	// Sort by Name ascending
 	tbl.SortNext()
-	assert.Equal(t, "Name ▲", tbl.columns[0].Title)
-	assert.Equal(t, "Size", tbl.columns[1].Title)
+	cols = tbl.inner.Columns()
+	assert.Equal(t, "Name ▲", cols[0].Title)
+	assert.Equal(t, "Size", cols[1].Title)
 
 	// Sort by Size ascending
 	tbl.SortNext()
-	assert.Equal(t, "Name", tbl.columns[0].Title)
-	assert.Equal(t, "Size ▲", tbl.columns[1].Title)
+	cols = tbl.inner.Columns()
+	assert.Equal(t, "Name", cols[0].Title)
+	assert.Equal(t, "Size ▲", cols[1].Title)
 
 	// Reverse to descending
 	tbl.SortReverse()
-	assert.Equal(t, "Size ▼", tbl.columns[1].Title)
+	cols = tbl.inner.Columns()
+	assert.Equal(t, "Size ▼", cols[1].Title)
 
 	// Back to unsorted — no indicators
 	tbl.SortNext() // col 2
 	tbl.SortNext() // unsorted
-	assert.Equal(t, "Name", tbl.columns[0].Title)
-	assert.Equal(t, "Size", tbl.columns[1].Title)
-	assert.Equal(t, "Date", tbl.columns[2].Title)
+	cols = tbl.inner.Columns()
+	assert.Equal(t, "Name", cols[0].Title)
+	assert.Equal(t, "Size", cols[1].Title)
+	assert.Equal(t, "Date", cols[2].Title)
 }
 
 func TestSortPreservesFilteredMap(t *testing.T) {
@@ -199,13 +203,13 @@ func TestSortKeyBytes(t *testing.T) {
 func TestSetColumnsSwapsColumns(t *testing.T) {
 	tbl := testTable()
 
-	newCols := []table.Column{
+	newCols := []Column{
 		{Title: "Name", Width: 20},
 		{Title: "Size", Width: 10},
 	}
 	tbl.SetColumns(newCols)
 
-	assert.Equal(t, 2, len(tbl.columns))
+	assert.Equal(t, 2, len(tbl.flexColumns))
 	assert.Equal(t, -1, tbl.sortCol, "sort should be reset after SetColumns")
 }
 
@@ -214,7 +218,7 @@ func TestSetColumnsResetsSortState(t *testing.T) {
 	tbl.Sort(0) // sort by Name
 	assert.Equal(t, 0, tbl.sortCol)
 
-	tbl.SetColumns([]table.Column{
+	tbl.SetColumns([]Column{
 		{Title: "A", Width: 10},
 		{Title: "B", Width: 10},
 	})

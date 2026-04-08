@@ -90,21 +90,21 @@ func (a *AMIList) KeyMap() []ui.HintBinding {
 	return hints
 }
 
-func amiColumns(tier ui.WidthTier) []table.Column {
+func amiColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "AMI ID", Width: 21},
-			{Title: "Name", Width: 34},
+		return []ui.Column{
+			{Title: "AMI ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 34, Weight: 2, MaxWidth: 60},
 			{Title: "State", Width: 14},
 		}
 	}
-	return []table.Column{
-		{Title: "AMI ID", Width: 21},
-		{Title: "Name", Width: 34},
-		{Title: "Owner", Width: 16},
+	return []ui.Column{
+		{Title: "AMI ID", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 34, Weight: 2, MaxWidth: 60},
+		{Title: "Owner", Width: 16, Weight: 1, MaxWidth: 25},
 		{Title: "Architecture", Width: 14},
 		{Title: "State", Width: 14},
-		{Title: "Created", Width: 12},
+		{Title: "Created", Width: 12, Weight: 1, MaxWidth: 25},
 	}
 }
 

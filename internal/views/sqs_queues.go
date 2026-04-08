@@ -124,30 +124,30 @@ func (s *SQSQueues) KeyMap() []ui.HintBinding {
 	return hints
 }
 
-func sqsColumns(tier ui.WidthTier) []table.Column {
+func sqsColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Queue Name", Width: 30},
+		return []ui.Column{
+			{Title: "Queue Name", Width: 30, Weight: 2, MaxWidth: 60},
 			{Title: "Messages", Width: 10},
 		}
 	}
 	if tier == ui.TierMedium {
-		return []table.Column{
-			{Title: "Queue Name", Width: 30},
+		return []ui.Column{
+			{Title: "Queue Name", Width: 30, Weight: 2, MaxWidth: 60},
 			{Title: "Type", Width: 10},
 			{Title: "Messages", Width: 10},
 			{Title: "In-Flight", Width: 10},
 			{Title: "Delayed", Width: 10},
 		}
 	}
-	return []table.Column{
-		{Title: "Queue Name", Width: 30},
+	return []ui.Column{
+		{Title: "Queue Name", Width: 30, Weight: 2, MaxWidth: 60},
 		{Title: "Type", Width: 10},
 		{Title: "Messages", Width: 10},
 		{Title: "In-Flight", Width: 10},
 		{Title: "Delayed", Width: 10},
 		{Title: "DLQ", Width: 5},
-		{Title: "Created", Width: 12},
+		{Title: "Created", Width: 12, Weight: 1, MaxWidth: 25},
 	}
 }
 

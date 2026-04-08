@@ -85,20 +85,20 @@ func (s *SubnetList) KeyMap() []ui.HintBinding {
 	}
 }
 
-func subnetColumns(tier ui.WidthTier) []table.Column {
+func subnetColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Subnet ID", Width: 24},
-			{Title: "Name", Width: 24},
+		return []ui.Column{
+			{Title: "Subnet ID", Width: 24, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "AZ", Width: 14},
 			{Title: "CIDR Block", Width: 18},
 			{Title: "State", Width: 16},
 		}
 	}
-	return []table.Column{
-		{Title: "Subnet ID", Width: 24},
-		{Title: "Name", Width: 24},
-		{Title: "VPC ID", Width: 21},
+	return []ui.Column{
+		{Title: "Subnet ID", Width: 24, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
+		{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
 		{Title: "AZ", Width: 14},
 		{Title: "CIDR Block", Width: 18},
 		{Title: "Avail IPs", Width: 10},

@@ -112,24 +112,24 @@ func (e *EC2List) KeyMap() []ui.HintBinding {
 	return hints
 }
 
-func ec2Columns(tier ui.WidthTier) []table.Column {
+func ec2Columns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "Instance ID", Width: 21},
-			{Title: "Name", Width: 24},
+		return []ui.Column{
+			{Title: "Instance ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "State", Width: 16},
 			{Title: "Type", Width: 14},
 		}
 	}
-	return []table.Column{
-		{Title: "Instance ID", Width: 21},
-		{Title: "Name", Width: 24},
+	return []ui.Column{
+		{Title: "Instance ID", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 		{Title: "State", Width: 16},
 		{Title: "Type", Width: 14},
 		{Title: "Private IP", Width: 16},
 		{Title: "Public IP", Width: 16},
 		{Title: "AZ", Width: 14},
-		{Title: "Launched", Width: 12},
+		{Title: "Launched", Width: 12, Weight: 1, MaxWidth: 25},
 	}
 }
 

@@ -75,18 +75,18 @@ func (v *VPCList) KeyMap() []ui.HintBinding {
 	}
 }
 
-func vpcColumns(tier ui.WidthTier) []table.Column {
+func vpcColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
-			{Title: "VPC ID", Width: 21},
-			{Title: "Name", Width: 24},
+		return []ui.Column{
+			{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
+			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "CIDR Block", Width: 18},
 			{Title: "State", Width: 16},
 		}
 	}
-	return []table.Column{
-		{Title: "VPC ID", Width: 21},
-		{Title: "Name", Width: 24},
+	return []ui.Column{
+		{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
+		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 		{Title: "CIDR Block", Width: 18},
 		{Title: "State", Width: 16},
 		{Title: "Default", Width: 8},

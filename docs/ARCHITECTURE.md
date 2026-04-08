@@ -219,6 +219,29 @@ The layout should adapt to three terminal width tiers:
 
 For height, the table should always show at minimum 5 rows. If the terminal is too short, hide the header or status bar before shrinking the table.
 
+### Responsive Table Columns
+
+Table columns use a **weight-based flex layout** (`ui.Column`) so they fill available terminal width instead of leaving empty space on wide terminals. Each column declares:
+
+- `Width` — base/minimum width (used when terminal is narrow)
+- `Weight` — flex factor for distributing extra space (0 = fixed width)
+- `MaxWidth` — upper bound to prevent over-stretching (0 = no limit)
+
+`ui.DistributeWidths(cols, totalWidth)` converts flex definitions to fixed-width `table.Column` values. The `Table` wrapper calls this automatically in `SetSize`, so views only need to declare flex columns.
+
+**Weight guidelines for new views:**
+
+| Column type                          | Weight | MaxWidth | Examples                     |
+| ------------------------------------ | ------ | -------- | ---------------------------- |
+| Text/name (variable, unbounded)      | 2      | 60-80    | Name, Bucket, Body, Desc     |
+| IDs (fixed format, ~20-36 chars)     | 1      | 35       | Instance ID, VPC ID, ARN     |
+| Dates/timestamps                     | 1      | 25       | Created, Launched, Modified  |
+| Status/enum (short, fixed set)       | 0      | —        | State, Type, AZ, Protocol    |
+| Numeric counts                       | 0      | —        | Messages, In, Out, Avail IPs |
+| Boolean flags                        | 0      | —        | Default, Public, Latest      |
+
+**Important:** Do not pre-truncate row data before putting it in the table. The bubbles table already truncates cell content with "…" at the actual column width. Pre-truncation prevents wider columns from showing more content.
+
 ### Command Registry Pattern
 
 **Implemented in `internal/registry/registry.go`.** Services and commands are defined once and consumed by both the home view and the command bar.

@@ -171,19 +171,19 @@ func (s *S3Objects) Title() string {
 	return path.Base(trimmed) + "/"
 }
 
-func s3ObjectColumns(tier ui.WidthTier) []table.Column {
+func s3ObjectColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
-		return []table.Column{
+		return []ui.Column{
 			{Title: "", Width: 3},
-			{Title: "Name", Width: 40},
+			{Title: "Name", Width: 40, Weight: 2, MaxWidth: 80},
 			{Title: "Size", Width: 10},
 		}
 	}
-	return []table.Column{
+	return []ui.Column{
 		{Title: "", Width: 3},
-		{Title: "Name", Width: 40},
+		{Title: "Name", Width: 40, Weight: 2, MaxWidth: 80},
 		{Title: "Size", Width: 10},
-		{Title: "Modified", Width: 20},
+		{Title: "Modified", Width: 20, Weight: 1, MaxWidth: 25},
 		{Title: "Class", Width: 14},
 	}
 }
