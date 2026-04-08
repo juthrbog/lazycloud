@@ -15,7 +15,6 @@ type Home struct {
 	animation ui.Animation
 	width     int
 	height    int
-	lastFrame int64 // timestamp of last AnimationFrameMsg (UnixMilli)
 }
 
 func (h *Home) ID() string    { return "home" }
@@ -41,7 +40,6 @@ func NewHome() *Home {
 }
 
 func (h *Home) Init() tea.Cmd {
-	h.lastFrame = time.Now().UnixMilli()
 	return ui.AnimationTick()
 }
 
@@ -50,14 +48,8 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		h.width = m.Width
 		h.height = m.Height
-		// Restart tick loop if stale (broken by navigating away and back)
-		if time.Now().UnixMilli()-h.lastFrame > 200 {
-			h.lastFrame = time.Now().UnixMilli()
-			return h, ui.AnimationTick()
-		}
 		return h, nil
 	case ui.AnimationFrameMsg:
-		h.lastFrame = time.Now().UnixMilli()
 		h.animation.Update()
 		return h, ui.AnimationTick()
 	case tea.KeyPressMsg:

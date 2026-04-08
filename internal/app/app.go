@@ -201,6 +201,9 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.trimCrossNavHistory()
 			m.resizeViews()
 		}
+		if m.nav.Depth() == 1 {
+			return m, ui.AnimationTick()
+		}
 		return m, nil
 
 	case appmsg.TabbedContentMsg:
@@ -432,6 +435,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.nav.Pop()
 			m.trimCrossNavHistory()
 			m.resizeViews()
+			// Restart animation tick when returning to home screen
+			if m.nav.Depth() == 1 {
+				return m, ui.AnimationTick()
+			}
 			return m, nil
 		case key.Matches(msg, m.keys.ThemePicker.Binding):
 			m.showThemePicker()
