@@ -276,6 +276,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
+	case ui.RequestFormDiscardConfirmMsg:
+		m.confirm.ShowQuick("Discard unsaved changes?", "form_discard")
+		return m, nil
+
 	case appmsg.RequestConfirmMsg:
 		m.confirm.Show(msg.Message, msg.Action)
 		return m, nil
@@ -320,6 +324,17 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.applyTheme(name)
 			}
 			m.pendingTheme = ""
+			return m, nil
+		}
+		if msg.Action == "form_discard" {
+			if msg.Confirmed {
+				if fv, ok := m.nav.Current().(*ui.FormView); ok {
+					formID := fv.FormID()
+					return m, func() tea.Msg {
+						return appmsg.FormResultMsg{ID: formID, Aborted: true}
+					}
+				}
+			}
 			return m, nil
 		}
 		// Route to current view

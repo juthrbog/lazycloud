@@ -11,17 +11,22 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
+// RequestFormDiscardConfirmMsg asks the app to show a "discard changes?" dialog
+// when the user presses Esc on a form with unsaved modifications.
+type RequestFormDiscardConfirmMsg struct{}
+
 // FormView wraps a huh.Form as a nav.View, providing a reusable multi-field
 // form that integrates with the app's message routing and theme system.
 type FormView struct {
-	id     string
-	title  string
-	formID string // echoed back in FormResultMsg
-	form   *huh.Form
-	keys   []msg.FormField // field specs for value extraction
-	done   bool
-	width  int
-	height int
+	id            string
+	title         string
+	formID        string // echoed back in FormResultMsg
+	form          *huh.Form
+	keys          []msg.FormField    // field specs for value extraction
+	initialValues map[string]string  // snapshot of field values at construction
+	done          bool
+	width         int
+	height        int
 }
 
 // NewFormView creates a FormView from a RequestFormMsg.
@@ -35,17 +40,46 @@ func NewFormView(req msg.RequestFormMsg) *FormView {
 		WithTheme(HuhTheme()).
 		WithShowHelp(false)
 
+	initVals := make(map[string]string, len(req.Fields))
+	for _, f := range req.Fields {
+		initVals[f.Key] = form.GetString(f.Key)
+	}
+
 	return &FormView{
-		id:     fmt.Sprintf("form:%s:%d", req.ID, time.Now().UnixNano()),
-		title:  req.Title,
-		formID: req.ID,
-		form:   form,
-		keys:   req.Fields,
+		id:            fmt.Sprintf("form:%s:%d", req.ID, time.Now().UnixNano()),
+		title:         req.Title,
+		formID:        req.ID,
+		form:          form,
+		keys:          req.Fields,
+		initialValues: initVals,
 	}
 }
 
-func (f *FormView) ID() string    { return f.id }
-func (f *FormView) Title() string { return f.title }
+func (f *FormView) ID() string     { return f.id }
+func (f *FormView) Title() string  { return f.title }
+func (f *FormView) FormID() string { return f.formID }
+
+// isDirty reports whether any field value differs from its initial value.
+func (f *FormView) isDirty() bool {
+	// The focused field's live value is only in its accessor (updated per
+	// keystroke), not yet committed to form.results which GetString reads.
+	var focusedKey string
+	if ff := f.form.GetFocusedField(); ff != nil {
+		focusedKey = ff.GetKey()
+		if fmt.Sprintf("%v", ff.GetValue()) != f.initialValues[focusedKey] {
+			return true
+		}
+	}
+	for _, k := range f.keys {
+		if k.Key == focusedKey {
+			continue // already checked via live accessor above
+		}
+		if f.form.GetString(k.Key) != f.initialValues[k.Key] {
+			return true
+		}
+	}
+	return false
+}
 func (f *FormView) KeyMap() []HintBinding {
 	return []HintBinding{
 		{Binding: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "next"))},
@@ -74,6 +108,11 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return f, nil
 	case tea.KeyPressMsg:
 		if m.String() == "esc" {
+			if f.isDirty() {
+				return f, func() tea.Msg {
+					return RequestFormDiscardConfirmMsg{}
+				}
+			}
 			f.done = true
 			formID := f.formID
 			return f, func() tea.Msg {
@@ -99,6 +138,11 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return msg.FormResultMsg{ID: formID, Values: values}
 		}
 	case huh.StateAborted:
+		if f.isDirty() {
+			return f, func() tea.Msg {
+				return RequestFormDiscardConfirmMsg{}
+			}
+		}
 		f.done = true
 		formID := f.formID
 		return f, func() tea.Msg {

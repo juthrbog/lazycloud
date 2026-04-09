@@ -116,6 +116,10 @@ Multi-field input forms use `charm.land/huh/v2` wrapped in a `FormView` (`intern
 
 **Field types:** `input` (single-line), `text` (multi-line textarea), `select` (single choice), `confirm` (yes/no). Custom validation via `FormField.Validate`.
 
+**Dirty tracking:** `FormView` snapshots initial field values at construction and compares on Esc. If any field changed, it shows a "Discard unsaved changes?" confirm overlay before closing. Two huh details matter here:
+- `form.GetString(key)` only returns values committed on field transition (Tab/Enter). The focused field's live value must be read via `form.GetFocusedField().GetValue()`.
+- While the confirm overlay is visible, the overlay priority system intercepts all keys before they reach the form, so form data stays intact without extra state management.
+
 ---
 
 # Architecture Guidelines
