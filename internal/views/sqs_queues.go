@@ -178,6 +178,7 @@ func (s *SQSQueues) Init() tea.Cmd {
 func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 	svc := s.sqs
 	return func() tea.Msg {
+		eventlog.Debugf(eventlog.CatAWS, "Fetching SQS queues (page %d)", pageNum)
 		page, err := svc.ListQueuesPage(context.Background(), token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing SQS queues"}
@@ -351,10 +352,12 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsQueuePurgedMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Purge failed: %v", m.err)
 			return s, func() tea.Msg {
 				return msg.ToastError("Purge failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Purged %d queue(s)", len(m.urls))
 		// Re-fetch attributes for just the purged queues.
 		cmds := []tea.Cmd{func() tea.Msg {
 			return msg.ToastSuccess("Queue purged (60s cooldown before next purge)")
@@ -366,6 +369,9 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsQueueRefreshedMsg:
 		if m.err != nil || m.queue == nil {
+			if m.err != nil {
+				eventlog.Errorf(eventlog.CatAWS, "Queue refresh failed: %v", m.err)
+			}
 			s.spinner.Hide()
 			return s, nil
 		}
@@ -383,10 +389,12 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsQueueDeletedMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Queue delete failed: %v", m.err)
 			return s, func() tea.Msg {
 				return msg.ToastError("Delete failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Deleted queue: %s", m.url)
 		// Remove deleted queue from local state and refresh
 		s.removeQueue(m.url)
 		return s, func() tea.Msg {
@@ -400,6 +408,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return msg.ToastError("Send failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Message sent")
 		return s, func() tea.Msg {
 			return msg.ToastSuccess("Message sent")
 		}

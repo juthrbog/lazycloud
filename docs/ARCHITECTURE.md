@@ -14,7 +14,7 @@ internal/app/           Root model — message router, layout compositor, view f
 internal/nav/           Stack-based navigator with view caching.
 internal/msg/           Shared message types for the event loop.
 internal/config/        TOML config with layered precedence (file < env < flags).
-internal/eventlog/      Thread-safe ring buffer for in-app event logging.
+internal/eventlog/      Thread-safe ring buffer for in-app event logging. See docs/LOGGING.md for guidelines.
 ```
 
 ## Runtime Patterns

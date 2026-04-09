@@ -2,8 +2,11 @@ package eventlog
 
 import (
 	"fmt"
+	"io"
 	"sync"
 	"time"
+
+	charmlog "charm.land/log/v2"
 )
 
 // Level represents the severity of a log entry.
@@ -59,9 +62,39 @@ func (e Entry) Format() string {
 const maxEntries = 500
 
 var (
-	mu      sync.Mutex
-	entries []Entry
+	mu          sync.Mutex
+	entries     []Entry
+	charmLogger *charmlog.Logger
 )
+
+// SetOutput configures file-based logging to the given writer.
+// Pass nil to disable file logging. The writer receives JSON-formatted log lines.
+func SetOutput(w io.Writer) {
+	mu.Lock()
+	defer mu.Unlock()
+	if w == nil {
+		charmLogger = nil
+		return
+	}
+	charmLogger = charmlog.NewWithOptions(w, charmlog.Options{
+		Formatter:       charmlog.JSONFormatter,
+		ReportTimestamp: true,
+		Level:           charmlog.DebugLevel,
+	})
+}
+
+func charmLevel(l Level) charmlog.Level {
+	switch l {
+	case LevelDebug:
+		return charmlog.DebugLevel
+	case LevelWarn:
+		return charmlog.WarnLevel
+	case LevelError:
+		return charmlog.ErrorLevel
+	default:
+		return charmlog.InfoLevel
+	}
+}
 
 // Log adds an entry to the global event log.
 func Log(level Level, cat Category, msg string) {
@@ -78,6 +111,10 @@ func Log(level Level, cat Category, msg string) {
 	// Ring buffer: drop oldest when over capacity
 	if len(entries) > maxEntries {
 		entries = entries[len(entries)-maxEntries:]
+	}
+
+	if charmLogger != nil {
+		charmLogger.With("category", string(cat)).Log(charmLevel(level), msg)
 	}
 }
 

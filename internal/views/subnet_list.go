@@ -146,6 +146,7 @@ func (s *SubnetList) fetchPage(token *string, pageNum int) tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching subnets (page %d)", pageNum)
 		page, err := svc.ListSubnetsPage(context.Background(), token, vpcID)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing subnets"}

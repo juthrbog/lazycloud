@@ -10,6 +10,7 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/app"
 	"github.com/juthrbog/lazycloud/internal/config"
+	"github.com/juthrbog/lazycloud/internal/eventlog"
 	"github.com/juthrbog/lazycloud/internal/ui"
 	"github.com/juthrbog/lazycloud/internal/version"
 )
@@ -80,6 +81,7 @@ func main() {
 			os.Exit(1)
 		}
 		defer f.Close()
+		eventlog.SetOutput(f)
 	}
 
 	rootModel := app.New(cfg)

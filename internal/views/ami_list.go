@@ -147,6 +147,7 @@ func (a *AMIList) fetchOwned() tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching owned AMIs")
 		amis, err := svc.ListOwnedAMIs(context.Background())
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing owned AMIs"}
@@ -199,10 +200,12 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case amiRefreshedMsg:
 		a.spinner.Hide()
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "AMI refresh failed: %v", m.err)
 			return a, func() tea.Msg {
 				return msg.ToastError("Refresh failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Refreshed %d AMIs", len(m.amis))
 		for _, updated := range m.amis {
 			for i := range a.amis {
 				if a.amis[i].ID == updated.ID {
