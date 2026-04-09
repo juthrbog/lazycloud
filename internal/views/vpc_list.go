@@ -120,6 +120,7 @@ func (v *VPCList) fetchPage(token *string, pageNum int) tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching VPCs (page %d)", pageNum)
 		page, err := svc.ListVPCsPage(context.Background(), token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing VPCs"}

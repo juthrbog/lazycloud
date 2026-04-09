@@ -226,6 +226,7 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching objects in s3://%s/%s (page %d)", bucket, prefix, pageNum)
 		page, err := svc.ListObjectsPage(context.Background(), bucket, prefix, token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s/%s", bucket, prefix)}
@@ -388,6 +389,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case s3DeleteCompleteMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Failed to delete objects in s3://%s/%s: %v", s.bucket, s.prefix, m.err)
 			s.err = m.err
 			return s, nil
 		}
@@ -406,15 +408,18 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case s3DownloadCompleteMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Download failed: %v", m.err)
 			s.err = m.err
 			return s, nil
 		}
+		eventlog.Infof(eventlog.CatAWS, "Downloaded → %s", m.path)
 		return s, func() tea.Msg {
 			return msg.ToastSuccess(fmt.Sprintf("Downloaded → %s", m.path))
 		}
 
 	case s3CopyCompleteMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Copy failed: %v", m.err)
 			s.err = m.err
 			return s, nil
 		}
@@ -426,6 +431,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case s3MoveCompleteMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Move failed: %v", m.err)
 			s.err = m.err
 			return s, nil
 		}

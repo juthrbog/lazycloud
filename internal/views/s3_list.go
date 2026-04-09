@@ -138,6 +138,7 @@ func (s *S3List) fetchBuckets() tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching S3 buckets")
 		buckets, err := svc.ListBuckets(context.Background())
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing S3 buckets"}

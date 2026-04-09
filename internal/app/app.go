@@ -230,7 +230,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case appmsg.ErrorMsg:
 		m.err = msg.Context + ": " + msg.Err.Error()
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", msg.Context, msg.Err)
-		return m, nil
+		cmd := m.nav.UpdateCurrent(teaMsg)
+		return m, cmd
 
 	case ui.ContentLinkActivatedMsg:
 		// Save panel state before cross-navigation for back traversal

@@ -171,6 +171,7 @@ func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching EC2 instances (page %d)", pageNum)
 		page, err := svc.ListInstancesPage(context.Background(), token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing EC2 instances"}
@@ -266,10 +267,12 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.err != nil {
 			e.spinner.Hide()
 			e.err = m.err
+			eventlog.Errorf(eventlog.CatAWS, "Instance %s failed for %s: %v", m.action, m.instanceID, m.err)
 			return e, func() tea.Msg {
 				return msg.ToastError(m.action + " failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Instance %s completed: %s", m.action, m.instanceID)
 		// Delay refresh to give AWS time to register the state transition.
 		// Without this, DescribeInstances may return the old state and
 		// overwrite the optimistic update.
@@ -291,6 +294,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ec2SSMSessionFinishedMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "SSM session failed for %s: %v", m.instanceID, m.err)
 			return e, func() tea.Msg {
 				return msg.ToastError("SSM session failed: " + m.err.Error())
 			}
@@ -299,6 +303,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.instanceName != "" {
 			label = m.instanceName
 		}
+		eventlog.Infof(eventlog.CatAWS, "SSM session ended: %s", label)
 		// Refresh instance list — state may have changed during the session
 		e.loading = true
 		e.instances = nil
@@ -330,10 +335,12 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case ec2InstancesRefreshedMsg:
 		e.spinner.Hide()
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "EC2 refresh failed: %v", m.err)
 			return e, func() tea.Msg {
 				return msg.ToastError("Refresh failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Refreshed %d EC2 instances", len(m.instances))
 		for _, updated := range m.instances {
 			for i := range e.instances {
 				if e.instances[i].ID == updated.ID {

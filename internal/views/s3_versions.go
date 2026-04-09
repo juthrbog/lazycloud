@@ -115,6 +115,7 @@ func (s *S3Versions) fetchVersions() tea.Cmd {
 	bucket := s.bucket
 	key := s.key
 	return func() tea.Msg {
+		eventlog.Debugf(eventlog.CatAWS, "Fetching versions for s3://%s/%s", bucket, key)
 		versions, err := svc.ListObjectVersions(context.Background(), bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing versions of %s", key)}

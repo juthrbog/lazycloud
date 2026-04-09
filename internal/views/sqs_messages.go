@@ -272,10 +272,12 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsMessageDeletedMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "SQS message delete failed: %v", m.err)
 			return s, func() tea.Msg {
 				return msg.ToastError("Delete failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Deleted %d SQS messages", m.count)
 		count := m.count
 		return s, func() tea.Msg {
 			return msg.ToastSuccess(fmt.Sprintf("Deleted %d message(s)", count))
@@ -283,10 +285,12 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsRedriveStartedMsg:
 		if m.err != nil {
+			eventlog.Errorf(eventlog.CatAWS, "Redrive failed: %v", m.err)
 			return s, func() tea.Msg {
 				return msg.ToastError("Redrive failed: " + m.err.Error())
 			}
 		}
+		eventlog.Infof(eventlog.CatAWS, "Redrive started")
 		s.redriving = true
 		s.spinner.Show("Redrive in progress...")
 		return s, tea.Batch(s.spinner.Tick(), s.pollRedrive(), func() tea.Msg {
@@ -303,6 +307,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				s.redriving = false
 				s.spinner.Hide()
 				moved := task.ApproximateNumberOfMsgsMoved
+				eventlog.Infof(eventlog.CatAWS, "Redrive completed: %d messages moved", moved)
 				return s, func() tea.Msg {
 					return msg.ToastSuccess(fmt.Sprintf("Redrive completed: %d messages moved", moved))
 				}
@@ -311,6 +316,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				s.spinner.Hide()
 				status := task.Status
 				reason := task.FailureReason
+				eventlog.Errorf(eventlog.CatAWS, "Redrive %s: %s", strings.ToLower(status), reason)
 				return s, func() tea.Msg {
 					return msg.ToastError(fmt.Sprintf("Redrive %s: %s", strings.ToLower(status), reason))
 				}

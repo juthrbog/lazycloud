@@ -115,6 +115,7 @@ func (s *SGList) fetchSecurityGroups() tea.Cmd {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
+		eventlog.Debugf(eventlog.CatAWS, "Fetching security groups")
 		groups, err := svc.ListSecurityGroups(context.Background())
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing security groups"}
