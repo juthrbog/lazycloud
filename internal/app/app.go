@@ -865,6 +865,7 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	m.awsClient = awsClient
 	m.s3 = aws.NewS3Service(awsClient)
 	m.ec2 = aws.NewEC2Service(awsClient)
+	m.sqs = aws.NewSQSService(awsClient)
 
 	// Remember the active service view before resetting navigation
 	returnTo := m.topLevelViewID()
@@ -954,6 +955,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	m.awsClient = awsClient
 	m.s3 = aws.NewS3Service(awsClient)
 	m.ec2 = aws.NewEC2Service(awsClient)
+	m.sqs = aws.NewSQSService(awsClient)
 
 	// Remember the active service view before resetting navigation
 	returnTo := m.topLevelViewID()
@@ -1222,6 +1224,12 @@ func (m Model) topLevelViewID() string {
 		return "ami_list"
 	case strings.HasPrefix(id, "s3"):
 		return "s3_list"
+	case strings.HasPrefix(id, "sqs"):
+		return "sqs_queues"
+	case strings.HasPrefix(id, "sg"):
+		return "sg_list"
+	case strings.HasPrefix(id, "vpc"), strings.HasPrefix(id, "subnet"):
+		return "vpc_list"
 	default:
 		return ""
 	}
