@@ -1,6 +1,11 @@
 package ui
 
-import "charm.land/lipgloss/v2"
+import (
+	"fmt"
+	"image/color"
+
+	"github.com/charmbracelet/x/ansi"
+)
 
 // ServiceIcon holds a Nerd Font icon and a Unicode fallback.
 type ServiceIcon struct {
@@ -35,16 +40,33 @@ var (
 	IconPending = ServiceIcon{Nerd: "\U000f0e4e", Fallback: "◌"} // nf-md-clock
 )
 
+// FgRender applies a foreground color without a full ANSI reset.
+// It uses \x1b[39m (default foreground) instead of \x1b[m (reset all),
+// so any background set by an outer style (e.g., table row selection)
+// is preserved. Use this instead of lipgloss.Render for table cell values.
+func FgRender(c color.Color, s string) string {
+	return ansi.Style{}.ForegroundColor(c).String() + s + "\x1b[39m"
+}
+
+// CountColor returns a styled count string — warning-colored when non-zero, plain when zero.
+func CountColor(count int) string {
+	s := fmt.Sprintf("%d", count)
+	if count == 0 {
+		return s
+	}
+	return FgRender(ActiveTheme.Warning, s)
+}
+
 // StateColor returns a styled state string with the appropriate color and icon.
 func StateColor(state string) string {
 	t := ActiveTheme
 	switch state {
 	case "running", "available", "active":
-		return lipgloss.NewStyle().Foreground(t.StateRunning).Render(IconRunning.Icon() + " " + state)
+		return FgRender(t.StateRunning, IconRunning.Icon()+" "+state)
 	case "stopped", "terminated", "deleted", "failed", "unavailable":
-		return lipgloss.NewStyle().Foreground(t.StateStopped).Render(IconStopped.Icon() + " " + state)
+		return FgRender(t.StateStopped, IconStopped.Icon()+" "+state)
 	case "pending", "starting", "stopping", "shutting-down", "creating":
-		return lipgloss.NewStyle().Foreground(t.StatePending).Render(IconPending.Icon() + " " + state)
+		return FgRender(t.StatePending, IconPending.Icon()+" "+state)
 	default:
 		return state
 	}

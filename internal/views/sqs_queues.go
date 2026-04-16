@@ -727,9 +727,13 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
 	rows := make([]table.Row, 0, len(queues))
 	sortKeys := make([]table.Row, 0, len(queues))
 	for _, q := range queues {
-		msgCount := fmt.Sprintf("%d", q.ApproximateMessageCount)
-		inFlight := fmt.Sprintf("%d", q.ApproximateInFlightCount)
-		delayed := fmt.Sprintf("%d", q.ApproximateDelayedCount)
+		msgCount := ui.CountColor(q.ApproximateMessageCount)
+		inFlight := ui.CountColor(q.ApproximateInFlightCount)
+		delayed := ui.CountColor(q.ApproximateDelayedCount)
+
+		rawMsg := fmt.Sprintf("%d", q.ApproximateMessageCount)
+		rawFlight := fmt.Sprintf("%d", q.ApproximateInFlightCount)
+		rawDelayed := fmt.Sprintf("%d", q.ApproximateDelayedCount)
 
 		created := ""
 		if !q.CreatedTimestamp.IsZero() {
@@ -744,13 +748,13 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
 		switch s.widthTier {
 		case ui.TierNarrow:
 			rows = append(rows, table.Row{q.Name, msgCount})
-			sortKeys = append(sortKeys, table.Row{q.Name, msgCount})
+			sortKeys = append(sortKeys, table.Row{q.Name, rawMsg})
 		case ui.TierMedium:
 			rows = append(rows, table.Row{q.Name, q.Type, msgCount, inFlight, delayed})
-			sortKeys = append(sortKeys, table.Row{q.Name, q.Type, msgCount, inFlight, delayed})
+			sortKeys = append(sortKeys, table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed})
 		default:
 			rows = append(rows, table.Row{q.Name, q.Type, msgCount, inFlight, delayed, dlq, created})
-			sortKeys = append(sortKeys, table.Row{q.Name, q.Type, msgCount, inFlight, delayed, dlq, created})
+			sortKeys = append(sortKeys, table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed, dlq, created})
 		}
 	}
 	return rows, sortKeys
