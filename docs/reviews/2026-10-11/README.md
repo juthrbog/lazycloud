@@ -43,7 +43,7 @@ At `f107757`, `go build`, `go vet`, and `go test -race ./...` pass. A run of 30 
 
 Work through the phases in order. Phase 0 contains small fixes that do not depend on each other. Phases 2 to 5 are refactors. Each one fixes a group of bugs at the root.
 
-- [ ] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199, except the gofmt part of L22.
+- [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and on branch `chore/gofmt`.
 - [ ] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199.
 - [ ] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13.
 - [ ] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M18, P2.
@@ -143,7 +143,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Problem: Security scans run only on push and pull request. The last run was in April 2026. Dependabot alerts and Dependabot security updates are off, and there is no `dependabot.yml`. GitHub also turns off scheduled workflows after 60 days without activity in a public repository.
   - Fix: add a weekly `schedule` and `workflow_dispatch` to `security.yml`. Add `.github/dependabot.yml` (I8). Turn on Dependabot alerts and security updates.
 
-- [ ] H12. The latest release is old and vulnerable. Evidence: GitHub releases.
+- [x] H12. The latest release is old and vulnerable. Evidence: GitHub releases. Fixed: v0.5.0 was released on 2026-10-11, built with go1.26.9.
   - Problem: v0.4.0 (2026-04-07) contains the vulnerable SDK and was built with Go 1.26.1. 29 commits are not released, including VPC and subnet browsing and the region-switch fix.
   - Fix: after H9 and H10, release v0.5.0.
 
@@ -243,7 +243,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [ ] L19. `main.go:90` calls `os.Exit` after a `defer` (gocritic `exitAfterDefer`). The deferred close of the log file does not run.
 - [ ] L20. `.gitignore` lists `demo/`, but `demo/s3.tape` is tracked.
 - [x] L21. Fixed in #199. `internal/aws/sqs.go:200` uses the deprecated `ReceiveMessageInput.AttributeNames`. The call already sets `MessageSystemAttributeNames`. This is the one golangci-lint issue.
-- [ ] L22. `go.mod` marks `charm.land/log/v2` as indirect, but `internal/eventlog` imports it. Run `go mod tidy`. Also, 26 files are not gofmt-clean. The `go mod tidy` part is fixed in #199. The gofmt part is open and belongs in a separate commit.
+- [x] L22. `go.mod` marks `charm.land/log/v2` as indirect, but `internal/eventlog` imports it. Run `go mod tidy`. Also, 26 files are not gofmt-clean. The `go mod tidy` part is fixed in #199. The gofmt part is fixed on branch `chore/gofmt`.
 
 ## Performance
 
@@ -299,7 +299,7 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 ## CI, release, and dependencies
 
 - [ ] I1. CI runs tests without `-race`. Use `go test -race -shuffle=on -coverprofile=cover.out ./...`.
-- [ ] I2. CI has no format check. Add `formatters: { enable: [gofmt, goimports] }` to `.golangci.yml`.
+- [x] I2. CI has no format check. Fixed on branch `chore/gofmt` with the gofmt formatter only. Add `formatters: { enable: [gofmt, goimports] }` to `.golangci.yml`.
 - [ ] I3. `release.yml` publishes on any `v*` tag without tests. It uses `goreleaser-action@v6` with `version: latest`. Add a `go test` step, pin `version: "~> v2"`, and add `id-token: write` and `attestations: write` for `actions/attest-build-provenance`.
 - [ ] I4. Action pinning is not consistent. `checkout@v6`, `setup-go@v6`, `upload-sarif@v4`, and `goreleaser-action@v6` use tags, not SHAs. golangci-lint uses `version: latest`. Pin it to `v2.14.0`. govulncheck installs `@latest`. Pin it with `go get -tool golang.org/x/vuln/cmd/govulncheck@vX` and run `go tool govulncheck`. `security-events: write` applies to the whole workflow. Move it to the trivy job.
 - [ ] I5. The lint configuration is light. Add these linters (hit counts with v2.14): `nilerr` (1), `noctx` (3), `exhaustive` with `default-signifies-exhaustive: true` (2), `errorlint` (0), `bodyclose` (0), `contextcheck` (0), `nolintlint` (0), `testifylint` (35, auto-fix), `gocritic` (28), `unparam` (7), and `modernize` (23, auto-fix). Do not add `revive` (192, mostly the "exported" rule), `goconst` (186), `wrapcheck` (101), or `perfsprint` (33). Also read all 14 `//nolint` comments again. One of them hid C1.
