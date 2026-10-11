@@ -1,6 +1,6 @@
 # Repro tests
 
-These tests come from the review on 2026-10-11. Each `TestRepro*` test passes while its bug exists. When a fix lands, the matching test fails. Then turn it into a regression test with the correct assertion, and delete it here.
+These tests come from the review on 2026-10-11. They are a snapshot of commit `f107757`. Each `TestRepro*` test passes while its bug exists, so the tests for fixed findings now fail. The tracker in `../README.md` shows which findings are fixed. Each fix adds its own regression test in the package, so do not copy a repro test for a fixed finding back into the code.
 
 The files end in `.go.txt`, so that `go build` and `go vet` ignore them.
 

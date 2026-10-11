@@ -27,6 +27,24 @@ Views are pushed onto a stack when drilling into resources and popped on `esc`. 
 
 All side effects (AWS API calls, clipboard, file I/O) happen in `tea.Cmd` goroutines that return messages. Views never mutate state directly — they emit messages like `NavigateMsg`, `ToastMsg`, or `RequestConfirmMsg` that the app routes.
 
+### Message Routing
+
+The navigator tags each command that a view returns (`nav.Tag`). The result of the command reaches the app as `nav.Routed{Origin, Msg}`. The app delivers it by these rules:
+
+- A view message, for example a page of results, goes to the origin view. This is also true when the user has navigated away from the view. The view keeps loading in the background and shows its results when the user comes back.
+- If the origin view no longer exists, the app drops the message. A profile, region, theme, or `:home` switch builds a new navigator, so results from the old session never reach the new views.
+- Navigation, overlays, and the side panel (`NavigateMsg`, `RequestConfirmMsg`, `TabbedContentMsg`, and similar) take effect only when the origin view is on top. A late result cannot move the user or open a dialog over another view.
+- Toasts always show.
+- An `ErrorMsg` goes to the origin view. The status bar shows the error only while that view is on top.
+
+Bubble Tea runtime messages (batches, exec, clipboard, quit) pass through `nav.Tag` unwrapped, because the runtime must handle them. For a batch, each inner command is tagged.
+
+Follow these rules when you write a view:
+
+- Do not assume that the view on top receives the result of your command. The result goes to the view that started the command.
+- For a paginated list, give each full load a generation. Put the generation in each page message, and drop pages from an older load. See `startLoad` in `internal/views/ec2_list.go`. Without a generation, a refresh during a load duplicates rows.
+- The navigator calls `Init` each time it shows a cached view. If a load is already running, do not start a second one.
+
 ### Progressive Loading
 
 Large S3 listings use command chaining: each page fetch returns a message, the handler appends data and returns a command for the next page. The table updates after each page so users see results within ~200ms.
