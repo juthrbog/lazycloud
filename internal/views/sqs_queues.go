@@ -21,6 +21,7 @@ import (
 // ─── Messages ───────────────────────────────────────────────────────────────
 
 type sqsQueuesPageMsg struct {
+	gen          int // load generation that requested this page
 	urls         []string
 	hasMorePages bool
 	token        *string
@@ -28,6 +29,7 @@ type sqsQueuesPageMsg struct {
 }
 
 type sqsAllAttrsLoadedMsg struct {
+	gen    int // load generation that requested these attributes
 	queues []aws.Queue
 }
 
@@ -98,6 +100,7 @@ type SQSQueues struct {
 	filter           ui.Filter
 	spinner          ui.Spinner
 	loading          bool
+	loadGen          int // generation of the current full load; see startLoad
 	attrsLoading     bool
 	pendingQueueURLs []string
 	pendingAction    string
@@ -170,6 +173,21 @@ func (s *SQSQueues) Init() tea.Cmd {
 	if !s.loading {
 		return nil
 	}
+	if s.loadGen > 0 {
+		// A load is already running. Its results reach this view even while
+		// it is hidden, so restarting would only duplicate rows.
+		return s.spinner.Tick()
+	}
+	return s.startLoad()
+}
+
+// startLoad begins a full load: queue URL pages, then all attributes.
+// Results from an older load are dropped, so a refresh during a load
+// cannot duplicate rows.
+func (s *SQSQueues) startLoad() tea.Cmd {
+	s.loadGen++
+	s.queues = nil
+	s.queueURLs = nil
 	return tea.Batch(s.spinner.Tick(), s.fetchQueuesPage(nil, 1))
 }
 
@@ -177,6 +195,7 @@ func (s *SQSQueues) Init() tea.Cmd {
 
 func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 	svc := s.sqs
+	gen := s.loadGen
 	return func() tea.Msg {
 		eventlog.Debugf(eventlog.CatAWS, "Fetching SQS queues (page %d)", pageNum)
 		page, err := svc.ListQueuesPage(context.Background(), token)
@@ -184,6 +203,7 @@ func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 			return msg.ErrorMsg{Err: err, Context: "listing SQS queues"}
 		}
 		return sqsQueuesPageMsg{
+			gen:          gen,
 			urls:         page.QueueURLs,
 			hasMorePages: page.HasMorePages,
 			token:        page.Token,
@@ -194,13 +214,14 @@ func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 
 func (s *SQSQueues) fetchAllAttributes(urls []string) tea.Cmd {
 	svc := s.sqs
+	gen := s.loadGen
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching attributes for %d SQS queues", len(urls))
 		queues, err := svc.FetchAllQueueAttributes(context.Background(), urls)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "fetching SQS queue attributes"}
 		}
-		return sqsAllAttrsLoadedMsg{queues: queues}
+		return sqsAllAttrsLoadedMsg{gen: gen, queues: queues}
 	}
 }
 
@@ -414,6 +435,9 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case sqsQueuesPageMsg:
+		if m.gen != s.loadGen {
+			return s, nil // page from a superseded load
+		}
 		s.queueURLs = append(s.queueURLs, m.urls...)
 
 		if m.hasMorePages {
@@ -434,6 +458,9 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, tea.Batch(s.spinner.Tick(), s.fetchAllAttributes(s.queueURLs))
 
 	case sqsAllAttrsLoadedMsg:
+		if m.gen != s.loadGen {
+			return s, nil // attributes from a superseded load
+		}
 		s.loading = false
 		s.attrsLoading = false
 		s.spinner.Hide()
@@ -523,10 +550,8 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			s.loading = true
 			s.err = nil
-			s.queues = nil
-			s.queueURLs = nil
 			s.spinner.Show("Loading SQS queues...")
-			return s, tea.Batch(s.spinner.Tick(), s.fetchQueuesPage(nil, 1))
+			return s, s.startLoad()
 		case key.Matches(m, s.keys.Details, s.keys.Describe):
 			q := s.selectedQueue()
 			if q != nil {

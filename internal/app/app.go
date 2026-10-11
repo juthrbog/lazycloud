@@ -52,6 +52,7 @@ type Model struct {
 	width      int
 	height     int
 	err        string
+	errView    nav.View // view that err belongs to; err shows only while it is on top
 	isDark     bool
 
 	keys ui.AppKeyMap
@@ -110,9 +111,60 @@ func New(cfg config.Config) Model {
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
-		m.nav.Current().Init(),
+		m.nav.InitCurrent(),
 		tea.RequestBackgroundColor,
 	)
+}
+
+// handleRouted delivers the result of a command that a view issued.
+// See nav.Routed for why results carry their origin view.
+func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
+	switch inner := r.Msg.(type) {
+	case appmsg.ToastMsg, appmsg.StatusMsg:
+		// Feedback is useful even from a view the user has left.
+		return m.Update(inner)
+
+	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
+		appmsg.RequestFormMsg, appmsg.FormResultMsg, appmsg.RequestConfirmMsg,
+		appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg,
+		appmsg.RequestFeaturePickerMsg, ui.RequestFormDiscardConfirmMsg,
+		ui.ContentLinkActivatedMsg:
+		// Navigation, overlays, and the side panel act on what the user sees.
+		// A late result from a view that is no longer on top must not move
+		// the user or open a dialog or panel over an unrelated view.
+		if !m.nav.IsCurrent(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view is not on top", inner, r.Origin.ID())
+			return m, nil
+		}
+		return m.Update(inner)
+
+	case ui.AnimationFrameMsg:
+		// Animate only while visible. The app restarts the tick when the
+		// home view is shown again.
+		if !m.nav.IsCurrent(r.Origin) {
+			return m, nil
+		}
+	}
+
+	if !m.nav.Contains(r.Origin) {
+		eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", r.Msg, r.Origin.ID())
+		return m, nil
+	}
+	if e, ok := r.Msg.(appmsg.ErrorMsg); ok {
+		eventlog.Errorf(eventlog.CatApp, "%s: %v", e.Context, e.Err)
+		m.err = e.Context + ": " + e.Err.Error()
+		m.errView = r.Origin
+	}
+	return m, m.nav.UpdateView(r.Origin, r.Msg)
+}
+
+// visibleErr returns the status bar error for the current view. An error
+// stays with the view that caused it, so navigating away hides it.
+func (m Model) visibleErr() string {
+	if m.err == "" || m.errView == nil || !m.nav.IsCurrent(m.errView) {
+		return ""
+	}
+	return m.err
 }
 
 func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
@@ -145,6 +197,9 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := teaMsg.(type) {
+	case nav.Routed:
+		return m.handleRouted(msg)
+
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
 		return m, nil
@@ -229,6 +284,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.ErrorMsg:
 		m.err = msg.Context + ": " + msg.Err.Error()
+		m.errView = m.nav.Current()
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", msg.Context, msg.Err)
 		cmd := m.nav.UpdateCurrent(teaMsg)
 		return m, cmd
@@ -1054,7 +1110,7 @@ func (m Model) View() tea.View {
 		keys := m.currentKeyHints()
 		statusBar = ui.RenderStatusBar(ui.StatusBarData{
 			Keys:  keys,
-			Error: m.err,
+			Error: m.visibleErr(),
 			Width: m.width,
 		})
 	}
