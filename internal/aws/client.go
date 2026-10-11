@@ -9,15 +9,21 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
+// FallbackRegion is used only when neither the caller, the environment, nor the
+// shared config profile specifies a region.
+const FallbackRegion = "us-east-1"
+
 // Client holds shared AWS configuration.
 type Client struct {
-	Config   aws.Config
-	Profile  string
+	Config  aws.Config
+	Profile string
+	// Region is the effective region after SDK resolution, never empty.
 	Region   string
 	Endpoint string // empty = real AWS, set = LocalStack
 }
 
 // NewClient creates a client using the specified profile, region, and optional endpoint override.
+// An empty region lets the SDK resolve it (env vars, then the profile in ~/.aws/config).
 func NewClient(profile, region, endpoint string) (*Client, error) {
 	opts := []func(*config.LoadOptions) error{}
 
@@ -33,20 +39,20 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 		opts = append(opts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),
 		))
-		if region == "" {
-			opts = append(opts, config.WithRegion("us-east-1"))
-		}
 	}
 
 	cfg, err := config.LoadDefaultConfig(context.Background(), opts...)
 	if err != nil {
 		return nil, err
 	}
+	if cfg.Region == "" {
+		cfg.Region = FallbackRegion
+	}
 
 	return &Client{
 		Config:   cfg,
 		Profile:  profile,
-		Region:   region,
+		Region:   cfg.Region,
 		Endpoint: endpoint,
 	}, nil
 }
