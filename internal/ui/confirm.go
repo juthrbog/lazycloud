@@ -74,13 +74,15 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if c.quick {
 			action := c.action
+			// Only an explicit "y" confirms. Enter takes the safe default
+			// (cancel), like a [y/N] shell prompt.
 			switch msg.String() {
-			case "y", "Y", "enter":
+			case "y", "Y":
 				c.visible = false
 				return c, func() tea.Msg {
 					return ConfirmResultMsg{Confirmed: true, Action: action}
 				}
-			case "n", "N", "esc":
+			case "n", "N", "esc", "enter":
 				c.visible = false
 				return c, func() tea.Msg {
 					return ConfirmResultMsg{Confirmed: false, Action: action}
@@ -132,7 +134,7 @@ func (c Confirm) View() string {
 		descStyle := s.Muted
 		content += keyStyle.Render("y") + descStyle.Render(" yes") +
 			descStyle.Render("  ") +
-			keyStyle.Render("n") + descStyle.Render(" cancel")
+			keyStyle.Render("n/enter") + descStyle.Render(" cancel")
 	} else {
 		content += c.input.View() + "\n"
 		if c.err != "" {
