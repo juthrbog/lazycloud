@@ -197,7 +197,6 @@ func (svc *SQSServiceImpl) ReceiveMessages(ctx context.Context, queueURL string,
 		MaxNumberOfMessages:   maxMessages,
 		VisibilityTimeout:     0, // peek: don't hide from other consumers
 		WaitTimeSeconds:       0, // short poll
-		AttributeNames:        []sqstypes.QueueAttributeName{sqstypes.QueueAttributeNameAll},
 		MessageSystemAttributeNames: []sqstypes.MessageSystemAttributeName{
 			sqstypes.MessageSystemAttributeNameAll,
 		},
