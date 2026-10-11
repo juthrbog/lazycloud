@@ -1,0 +1,288 @@
+package app
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/aws"
+	"github.com/juthrbog/lazycloud/internal/aws/awstest"
+	"github.com/juthrbog/lazycloud/internal/config"
+	"github.com/juthrbog/lazycloud/internal/eventlog"
+	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
+)
+
+// collect runs a cmd (flattening batches) and returns all messages produced
+// within a short timeout, skipping timer-based messages (ticks/toast dismiss).
+func collect(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	ch := make(chan tea.Msg, 1)
+	go func() { ch <- cmd() }()
+	var m tea.Msg
+	select {
+	case m = <-ch:
+	case <-time.After(300 * time.Millisecond):
+		return nil
+	}
+	if b, ok := m.(tea.BatchMsg); ok {
+		var out []tea.Msg
+		for _, c := range b {
+			out = append(out, collect(c)...)
+		}
+		return out
+	}
+	if m == nil {
+		return nil
+	}
+	tn := fmt.Sprintf("%T", m)
+	if strings.Contains(tn, "TickMsg") || strings.Contains(tn, "AnimationFrameMsg") || strings.Contains(tn, "ToastDismissMsg") {
+		return nil
+	}
+	return []tea.Msg{m}
+}
+
+func find(msgs []tea.Msg, typeName string) tea.Msg {
+	for _, m := range msgs {
+		if fmt.Sprintf("%T", m) == typeName {
+			return m
+		}
+	}
+	return nil
+}
+
+func upd(t *testing.T, m Model, in tea.Msg) (Model, tea.Cmd) {
+	t.Helper()
+	r, c := m.Update(in)
+	return r.(Model), c
+}
+
+func kp(s string) tea.KeyPressMsg {
+	switch s {
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
+	}
+	r := []rune(s)[0]
+	return tea.KeyPressMsg{Code: r, Text: s}
+}
+
+// 1. S3: delete resolved for bucket A is executed against bucket B.
+func TestRepro_S3DeleteResolvedRoutedToOtherBucket(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+
+	s3m := new(awstest.MockS3Service)
+	s3m.On("ListObjectsPage", mock.Anything, "bucket-a", "", (*string)(nil)).Return(&aws.ObjectPage{Prefixes: []string{"tmp/"}}, nil)
+	s3m.On("ListObjectsPage", mock.Anything, "bucket-b", "", (*string)(nil)).Return(&aws.ObjectPage{Objects: []aws.S3Object{{Key: "tmp/1"}}, Prefixes: []string{"tmp/"}}, nil)
+	s3m.On("ListAllKeys", mock.Anything, "bucket-a", "tmp/").Return([]string{"tmp/1", "tmp/2"}, nil)
+	s3m.On("DeleteObjects", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	m := newTestModel(140, 40)
+	m.s3 = s3m
+
+	m, cmd := upd(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "bucket-a", "prefix": ""}})
+	m, _ = upd(t, m, find(collect(cmd), "views.s3PageLoadedMsg"))
+	// delete folder under cursor
+	m, cmd = upd(t, m, kp("x"))
+	m, _ = upd(t, m, find(collect(cmd), "msg.RequestConfirmMsg"))
+	require.True(t, m.confirm.Visible())
+	m.confirm = ui.NewConfirm() // dialog dismissed by user typing confirmation
+	m, resolveCmd := upd(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "delete_objects"})
+
+	// While keys are resolving, the user goes back and opens bucket-b.
+	m, cmd = upd(t, m, kp("esc"))
+	m, _ = upd(t, m, find(collect(cmd), "msg.NavigateBackMsg"))
+	m, cmd = upd(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "bucket-b", "prefix": ""}})
+	m, _ = upd(t, m, find(collect(cmd), "views.s3PageLoadedMsg"))
+	require.Equal(t, "s3_objects:bucket-b:", m.nav.Current().ID())
+
+	// Resolve finishes now.
+	resolved := find(collect(resolveCmd), "views.s3DeleteResolvedMsg")
+	require.NotNil(t, resolved)
+	m, delCmd := upd(t, m, resolved)
+	collect(delCmd)
+
+	s3m.AssertCalled(t, "DeleteObjects", mock.Anything, "bucket-b", []string{"tmp/1", "tmp/2"})
+	_ = m
+}
+
+// 2. Region switch: in-flight page from old region lands in new region's view.
+func TestRepro_StaleRegionPageAppliedToNewView(t *testing.T) {
+	old := new(awstest.MockEC2Service)
+	old.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
+		Instances: []aws.Instance{{ID: "i-old1", State: "running"}, {ID: "i-old2", State: "running"}},
+	}, nil)
+	m := newTestModel(140, 40)
+	m.ec2 = old
+	m, oldCmd := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	// user switches region before the old fetch returns
+	m, rc := m.applyRegion("eu-west-1")
+	m, _ = upd(t, m, find(collect(rc), "msg.NavigateMsg"))
+	require.Equal(t, "ec2_list", m.nav.Current().ID())
+	// old region result arrives
+	m, _ = upd(t, m, find(collect(oldCmd), "views.ec2PageLoadedMsg"))
+	assert.Contains(t, m.nav.Current().Footer(), "2/2 instances", "old-region instances shown under eu-west-1")
+}
+
+// 3. Duplicate rows: re-entering a still-loading cached view double-fetches.
+func TestRepro_ReenterWhileLoadingDuplicates(t *testing.T) {
+	e := new(awstest.MockEC2Service)
+	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
+		Instances: []aws.Instance{{ID: "i-1", State: "running"}, {ID: "i-2", State: "running"}},
+	}, nil)
+	m := newTestModel(140, 40)
+	m.ec2 = e
+	m, a := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	m, _ = upd(t, m, kp("q")) // back to home before load finishes
+	m, b := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	m, _ = upd(t, m, find(collect(a), "views.ec2PageLoadedMsg"))
+	m, _ = upd(t, m, find(collect(b), "views.ec2PageLoadedMsg"))
+	assert.Contains(t, m.nav.Current().Footer(), "4/4 instances")
+}
+
+// 4. Global keys hijack filter input.
+func TestRepro_FilterInputHijackedByGlobalKeys(t *testing.T) {
+	e := new(awstest.MockEC2Service)
+	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
+		Instances: []aws.Instance{{ID: "i-abc", State: "running"}},
+	}, nil)
+	m := newTestModel(140, 40)
+	m.ec2 = e
+	m, c := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	m, _ = upd(t, m, find(collect(c), "views.ec2PageLoadedMsg"))
+	m, _ = upd(t, m, kp("/"))
+	m, _ = upd(t, m, kp("a"))
+	m, _ = upd(t, m, kp("b"))
+	m, _ = upd(t, m, kp("backspace"))
+	assert.Contains(t, ansi.Strip(m.nav.Current().View().Content), "/ ab", "backspace swallowed by CrossNavBack")
+	m, _ = upd(t, m, kp("R"))
+	assert.True(t, m.picker.Visible(), "typing R in filter opens region picker")
+	m.picker = ui.NewPicker()
+	m, _ = upd(t, m, kp("q"))
+	assert.Equal(t, 1, m.nav.Depth(), "typing q in filter pops the view")
+}
+
+// 5. Mutation result dropped when user leaves view; error never surfaced.
+func TestRepro_MutationResultDropped(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	e := new(awstest.MockEC2Service)
+	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
+		Instances: []aws.Instance{{ID: "i-abc", State: "running"}},
+	}, nil)
+	e.On("StopInstances", mock.Anything, []string{"i-abc"}).Return(errors.New("UnauthorizedOperation"))
+	m := newTestModel(140, 40)
+	m.ec2 = e
+	m, c := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	m, _ = upd(t, m, find(collect(c), "views.ec2PageLoadedMsg"))
+	m, c = upd(t, m, kp("m"))
+	m, _ = upd(t, m, find(collect(c), "msg.RequestActionPickerMsg"))
+	m.picker = ui.NewPicker()
+	m, c = upd(t, m, ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	m, _ = upd(t, m, find(collect(c), "msg.RequestConfirmMsg"))
+	m.confirm = ui.NewConfirm()
+	m, stopCmd := upd(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	before := eventlog.Len()
+	m, _ = upd(t, m, kp("q")) // leave
+	m, _ = upd(t, m, find(collect(stopCmd), "views.ec2InstanceMutatedMsg"))
+	assert.False(t, m.toasts.HasActive(), "no error toast")
+	var errs int
+	for _, en := range eventlog.Entries()[before:] {
+		if en.Level == eventlog.LevelError {
+			errs++
+		}
+	}
+	assert.Equal(t, 0, errs, "failure never logged")
+	m, c = upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	assert.Contains(t, m.nav.Current().View().Content, "stopping", "optimistic state stuck")
+	assert.Contains(t, m.nav.Current().Footer(), "instance(s)...", "spinner label stuck")
+}
+
+// 6. Event log pushed with panel still open; panel shows previous resource.
+func TestRepro_EventLogKeepsPanelOpen(t *testing.T) {
+	m := newTestModel(140, 40)
+	openPanel(&m)
+	m, _ = upd(t, m, kp("L"))
+	assert.Equal(t, "eventlog", m.nav.Current().ID())
+	assert.True(t, m.panelOpen, "panel from previous view still open over event log")
+}
+
+// 7. Failed client creation → services non-nil with nil client → panic.
+func TestRepro_NilClientPanics(t *testing.T) {
+	dir := t.TempDir()
+	cf := filepath.Join(dir, "config")
+	require.NoError(t, os.WriteFile(cf, []byte("[default]\nregion=us-east-1\n"), 0o600))
+	t.Setenv("AWS_CONFIG_FILE", cf)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", cf)
+	cfg := config.DefaultConfig()
+	cfg.AWS.Profile = "does-not-exist"
+	m := New(cfg)
+	require.Nil(t, m.awsClient)
+	require.NotNil(t, m.ec2)
+	m.width, m.height = 140, 40
+	_, c := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		for _, mm := range []tea.Msg{c()} {
+			if b, ok := mm.(tea.BatchMsg); ok {
+				for _, cc := range b {
+					if cc != nil {
+						done := make(chan struct{})
+						var rec any
+						go func() {
+							defer func() { rec = recover(); close(done) }()
+							cc()
+						}()
+						select {
+						case <-done:
+						case <-time.After(300 * time.Millisecond):
+						}
+						if rec != nil {
+							panic(rec)
+						}
+					}
+				}
+			}
+		}
+	}()
+	assert.True(t, panicked, "nil client deref in cmd goroutine")
+}
+
+// 8. pushView ignores footer height → view sized 2 rows taller than area.
+func TestRepro_PushViewIgnoresFooter(t *testing.T) {
+	e := new(awstest.MockEC2Service)
+	insts := make([]aws.Instance, 60)
+	for i := range insts {
+		insts[i] = aws.Instance{ID: fmt.Sprintf("i-%03d", i), State: "running"}
+	}
+	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{Instances: insts}, nil)
+	m := newTestModel(140, 30)
+	m.ec2 = e
+	m, c := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	m, _ = upd(t, m, find(collect(c), "views.ec2PageLoadedMsg"))
+	pushed := m.nav.Current().View().Content
+	m.resizeViews()
+	resized := m.nav.Current().View().Content
+	t.Logf("lines after push=%d after resizeViews=%d chrome=%d", strings.Count(pushed, "\n")+1, strings.Count(resized, "\n")+1, m.chromeHeight())
+	out := m.View().Content
+	t.Logf("total frame lines=%d term height=%d", strings.Count(out, "\n")+1, m.height)
+}

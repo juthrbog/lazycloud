@@ -1,0 +1,206 @@
+package views
+
+import (
+	"testing"
+	"time"
+
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/aws"
+	"github.com/juthrbog/lazycloud/internal/aws/awstest"
+	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
+)
+
+var _ = table.Row{}
+
+// 1. Two overlapping refresh chains both append -> duplicates.
+func TestRepro_EC2DoubleRefreshDuplicates(t *testing.T) {
+	v := NewEC2List(new(awstest.MockEC2Service), nil)
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	page := ec2PageLoadedMsg{instances: []aws.Instance{{ID: "i-1", State: "running"}, {ID: "i-2", State: "running"}}, pageNum: 1}
+	v.Update(page)
+	require.Len(t, v.instances, 2)
+	v.Update(keyPress('r'))
+	v.Update(keyPress('r'))
+	// both in-flight chains return page 1
+	v.Update(page)
+	v.Update(page)
+	assert.Len(t, v.instances, 4, "duplicates after double refresh")
+}
+
+func TestRepro_SQSDoubleRefreshDuplicates(t *testing.T) {
+	v := NewSQSQueues(new(awstest.MockSQSService))
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.Update(keyPress('r'))
+	v.Update(keyPress('r'))
+	p := sqsQueuesPageMsg{urls: []string{"u1", "u2"}, pageNum: 1}
+	v.Update(p)
+	v.Update(p)
+	assert.Equal(t, []string{"u1", "u2", "u1", "u2"}, v.queueURLs)
+}
+
+// 3. S3List bulk delete includes selections hidden by the filter.
+func TestRepro_S3ListDeletesHiddenSelection(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	m := new(awstest.MockS3Service)
+	v := NewS3List(m, "us-east-1")
+	v.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	v.Update(s3BucketsLoadedMsg{buckets: []aws.Bucket{{Name: "alpha-prod", CreationDate: time.Now()}, {Name: "test-1", CreationDate: time.Now()}}})
+	v.Update(keyPress(' ')) // select alpha-prod (cursor 0)
+	v.Update(ui.FilterChangedMsg{Text: "test"})
+	v.Update(keyPress(' ')) // select test-1 (only visible row)
+	_, cmd := v.Update(keyPress('x'))
+	req := cmd().(msg.RequestConfirmMsg)
+	t.Logf("confirm text: %q", req.Message)
+	m.On("EmptyAndDeleteBucket", mock.Anything, mock.Anything).Return(nil)
+	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	cmd()
+	m.AssertCalled(t, "EmptyAndDeleteBucket", mock.Anything, "alpha-prod")
+}
+
+// 4. Selection is index-keyed and survives a reload that inserts a row.
+func TestRepro_S3ListSelectionShiftsAfterCreate(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	v := NewS3List(new(awstest.MockS3Service), "us-east-1")
+	v.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	v.Update(s3BucketsLoadedMsg{buckets: []aws.Bucket{{Name: "a-prod"}, {Name: "b-tmp"}}})
+	v.table.SetCursor(1)
+	v.Update(keyPress(' ')) // select b-tmp
+	require.Equal(t, []string{"b-tmp"}, v.selectedBucketNames())
+	v.Update(s3BucketCreatedMsg{name: "0new"})
+	v.Update(s3BucketsLoadedMsg{buckets: []aws.Bucket{{Name: "0new"}, {Name: "a-prod"}, {Name: "b-tmp"}}})
+	assert.Equal(t, []string{"a-prod"}, v.selectedBucketNames(), "selection moved to a-prod")
+}
+
+// 5. Selected row's first cell carries the "✓ " marker; row[0] lookups break.
+func TestRepro_CheckmarkBreaksRowLookup(t *testing.T) {
+	v := NewS3List(new(awstest.MockS3Service), "us-east-1")
+	v.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	v.Update(s3BucketsLoadedMsg{buckets: []aws.Bucket{{Name: "alpha"}}})
+	v.Update(keyPress(' '))
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	nav := cmd().(msg.NavigateMsg)
+	assert.Equal(t, "✓ alpha", nav.Params["bucket"])
+}
+
+// 6. Short VersionID ("null" on unversioned buckets) panics.
+func TestRepro_S3VersionsNullPanics(t *testing.T) {
+	v := NewS3Versions(new(awstest.MockS3Service), "b", "k")
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	v.Update(s3VersionsLoadedMsg{versions: []aws.ObjectVersion{{Key: "k", VersionID: "null", IsLatest: true}}})
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	assert.Panics(t, func() { cmd() })
+}
+
+// 7. Sorted versions: enter shows the wrong version.
+func TestRepro_S3VersionsSortedIndex(t *testing.T) {
+	v := NewS3Versions(new(awstest.MockS3Service), "b", "k")
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	v.Update(s3VersionsLoadedMsg{versions: []aws.ObjectVersion{
+		{Key: "k", VersionID: "aaaaaaaaaaaa"}, {Key: "k", VersionID: "zzzzzzzzzzzz"},
+	}})
+	v.table.Sort(0)
+	v.table.Sort(0) // desc
+	v.table.SetCursor(0)
+	require.Equal(t, "zzzzzzzzzzzz", v.table.SelectedRow()[0])
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	nav := cmd().(msg.NavigateMsg)
+	assert.Contains(t, nav.Params["content"], "aaaaaaaaaaaa", "content is for the other version")
+}
+
+// 8. A later page with a CommonPrefix shifts index-keyed selection + cursor.
+func TestRepro_S3ObjectsPrefixPageShiftsSelection(t *testing.T) {
+	v := NewS3Objects(new(awstest.MockS3Service), "b", "")
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	v.Update(s3PageLoadedMsg{bucket: "b", objects: []aws.S3Object{{Key: "a.txt"}, {Key: "b.txt"}}, hasMorePages: true, pageNum: 1})
+	v.table.SetCursor(0)
+	v.Update(keyPress(' ')) // select a.txt
+	v.table.SetCursor(1)    // cursor on b.txt
+	require.Equal(t, "a.txt", v.collectDeleteEntries()[0].fullPath)
+	v.Update(s3PageLoadedMsg{bucket: "b", prefixes: []string{"z-folder/"}, objects: []aws.S3Object{{Key: "c.txt"}}, pageNum: 2})
+	assert.Equal(t, "z-folder/", v.collectDeleteEntries()[0].fullPath, "selection now points at the folder")
+	assert.Equal(t, "a.txt", v.selectedEntry().fullPath, "cursor now on a.txt instead of b.txt")
+}
+
+// 10. SQS Send Message goes to cursor queue, not the selected one.
+func TestRepro_SQSSendTargetsCursorNotSelection(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	v := NewSQSQueues(new(awstest.MockSQSService))
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
+	v.table.SetCursor(1)
+	v.Update(keyPress(' ')) // select qb
+	v.table.SetCursor(0)    // cursor on qa
+	v.Update(keyPress('m'))
+	require.Equal(t, []string{"ub"}, v.pendingQueueURLs)
+	v.Update(ui.PickerResultMsg{ID: "action", Value: "Send Message", Selected: 0})
+	assert.Equal(t, []string{"ua"}, v.pendingQueueURLs, "send target switched to cursor queue")
+}
+
+// 11. Multi-queue delete only removes urls[0] from local state.
+func TestRepro_SQSMultiDeleteRemovesOnlyFirst(t *testing.T) {
+	m := new(awstest.MockSQSService)
+	m.On("DeleteQueue", mock.Anything, mock.Anything).Return(nil)
+	v := NewSQSQueues(m)
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
+	res := v.deleteQueues([]string{"ua", "ub"})()
+	v.Update(res)
+	assert.Len(t, v.queues, 1, "qb still listed after successful delete")
+}
+
+// 12. sqs_queues emits focus links to itself but ignores FocusResourceMsg.
+func TestRepro_SQSFocusIgnored(t *testing.T) {
+	v := NewSQSQueues(new(awstest.MockSQSService))
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
+	v.table.SetCursor(0)
+	_, cmd := v.Update(msg.FocusResourceMsg{ResourceID: "qb"})
+	assert.Nil(t, cmd)
+	assert.Equal(t, "qa", v.table.SelectedRow()[0])
+}
+
+// 13. Subnet pages have no vpc guard: a stale page from vpc-A lands in vpc-B's view.
+func TestRepro_SubnetCrossViewPage(t *testing.T) {
+	v := NewSubnetList(new(awstest.MockEC2Service), "vpc-B")
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.Update(subnetPageLoadedMsg{subnets: []aws.Subnet{{ID: "subnet-A1", VpcID: "vpc-A"}}, pageNum: 1})
+	assert.Equal(t, "vpc-A", v.subnets[0].VpcID)
+}
+
+// 15. Inline copy input: mode flips to ReadOnly (via global W) while input open; enter still copies.
+func TestRepro_S3CopyAfterSwitchToReadOnly(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	m := new(awstest.MockS3Service)
+	m.On("CopyObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	v := NewS3Objects(m, "b", "")
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	v.Update(s3PageLoadedMsg{bucket: "b", objects: []aws.S3Object{{Key: "a.txt"}}, pageNum: 1})
+	v.Update(keyPress('c'))
+	ui.ReadOnly = true // user pressed W -> ReadOnly (app handles W before the view)
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	cmd()
+	m.AssertCalled(t, "CopyObject", mock.Anything, "b", "a.txt", "b", "a.txt_copy")
+}
+
+// 14. Focus sets cursor using the unsorted index.
+func TestRepro_FocusCursorWrongWhenSorted(t *testing.T) {
+	v := NewSGList(new(awstest.MockEC2Service))
+	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	v.Update(sgListLoadedMsg{groups: []aws.SecurityGroup{{ID: "sg-a"}, {ID: "sg-b"}, {ID: "sg-c"}}})
+	v.table.Sort(0)
+	v.table.Sort(0) // desc: c, b, a
+	v.Update(msg.FocusResourceMsg{ResourceID: "sg-a"})
+	assert.Equal(t, "sg-c", v.table.SelectedRow()[0], "cursor lands on sg-c while panel shows sg-a")
+}

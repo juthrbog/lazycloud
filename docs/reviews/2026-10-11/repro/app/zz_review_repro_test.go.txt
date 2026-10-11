@@ -1,0 +1,42 @@
+package app
+
+import (
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
+)
+
+func kp(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Text: string(r)} }
+
+// Global keys fire while a view's filter input is active.
+func TestRepro_GlobalKeysStealFilterInput(t *testing.T) {
+	m := newTestModel(140, 40)
+	res, _ := m.Update(msg.NavigateMsg{ViewID: "sqs_queues"})
+	m = res.(Model)
+	require.Equal(t, 2, m.nav.Depth())
+	res, _ = m.Update(kp('/')) // open filter
+	m = res.(Model)
+	res, _ = m.Update(kp('W')) // user types "W" into the filter
+	m = res.(Model)
+	assert.True(t, m.picker.Visible(), "mode picker opened instead of typing W")
+	m.picker.Hide()
+	res, _ = m.Update(kp('q')) // user types "q" into the filter
+	m = res.(Model)
+	assert.Equal(t, 1, m.nav.Depth(), "q popped the view instead of typing")
+	_ = ui.ReadOnly
+}
+
+// Async results for a non-top view are delivered to whatever view is on top.
+func TestRepro_AsyncMsgGoesToTopView(t *testing.T) {
+	m := newTestModel(140, 40)
+	res, _ := m.Update(msg.NavigateMsg{ViewID: "ec2_list"})
+	m = res.(Model)
+	res, _ = m.Update(kp('L')) // open event log
+	m = res.(Model)
+	assert.Equal(t, "eventlog", m.nav.Current().ID())
+}

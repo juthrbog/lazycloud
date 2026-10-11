@@ -1,0 +1,90 @@
+package ui
+
+import (
+	"fmt"
+	"reflect"
+	"testing"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/juthrbog/lazycloud/internal/msg"
+)
+
+// drain runs cmd and feeds resulting messages back into the form (bounded).
+func drain(f *FormView, cmd tea.Cmd, depth int) {
+	if cmd == nil || depth > 6 {
+		return
+	}
+	ch := make(chan tea.Msg, 1)
+	go func() { ch <- cmd() }()
+	var m tea.Msg
+	select {
+	case m = <-ch:
+	case <-time.After(30 * time.Millisecond):
+		return
+	}
+	if m == nil {
+		return
+	}
+	if b, ok := m.(tea.BatchMsg); ok {
+		for _, c := range b {
+			drain(f, c, depth+1)
+		}
+		return
+	}
+	// sequenceMsg is unexported; handle via reflection on slice of cmds
+	rv := reflect.ValueOf(m)
+	if rv.Kind() == reflect.Slice && rv.Type().Elem() == reflect.TypeOf(tea.Cmd(nil)) {
+		for i := 0; i < rv.Len(); i++ {
+			drain(f, rv.Index(i).Interface().(tea.Cmd), depth+1)
+		}
+		return
+	}
+	switch m.(type) {
+	case msg.FormResultMsg, RequestFormDiscardConfirmMsg:
+		fmt.Printf("  form emitted %T %+v\n", m, m)
+		return
+	}
+	_, c := f.Update(m)
+	drain(f, c, depth+1)
+}
+
+func send(f *FormView, k tea.KeyPressMsg) {
+	_, c := f.Update(k)
+	drain(f, c, 0)
+}
+
+func typeStr(f *FormView, s string) {
+	for _, r := range s {
+		send(f, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+func newTestForm(def string) *FormView {
+	fv := NewFormView(msg.RequestFormMsg{ID: "t", Title: "T", Fields: []msg.FormField{
+		{Key: "a", Type: "input", Title: "A", Default: def},
+		{Key: "b", Type: "input", Title: "B"},
+	}})
+	drain(fv, fv.Init(), 0)
+	_, c := fv.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
+	drain(fv, c, 0)
+	return fv
+}
+
+func TestReproFormDirtyDefault(t *testing.T) {
+	fv := newTestForm("prefilled")
+	fmt.Printf("untouched form with default: isDirty=%v\n", fv.isDirty())
+}
+
+func TestReproFormDirtyShiftTab(t *testing.T) {
+	fv := newTestForm("")
+	send(fv, tea.KeyPressMsg{Code: tea.KeyTab})
+	typeStr(fv, "hello")
+	fmt.Printf("after typing in B: isDirty=%v\n", fv.isDirty())
+	send(fv, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	ff := fv.form.GetFocusedField()
+	fmt.Printf("after shift+tab back to A (focused=%s): isDirty=%v  B.GetString=%q\n", ff.GetKey(), fv.isDirty(), fv.form.GetString("b"))
+	fmt.Println("pressing esc:")
+	send(fv, tea.KeyPressMsg{Code: tea.KeyEscape})
+}

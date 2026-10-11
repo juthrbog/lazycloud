@@ -1,0 +1,48 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+)
+
+var _ = tea.KeyPressMsg{}
+
+func TestReproPickerHeight(t *testing.T) {
+	var opts []PickerOption
+	for i := 0; i < 23; i++ {
+		opts = append(opts, PickerOption{Label: fmt.Sprintf("region-%d", i), Value: fmt.Sprint(i)})
+	}
+	p := NewPicker()
+	p.Show("region", "Select Region", opts, 22)
+	fmt.Printf("picker height for 23 options = %d (terminal 24 rows)\n", lipgloss.Height(p.View()))
+}
+
+func TestReproTableOverflow(t *testing.T) {
+	cols := []Column{{Title: "Name", Width: 10}, {Title: "Description", Width: 30}, {Title: "State", Width: 10}}
+	tb := NewTable(cols, []table.Row{{"a", "b", "c"}})
+	tb.SetSize(40, 10)
+	maxW := 0
+	for _, l := range strings.Split(tb.View(), "\n") {
+		if w := lipgloss.Width(l); w > maxW {
+			maxW = w
+		}
+	}
+	fmt.Printf("table SetSize(40): widest line = %d\n", maxW)
+}
+
+func TestReproHelpJK(t *testing.T) {
+	var hints []HintBinding
+	for i := 0; i < 60; i++ {
+		hints = append(hints, HintBinding{Binding: key.NewBinding(key.WithKeys("x"), key.WithHelp(fmt.Sprint(i), "desc"))})
+	}
+	h := NewHelpOverlay()
+	h.Show(hints, 80, 24)
+	h, _ = h.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	fmt.Printf("after j: filter=%q yoffset=%d\n", h.filter, h.viewport.YOffset())
+}
