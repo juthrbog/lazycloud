@@ -35,7 +35,15 @@ Pressing `enter` or `d` fetches queue attributes and DLQ source queues. Displays
 
 Opt-in message peek view — navigating here shows a prompt; press `l` to consciously trigger `ReceiveMessage`. This avoids unintended `ApproximateReceiveCount` increments that could trigger DLQ redrive policies.
 
-Messages are peeked with `VisibilityTimeout=0` so they remain visible to other consumers. A warning banner is always shown.
+SQS has no read-only peek. A peek is a real `ReceiveMessage` call. Right after the receive, LazyCloud calls `ChangeMessageVisibilityBatch` with a visibility timeout of 0, so the messages are visible to other consumers again at once. SQS still adds 1 to the `ApproximateReceiveCount` of each message, and nothing can undo that.
+
+On a queue with a redrive policy, enough receives move a message to the dead-letter queue (DLQ) without processing. For this reason, the peek rules depend on the mode:
+
+- In ReadOnly mode, `l` and `r` peek only when the queue settings are loaded and show no redrive policy. On a queue with a DLQ, or when the settings cannot be read, the peek is blocked. Press `W` to switch to ReadWrite mode.
+- In ReadWrite mode, a peek is always allowed. After the peek, a warning shows the number of messages that reached `maxReceiveCount`. The next receive by a consumer moves these messages to the DLQ.
+- If the visibility reset fails, for example because the role has no `sqs:ChangeMessageVisibility` permission, the messages are still shown. A warning says how long they stay hidden from consumers.
+
+A banner above the table always describes what a peek does to the current queue.
 
 | Column | Description |
 |--------|-------------|
@@ -69,12 +77,12 @@ Messages are deduplicated by MessageID across load-more calls. Subsequent peeks 
 | Key | Action | Mode |
 |-----|--------|------|
 | `enter` | View message body | Any |
-| `l` | Load / load more messages | Any |
+| `l` | Load / load more messages | Any (ReadOnly: only queues without a DLQ) |
 | `x` | Delete message(s) | ReadWrite |
 | `m` | DLQ actions (redrive) | ReadWrite |
 | `y` | Copy message ID | Any |
 | `space` | Multi-select | Any |
-| `r` | Refresh (clear and re-peek) | Any |
+| `r` | Refresh (clear and re-peek) | Any (ReadOnly: only queues without a DLQ) |
 
 ## Mutations (ReadWrite mode)
 
@@ -97,4 +105,6 @@ Deletes the queue and all its messages. Requires confirmation.
 
 ## LocalStack Notes
 
-LocalStack may ignore `VisibilityTimeout=0` in `ReceiveMessage` requests and fall back to the queue's default visibility timeout. The seed program sets `VisibilityTimeout=0` on all seeded queues as a workaround. On real AWS, the per-request `VisibilityTimeout=0` works as documented.
+The seed program creates queues with the default visibility timeout of 30 seconds, so local queues behave like real ones. Older versions of the seed program set the queue default to 0. If your LocalStack data comes from such a version, wipe it and seed again.
+
+Do not set `VisibilityTimeout` to 0 in `ReceiveMessageInput` and expect it to work. The AWS SDK for Go omits fields that have the value 0, so the queue default applies. LazyCloud resets the visibility with `ChangeMessageVisibilityBatch`, where the SDK always sends the value.
