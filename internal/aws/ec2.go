@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
@@ -66,10 +68,21 @@ func (c *Client) EC2Client() *ec2.Client {
 	})
 }
 
-// SSMSessionCmd returns an exec.Cmd to start an SSM session for the given instance.
+// SSMSession prints a banner and then runs `aws ssm start-session`.
+// It satisfies tea.ExecCommand, so views can pass it to tea.Exec.
+//
+// The banner is written from Go and the CLI is exec'd directly, never through
+// a shell. The label usually contains the instance Name tag, which anyone with
+// ec2:CreateTags controls, so it must never reach a shell parser.
+type SSMSession struct {
+	banner string
+	cmd    *exec.Cmd
+}
+
+// SSMSessionCmd returns a command that starts an SSM session for the given instance.
 // Requires the AWS CLI and session-manager-plugin to be installed.
 // The label is displayed as a banner before the session starts (e.g. "my-server (i-abc123)").
-func (c *Client) SSMSessionCmd(instanceID, label string) *exec.Cmd {
+func (c *Client) SSMSessionCmd(instanceID, label string) *SSMSession {
 	args := []string{"ssm", "start-session", "--target", instanceID}
 	if c.Region != "" {
 		args = append(args, "--region", c.Region)
@@ -77,17 +90,55 @@ func (c *Client) SSMSessionCmd(instanceID, label string) *exec.Cmd {
 	if c.Profile != "" {
 		args = append(args, "--profile", c.Profile)
 	}
-	// Build a shell command that prints a banner then execs the session
-	fullArgs := append([]string{"aws"}, args...)
-	awsCmd := strings.Join(fullArgs, " ")
-	banner := fmt.Sprintf("\033[1;36m── SSM Session: %s ──\033[0m\n", label)
-	shell := fmt.Sprintf("printf '%s' && %s", banner, awsCmd)
-	return exec.Command("sh", "-c", shell) //nolint:gosec // SSM session command is constructed from trusted AWS SDK args
+	return &SSMSession{
+		banner: fmt.Sprintf("\033[1;36m── SSM Session: %s ──\033[0m\n", stripControl(label)),
+		cmd:    exec.Command("aws", args...), //nolint:gosec // fixed binary, no shell; args are argv elements, never parsed. Keep the label out of args.
+	}
+}
+
+// Args returns the argv of the AWS CLI command, starting with "aws".
+func (s *SSMSession) Args() []string { return s.cmd.Args }
+
+// Banner returns the text printed before the session starts.
+func (s *SSMSession) Banner() string { return s.banner }
+
+// SetStdin implements tea.ExecCommand.
+func (s *SSMSession) SetStdin(r io.Reader) { s.cmd.Stdin = r }
+
+// SetStdout implements tea.ExecCommand.
+func (s *SSMSession) SetStdout(w io.Writer) { s.cmd.Stdout = w }
+
+// SetStderr implements tea.ExecCommand.
+func (s *SSMSession) SetStderr(w io.Writer) { s.cmd.Stderr = w }
+
+// Run prints the banner and runs the AWS CLI until the session ends.
+func (s *SSMSession) Run() error {
+	if s.cmd.Stdout != nil {
+		_, _ = io.WriteString(s.cmd.Stdout, s.banner)
+	}
+	return s.cmd.Run()
+}
+
+// stripControl removes control characters (including ESC) so that resource
+// names cannot inject terminal escape sequences.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // SSMPluginAvailable returns true if the session-manager-plugin is installed.
 func SSMPluginAvailable() bool {
 	_, err := exec.LookPath("session-manager-plugin")
+	return err == nil
+}
+
+// AWSCLIAvailable returns true if the aws CLI is on PATH.
+func AWSCLIAvailable() bool {
+	_, err := exec.LookPath("aws")
 	return err == nil
 }
 

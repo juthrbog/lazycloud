@@ -518,6 +518,11 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastError("Instance is " + state + " — must be running for SSM")
 				}
 			}
+			if !aws.AWSCLIAvailable() {
+				return e, func() tea.Msg {
+					return msg.ToastError("aws CLI not found — install it first")
+				}
+			}
 			if !aws.SSMPluginAvailable() {
 				return e, func() tea.Msg {
 					return msg.ToastError("session-manager-plugin not found — install it first")
@@ -531,7 +536,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			id := inst.ID
 			name := inst.Name
 			ssmCmd := e.awsClient.SSMSessionCmd(id, label)
-			return e, tea.ExecProcess(ssmCmd, func(err error) tea.Msg {
+			return e, tea.Exec(ssmCmd, func(err error) tea.Msg {
 				return ec2SSMSessionFinishedMsg{instanceID: id, instanceName: name, err: err}
 			})
 		}
