@@ -186,17 +186,38 @@ func (svc *SQSServiceImpl) FetchAllQueueAttributes(ctx context.Context, urls []s
 
 // ─── Message operations ─────────────────────────────────────────────────────
 
-// ReceiveMessages peeks at messages without hiding them from other consumers.
+// VisibilityResetError reports that peeked messages could not be made visible
+// again. ReceiveMessages still returns the messages with this error; the
+// failed ones stay hidden from consumers for the queue's visibility timeout.
+type VisibilityResetError struct {
+	Failed int // number of messages that are still hidden
+	Err    error
+}
+
+func (e *VisibilityResetError) Error() string {
+	return fmt.Sprintf("could not make %d message(s) visible again: %v", e.Failed, e.Err)
+}
+
+func (e *VisibilityResetError) Unwrap() error { return e.Err }
+
+// ReceiveMessages peeks at up to 10 messages.
+//
+// SQS has no read-only peek. This is a real ReceiveMessage, which hides each
+// message for the queue's visibility timeout and adds 1 to its receive count.
+// To keep consumers unaffected, the messages are made visible again right away
+// with ChangeMessageVisibilityBatch. The receive count cannot be undone.
+//
+// Note: ReceiveMessageInput.VisibilityTimeout = 0 does not help. The SDK omits
+// zero-valued fields, so the queue default would apply.
 func (svc *SQSServiceImpl) ReceiveMessages(ctx context.Context, queueURL string, maxMessages int32) ([]SQSMessage, error) {
 	if maxMessages > 10 {
 		maxMessages = 10
 	}
 	client := svc.client.SQSClient()
 	out, err := client.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
-		QueueUrl:              aws.String(queueURL),
-		MaxNumberOfMessages:   maxMessages,
-		VisibilityTimeout:     0, // peek: don't hide from other consumers
-		WaitTimeSeconds:       0, // short poll
+		QueueUrl:            aws.String(queueURL),
+		MaxNumberOfMessages: maxMessages,
+		WaitTimeSeconds:     0, // short poll
 		MessageSystemAttributeNames: []sqstypes.MessageSystemAttributeName{
 			sqstypes.MessageSystemAttributeNameAll,
 		},
@@ -209,6 +230,34 @@ func (svc *SQSServiceImpl) ReceiveMessages(ctx context.Context, queueURL string,
 	messages := make([]SQSMessage, len(out.Messages))
 	for i, m := range out.Messages {
 		messages[i] = parseSQSMessage(m)
+	}
+	if len(messages) == 0 {
+		return messages, nil
+	}
+
+	// ChangeMessageVisibilityBatch takes up to 10 entries, and a receive
+	// returns at most 10 messages, so one call covers them all.
+	entries := make([]sqstypes.ChangeMessageVisibilityBatchRequestEntry, len(messages))
+	for i, m := range messages {
+		entries[i] = sqstypes.ChangeMessageVisibilityBatchRequestEntry{
+			Id:                aws.String(strconv.Itoa(i)),
+			ReceiptHandle:     aws.String(m.ReceiptHandle),
+			VisibilityTimeout: 0, // always serialized for batch entries
+		}
+	}
+	res, err := client.ChangeMessageVisibilityBatch(ctx, &sqs.ChangeMessageVisibilityBatchInput{
+		QueueUrl: aws.String(queueURL),
+		Entries:  entries,
+	})
+	if err != nil {
+		return messages, &VisibilityResetError{Failed: len(messages), Err: err}
+	}
+	if len(res.Failed) > 0 {
+		f := res.Failed[0]
+		return messages, &VisibilityResetError{
+			Failed: len(res.Failed),
+			Err:    fmt.Errorf("%s: %s", aws.ToString(f.Code), aws.ToString(f.Message)),
+		}
 	}
 	return messages, nil
 }

@@ -119,13 +119,9 @@ func (s *sqsSeeder) Seed(ctx context.Context) error {
 }
 
 func (s *sqsSeeder) ensureQueue(ctx context.Context, sqsc *sqs.Client, q queueDef) (string, error) {
-	attrs := map[string]string{
-		// LocalStack ignores VisibilityTimeout=0 in ReceiveMessage requests
-		// and falls back to the queue default (30s), putting peeked messages
-		// in-flight. Setting the queue default to 0 works around this.
-		// On real AWS, the per-request VisibilityTimeout=0 works correctly.
-		"VisibilityTimeout": "0",
-	}
+	// Keep the default visibility timeout (30s) so local queues behave like
+	// real ones. LazyCloud resets visibility itself after a peek.
+	attrs := map[string]string{}
 	name := q.Name
 	if q.FIFO {
 		attrs["FifoQueue"] = "true"
