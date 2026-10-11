@@ -66,9 +66,9 @@ type ContentView struct {
 	rawLines    []string      // raw split into lines
 	format      ContentFormat // resolved format
 	lineNumbers bool
-	cursor      int  // current cursor line (0-indexed)
-	visualMode  bool // visual line selection active
-	visualStart int  // anchor line for visual selection
+	cursor      int                 // current cursor line (0-indexed)
+	visualMode  bool                // visual line selection active
+	visualStart int                 // anchor line for visual selection
 	links       map[int]ContentLink // line index → navigation target
 	width       int
 	height      int
@@ -191,7 +191,7 @@ func (cv ContentView) OpenInEditorCmd() tea.Cmd {
 	}
 
 	if _, err := tmpFile.WriteString(cv.raw); err != nil {
-		tmpFile.Close()  //nolint:gosec // best-effort cleanup on write error
+		tmpFile.Close()           //nolint:gosec // best-effort cleanup on write error
 		os.Remove(tmpFile.Name()) //nolint:gosec // best-effort cleanup
 		return func() tea.Msg { return EditorFinishedMsg{Err: err} }
 	}

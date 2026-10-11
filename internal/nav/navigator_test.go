@@ -15,12 +15,12 @@ type stubView struct {
 	title string
 }
 
-func (v stubView) ID() string              { return v.id }
-func (v stubView) Title() string           { return v.title }
+func (v stubView) ID() string               { return v.id }
+func (v stubView) Title() string            { return v.title }
 func (v stubView) KeyMap() []ui.HintBinding { return nil }
-func (v stubView) Footer() string          { return "" }
-func (v stubView) Init() tea.Cmd           { return nil }
-func (v stubView) View() tea.View          { return tea.NewView("") }
+func (v stubView) Footer() string           { return "" }
+func (v stubView) Init() tea.Cmd            { return nil }
+func (v stubView) View() tea.View           { return tea.NewView("") }
 func (v stubView) Update(tea.Msg) (tea.Model, tea.Cmd) {
 	return v, nil
 }
@@ -114,12 +114,12 @@ type trackingView struct {
 	onUpdate func()
 }
 
-func (v *trackingView) ID() string              { return v.id }
-func (v *trackingView) Title() string           { return v.title }
+func (v *trackingView) ID() string               { return v.id }
+func (v *trackingView) Title() string            { return v.title }
 func (v *trackingView) KeyMap() []ui.HintBinding { return nil }
-func (v *trackingView) Footer() string          { return "" }
-func (v *trackingView) Init() tea.Cmd           { return nil }
-func (v *trackingView) View() tea.View          { return tea.NewView("") }
+func (v *trackingView) Footer() string           { return "" }
+func (v *trackingView) Init() tea.Cmd            { return nil }
+func (v *trackingView) View() tea.View           { return tea.NewView("") }
 func (v *trackingView) Update(tea.Msg) (tea.Model, tea.Cmd) {
 	if v.onUpdate != nil {
 		v.onUpdate()

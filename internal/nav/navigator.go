@@ -9,10 +9,10 @@ import (
 // View is the interface that all navigable views must implement.
 type View interface {
 	tea.Model
-	ID() string          // unique identifier for caching, e.g. "ec2_list"
-	Title() string       // human-readable title for breadcrumb display
+	ID() string               // unique identifier for caching, e.g. "ec2_list"
+	Title() string            // human-readable title for breadcrumb display
 	KeyMap() []ui.HintBinding // view-specific keybindings for status bar display
-	Footer() string       // resource count / context info for footer line
+	Footer() string           // resource count / context info for footer line
 }
 
 // Navigator manages a stack of views with caching.

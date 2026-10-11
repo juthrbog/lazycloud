@@ -26,8 +26,8 @@ type CommandBar struct {
 	input     string
 	visible   bool
 	commands  []CommandEntry
-	filtered  []int  // indices into commands matching input
-	selected  int    // -1 = no selection, 0+ = suggestion index
+	filtered  []int // indices into commands matching input
+	selected  int   // -1 = no selection, 0+ = suggestion index
 	history   []string
 	histIdx   int    // -1 = not browsing history
 	histDraft string // input before history browsing started

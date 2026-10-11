@@ -8,12 +8,12 @@ import (
 
 // HeaderData holds the values needed to render the header bar.
 type HeaderData struct {
-	Profile          string
-	Region           string
-	Mode             string // "RO" or "RW"
-	Breadcrumbs      []string
+	Profile           string
+	Region            string
+	Mode              string // "RO" or "RW"
+	Breadcrumbs       []string
 	CrossNavBackLabel string // non-empty: show right-aligned back indicator with this label
-	Width            int
+	Width             int
 }
 
 // RenderHeader renders the top bar with gradient branding and profile/region badges.

@@ -254,21 +254,21 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 						msg.FormField{Key: "group_id", Type: "input", Title: "Message Group ID",
 							Required: true, Placeholder: "Enter group ID",
 							Description: "Required. Messages in the same group are processed in order.",
-							Validate: huh.ValidateMaxLength(128)},
+							Validate:    huh.ValidateMaxLength(128)},
 					)
 					if !q.ContentBasedDeduplication {
 						fields = append(fields,
 							msg.FormField{Key: "dedup_id", Type: "input", Title: "Deduplication ID",
 								Required: true, Placeholder: "Enter deduplication ID",
 								Description: "Required (content-based dedup is disabled on this queue).",
-								Validate: huh.ValidateMaxLength(128)},
+								Validate:    huh.ValidateMaxLength(128)},
 						)
 					} else {
 						fields = append(fields,
 							msg.FormField{Key: "dedup_id", Type: "input", Title: "Deduplication ID",
 								Placeholder: "Leave empty for content-based dedup",
 								Description: "Optional. Auto-generated from message body if empty.",
-								Validate: huh.ValidateMaxLength(128)},
+								Validate:    huh.ValidateMaxLength(128)},
 						)
 					}
 				} else {

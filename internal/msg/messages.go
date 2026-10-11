@@ -95,15 +95,15 @@ type RequestFeaturePickerMsg struct {
 
 // FormField describes a single field in a form request.
 type FormField struct {
-	Key         string               // unique key for result retrieval
-	Type        string               // "input", "text", "select", "confirm"
-	Title       string               // field label
-	Description string               // help text below the field
-	Placeholder string               // placeholder for input/text
-	Default     string               // default value
-	Options     []string             // for select fields
-	Required    bool                 // adds NotEmpty validation
-	Validate    func(string) error   // custom validation (applied after Required)
+	Key         string             // unique key for result retrieval
+	Type        string             // "input", "text", "select", "confirm"
+	Title       string             // field label
+	Description string             // help text below the field
+	Placeholder string             // placeholder for input/text
+	Default     string             // default value
+	Options     []string           // for select fields
+	Required    bool               // adds NotEmpty validation
+	Validate    func(string) error // custom validation (applied after Required)
 }
 
 // RequestFormMsg asks the app to show a multi-field form as a nav view.

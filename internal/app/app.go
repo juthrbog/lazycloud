@@ -19,7 +19,6 @@ import (
 	"github.com/juthrbog/lazycloud/internal/views"
 )
 
-
 // Side panel constants.
 const (
 	panelMinWidth     = 30
@@ -32,28 +31,28 @@ const (
 const crossNavHistoryMax = 10
 
 type crossNavEntry struct {
-	navDepth   int                  // nav stack depth when saved
-	panelTitle string               // panel title to restore
-	panelTabs  []appmsg.TabContent  // panel content to restore
+	navDepth   int                 // nav stack depth when saved
+	panelTitle string              // panel title to restore
+	panelTabs  []appmsg.TabContent // panel content to restore
 }
 
 // Model is the root application model — message router and layout compositor.
 type Model struct {
-	config    config.Config
-	awsClient *aws.Client
-	s3        aws.S3Service
-	ec2       aws.EC2Service
-	sqs       aws.SQSService
-	nav       *nav.Navigator
-	confirm   ui.Confirm
-	picker    ui.Picker
+	config     config.Config
+	awsClient  *aws.Client
+	s3         aws.S3Service
+	ec2        aws.EC2Service
+	sqs        aws.SQSService
+	nav        *nav.Navigator
+	confirm    ui.Confirm
+	picker     ui.Picker
 	help       ui.HelpOverlay
 	commandBar ui.CommandBar
 	toasts     ui.ToastManager
-	width     int
-	height    int
-	err       string
-	isDark    bool
+	width      int
+	height     int
+	err        string
+	isDark     bool
 
 	keys ui.AppKeyMap
 

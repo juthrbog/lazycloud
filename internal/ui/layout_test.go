@@ -42,9 +42,9 @@ func TestDistributeWidths_AllFixed(t *testing.T) {
 func TestDistributeWidths_MixedWeights(t *testing.T) {
 	cols := []Column{
 		{Title: "ID", Width: 10, Weight: 0},    // fixed
-		{Title: "Name", Width: 20, Weight: 2},   // flex
-		{Title: "Count", Width: 10, Weight: 0},  // fixed
-		{Title: "Desc", Width: 20, Weight: 1},   // flex
+		{Title: "Name", Width: 20, Weight: 2},  // flex
+		{Title: "Count", Width: 10, Weight: 0}, // fixed
+		{Title: "Desc", Width: 20, Weight: 1},  // flex
 	}
 	// Total base: (10+2)+(20+2)+(10+2)+(20+2) = 68, extra = 100-68 = 32
 	// Name gets 2/3 of 32 ≈ 21, Desc gets 1/3 of 32 ≈ 10
@@ -141,7 +141,7 @@ func TestColumnsFit(t *testing.T) {
 		{Title: "A", Width: 10},
 		{Title: "B", Width: 20},
 	}
-	assert.True(t, ColumnsFit(cols, 34))   // exact fit: (10+2)+(20+2) = 34
-	assert.True(t, ColumnsFit(cols, 100))  // plenty of room
+	assert.True(t, ColumnsFit(cols, 34))  // exact fit: (10+2)+(20+2) = 34
+	assert.True(t, ColumnsFit(cols, 100)) // plenty of room
 	assert.False(t, ColumnsFit(cols, 33)) // too narrow
 }

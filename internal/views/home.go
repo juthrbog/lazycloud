@@ -17,9 +17,9 @@ type Home struct {
 	height    int
 }
 
-func (h *Home) ID() string    { return "home" }
-func (h *Home) Title() string { return "Services" }
-func (h *Home) Footer() string    { return "" }
+func (h *Home) ID() string     { return "home" }
+func (h *Home) Title() string  { return "Services" }
+func (h *Home) Footer() string { return "" }
 func (h *Home) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
 		ui.NewHintBinding([]string{"+"}, "+/-", "cloud speed"),

@@ -27,9 +27,9 @@ type ContentViewer struct {
 	name   string
 }
 
-func (c *ContentViewer) ID() string    { return c.id }
-func (c *ContentViewer) Title() string { return c.name }
-func (c *ContentViewer) Footer() string    { return "" }
+func (c *ContentViewer) ID() string     { return c.id }
+func (c *ContentViewer) Title() string  { return c.name }
+func (c *ContentViewer) Footer() string { return "" }
 func (c *ContentViewer) KeyMap() []ui.HintBinding {
 	cvk := ui.DefaultContentViewKeyMap()
 	return []ui.HintBinding{

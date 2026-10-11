@@ -53,30 +53,30 @@ type QueuePage struct {
 
 // Queue represents an SQS queue with parsed attributes.
 type Queue struct {
-	URL                        string
-	Name                       string
-	ARN                        string
-	Type                       string // "Standard" or "FIFO"
-	ApproximateMessageCount    int
-	ApproximateInFlightCount   int
-	ApproximateDelayedCount    int
-	CreatedTimestamp            time.Time
-	LastModifiedTimestamp       time.Time
-	VisibilityTimeout          int // seconds
-	DelaySeconds               int
-	MaximumMessageSize         int // bytes
-	MessageRetentionPeriod     int // seconds
-	ReceiveMessageWaitTime     int // seconds
-	RedrivePolicy              *RedrivePolicy
-	RedriveAllowPolicy         *RedriveAllowPolicy
-	SqsManagedSseEnabled       bool
-	KmsMasterKeyID             string
-	KmsDataKeyReusePeriod      int // seconds
-	FifoQueue                  bool
-	ContentBasedDeduplication  bool
-	DeduplicationScope         string
-	FifoThroughputLimit        string
-	IsDLQ                      bool // derived: another queue's RedrivePolicy targets this queue
+	URL                       string
+	Name                      string
+	ARN                       string
+	Type                      string // "Standard" or "FIFO"
+	ApproximateMessageCount   int
+	ApproximateInFlightCount  int
+	ApproximateDelayedCount   int
+	CreatedTimestamp          time.Time
+	LastModifiedTimestamp     time.Time
+	VisibilityTimeout         int // seconds
+	DelaySeconds              int
+	MaximumMessageSize        int // bytes
+	MessageRetentionPeriod    int // seconds
+	ReceiveMessageWaitTime    int // seconds
+	RedrivePolicy             *RedrivePolicy
+	RedriveAllowPolicy        *RedriveAllowPolicy
+	SqsManagedSseEnabled      bool
+	KmsMasterKeyID            string
+	KmsDataKeyReusePeriod     int // seconds
+	FifoQueue                 bool
+	ContentBasedDeduplication bool
+	DeduplicationScope        string
+	FifoThroughputLimit       string
+	IsDLQ                     bool // derived: another queue's RedrivePolicy targets this queue
 }
 
 // RedrivePolicy configures dead-letter queue routing.
@@ -93,28 +93,28 @@ type RedriveAllowPolicy struct {
 
 // SQSMessage represents a message received from an SQS queue.
 type SQSMessage struct {
-	MessageID              string
-	ReceiptHandle          string
-	Body                   string
-	MD5OfBody              string
-	SentTimestamp          time.Time
+	MessageID               string
+	ReceiptHandle           string
+	Body                    string
+	MD5OfBody               string
+	SentTimestamp           time.Time
 	ApproximateReceiveCount int
-	MessageGroupID         string // FIFO only
-	MessageDeduplicationID string // FIFO only
-	Attributes             map[string]string
-	MessageAttributes      map[string]string
+	MessageGroupID          string // FIFO only
+	MessageDeduplicationID  string // FIFO only
+	Attributes              map[string]string
+	MessageAttributes       map[string]string
 }
 
 // MessageMoveTask represents a DLQ redrive task.
 type MessageMoveTask struct {
-	TaskHandle                    string
-	SourceArn                     string
-	DestinationArn                string
-	Status                        string
-	ApproximateNumberOfMessages   int64
-	ApproximateNumberOfMsgsMoved  int64
-	StartedTimestamp              time.Time
-	FailureReason                 string
+	TaskHandle                   string
+	SourceArn                    string
+	DestinationArn               string
+	Status                       string
+	ApproximateNumberOfMessages  int64
+	ApproximateNumberOfMsgsMoved int64
+	StartedTimestamp             time.Time
+	FailureReason                string
 }
 
 // ─── Queue listing ──────────────────────────────────────────────────────────
@@ -409,14 +409,14 @@ func (svc *SQSServiceImpl) ListMessageMoveTasks(ctx context.Context, sourceArn s
 			toMove = *r.ApproximateNumberOfMessagesToMove
 		}
 		tasks[i] = MessageMoveTask{
-			TaskHandle:                    aws.ToString(r.TaskHandle),
-			SourceArn:                     aws.ToString(r.SourceArn),
-			DestinationArn:                aws.ToString(r.DestinationArn),
-			Status:                        aws.ToString(r.Status),
-			ApproximateNumberOfMessages:   r.ApproximateNumberOfMessagesMoved + toMove,
-			ApproximateNumberOfMsgsMoved:  r.ApproximateNumberOfMessagesMoved,
-			StartedTimestamp:              parseEpochMillis(r.StartedTimestamp),
-			FailureReason:                 aws.ToString(r.FailureReason),
+			TaskHandle:                   aws.ToString(r.TaskHandle),
+			SourceArn:                    aws.ToString(r.SourceArn),
+			DestinationArn:               aws.ToString(r.DestinationArn),
+			Status:                       aws.ToString(r.Status),
+			ApproximateNumberOfMessages:  r.ApproximateNumberOfMessagesMoved + toMove,
+			ApproximateNumberOfMsgsMoved: r.ApproximateNumberOfMessagesMoved,
+			StartedTimestamp:             parseEpochMillis(r.StartedTimestamp),
+			FailureReason:                aws.ToString(r.FailureReason),
 		}
 	}
 	return tasks, nil

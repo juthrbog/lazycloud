@@ -114,7 +114,7 @@ type subnetDef struct {
 // ─── Tier extras ────────────────────────────────────────────────────────────
 
 type tierS3Extras struct {
-	ExtraBuckets         int `toml:"extra_buckets"`
+	ExtraBuckets          int `toml:"extra_buckets"`
 	ObjectsPerExtraBucket int `toml:"objects_per_extra_bucket"`
 }
 
