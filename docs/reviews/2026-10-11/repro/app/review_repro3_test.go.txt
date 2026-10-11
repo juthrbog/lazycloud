@@ -1,0 +1,48 @@
+package app
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/aws"
+	"github.com/juthrbog/lazycloud/internal/config"
+)
+
+// 16. Default region us-east-1 shadows the profile's region and AWS_DEFAULT_REGION.
+func TestRepro_DefaultRegionShadowsProfile(t *testing.T) {
+	dir := t.TempDir()
+	cf := filepath.Join(dir, "config")
+	require.NoError(t, os.WriteFile(cf, []byte("[profile foo]\nregion=eu-west-2\n"), 0o600))
+	t.Setenv("AWS_CONFIG_FILE", cf)
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "nope"))
+	t.Setenv("AWS_REGION", "")
+	t.Setenv("AWS_DEFAULT_REGION", "ap-south-1")
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	cfg, err := config.Load("")
+	require.NoError(t, err)
+	cfg.ApplyEnv()
+	cfg.ApplyFlags("foo", "", "", "", "", false)
+	c, err := aws.NewClient(cfg.AWS.Profile, cfg.AWS.Region, cfg.AWS.Endpoint)
+	require.NoError(t, err)
+	assert.Equal(t, "us-east-1", c.Config.Region, "profile region eu-west-2 and AWS_DEFAULT_REGION ignored")
+}
+
+// 17. Unknown config keys are silently ignored.
+func TestRepro_UnknownKeysIgnored(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "c.toml")
+	require.NoError(t, os.WriteFile(p, []byte("[display]\nnerd_font = false\nread_write = true\n"), 0o600))
+	cfg, err := config.Load(p)
+	require.NoError(t, err)
+	assert.True(t, cfg.Display.NerdFonts)
+}
+
+// 18. Missing explicit --config path is silently ignored.
+func TestRepro_MissingExplicitConfig(t *testing.T) {
+	_, err := config.Load("/definitely/not/here.toml")
+	assert.NoError(t, err)
+}

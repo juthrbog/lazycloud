@@ -179,7 +179,9 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinner.Show("Loading versions...")
 			return s, tea.Batch(s.spinner.Tick(), s.fetchVersions())
 		case key.Matches(m, s.keys.View, s.keys.Describe):
-			idx := s.table.SelectedIndex()
+			// Rows are built in s.versions order, so map the (possibly sorted
+			// or filtered) cursor back to the original row.
+			idx := s.table.SelectedAllRowIndex()
 			if idx < 0 || idx >= len(s.versions) {
 				return s, nil
 			}
@@ -189,7 +191,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return msg.NavigateMsg{
 					ViewID: "content",
 					Params: map[string]string{
-						"title":   fmt.Sprintf("%s (v%s)", path.Base(s.key), v.VersionID[:8]),
+						"title":   fmt.Sprintf("%s (v%s)", path.Base(s.key), shortVersionID(v.VersionID)),
 						"content": string(jsonBytes),
 						"format":  "json",
 					},
@@ -207,6 +209,15 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	s.table, cmd = s.table.Update(m)
 	return s, cmd
+}
+
+// shortVersionID returns at most the first 8 characters of a version ID.
+// Unversioned buckets report the literal ID "null", which is shorter than 8.
+func shortVersionID(id string) string {
+	if len(id) <= 8 {
+		return id
+	}
+	return id[:8]
 }
 
 func (s *S3Versions) rebuildRows() {

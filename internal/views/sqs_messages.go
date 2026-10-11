@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
@@ -24,6 +26,9 @@ import (
 type sqsMessagesLoadedMsg struct {
 	messages []aws.SQSMessage
 	queueURL string
+	// resetErr is set when some peeked messages stay hidden. A concrete
+	// pointer (not error) so a nil value is never a non-nil interface.
+	resetErr *aws.VisibilityResetError
 }
 
 type sqsMessageDeletedMsg struct {
@@ -82,18 +87,23 @@ type SQSMessages struct {
 	queueARN  string // for redrive operations
 	isFIFO    bool
 	isDLQ     bool
-	table     ui.Table
-	messages  []aws.SQSMessage
-	seen      map[string]bool // dedup by MessageID
-	filter    ui.Filter
-	spinner   ui.Spinner
-	loading   bool
-	fetched   bool // true after at least one fetch attempt
-	redriving bool // active redrive in progress
-	err       error
-	width     int
-	height    int
-	widthTier ui.WidthTier
+	// Queue settings that decide whether a peek is safe. See peekBlockReason.
+	attrsLoaded bool               // GetQueueAttributes has returned
+	attrsErr    error              // set when the settings could not be read
+	redrive     *aws.RedrivePolicy // nil when the queue has no DLQ
+	visTimeout  int                // queue visibility timeout, seconds
+	table       ui.Table
+	messages    []aws.SQSMessage
+	seen        map[string]bool // dedup by MessageID
+	filter      ui.Filter
+	spinner     ui.Spinner
+	loading     bool
+	fetched     bool // true after at least one fetch attempt
+	redriving   bool // active redrive in progress
+	err         error
+	width       int
+	height      int
+	widthTier   ui.WidthTier
 }
 
 func (s *SQSMessages) ID() string    { return "sqs_messages:" + s.queueURL }
@@ -153,9 +163,39 @@ func NewSQSMessages(sqs aws.SQSService, queueURL, queueName string, isFIFO bool)
 
 func (s *SQSMessages) Init() tea.Cmd {
 	s.table.DeselectAll()
-	// Fetch queue ARN (lightweight, no side effects) but don't auto-peek.
+	// Fetch queue settings (no side effects) but don't auto-peek.
 	// The user presses 'l' to consciously trigger ReceiveMessage.
-	return s.fetchQueueARN()
+	return s.fetchQueueAttrs()
+}
+
+// ─── Peek guard ─────────────────────────────────────────────────────────────
+
+// peekBlockReason returns why a peek is not allowed, or "" when it is.
+//
+// SQS has no read-only peek. A peek is a real ReceiveMessage: the AWS layer
+// makes the messages visible again at once, but SQS still adds 1 to each
+// message's receive count. On a queue with a redrive policy, enough receives
+// send a message to the dead-letter queue unprocessed. ReadOnly mode must
+// never cause that, so it allows a peek only when the queue settings are
+// known and show no redrive policy. ReadWrite mode always allows it.
+func peekBlockReason(readOnly, attrsLoaded bool, attrsErr error, redrive *aws.RedrivePolicy) string {
+	if !readOnly {
+		return ""
+	}
+	switch {
+	case !attrsLoaded:
+		return "Queue settings still loading — try again"
+	case attrsErr != nil:
+		return "ReadOnly mode — queue settings unknown, press W to peek"
+	case redrive != nil:
+		return fmt.Sprintf("ReadOnly mode — peek counts toward the DLQ limit (%d), press W to peek",
+			redrive.MaxReceiveCount)
+	}
+	return ""
+}
+
+func (s *SQSMessages) peekBlocked() string {
+	return peekBlockReason(ui.ReadOnly, s.attrsLoaded, s.attrsErr, s.redrive)
 }
 
 // ─── Data fetching ──────────────────────────────────────────────────────────
@@ -166,28 +206,60 @@ func (s *SQSMessages) fetchMessages() tea.Cmd {
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Peeking messages: %s", queueURL)
 		messages, err := svc.ReceiveMessages(context.Background(), queueURL, 10)
-		if err != nil {
+		var resetErr *aws.VisibilityResetError
+		if err != nil && !errors.As(err, &resetErr) {
 			return msg.ErrorMsg{Err: err, Context: "peeking SQS messages"}
 		}
-		return sqsMessagesLoadedMsg{messages: messages, queueURL: queueURL}
+		return sqsMessagesLoadedMsg{messages: messages, queueURL: queueURL, resetErr: resetErr}
 	}
 }
 
-func (s *SQSMessages) fetchQueueARN() tea.Cmd {
+func (s *SQSMessages) fetchQueueAttrs() tea.Cmd {
 	svc := s.sqs
 	queueURL := s.queueURL
 	return func() tea.Msg {
 		q, err := svc.GetQueueAttributes(context.Background(), queueURL)
-		if err == nil && q != nil {
-			return sqsQueueARNMsg{arn: q.ARN, isDLQ: q.RedriveAllowPolicy != nil}
+		if err == nil && q == nil {
+			err = errors.New("no queue attributes returned")
 		}
-		return nil
+		return sqsQueueAttrsMsg{queue: q, err: err}
 	}
 }
 
-type sqsQueueARNMsg struct {
-	arn   string
-	isDLQ bool
+type sqsQueueAttrsMsg struct {
+	queue *aws.Queue
+	err   error
+}
+
+// peekWarnings returns toast commands for the side effects of a peek that the
+// user must know about: messages that are still hidden from consumers, and
+// messages whose next receive will move them to the dead-letter queue.
+func (s *SQSMessages) peekWarnings(m sqsMessagesLoadedMsg) []tea.Cmd {
+	var cmds []tea.Cmd
+	if m.resetErr != nil {
+		hidden := "the queue's visibility timeout"
+		if s.visTimeout > 0 {
+			hidden = fmt.Sprintf("up to %ds", s.visTimeout)
+		}
+		text := fmt.Sprintf("%d message(s) stay hidden from consumers for %s", m.resetErr.Failed, hidden)
+		eventlog.Errorf(eventlog.CatAWS, "Peek on %s: %v", s.queueName, m.resetErr)
+		cmds = append(cmds, func() tea.Msg { return msg.ToastError(text) })
+	}
+	if s.redrive != nil {
+		limit := s.redrive.MaxReceiveCount
+		atLimit := 0
+		for _, sm := range m.messages {
+			if sm.ApproximateReceiveCount >= limit {
+				atLimit++
+			}
+		}
+		if atLimit > 0 {
+			text := fmt.Sprintf("%d message(s) at the DLQ limit (%d) — the next receive moves them to the DLQ", atLimit, limit)
+			eventlog.Warnf(eventlog.CatAWS, "Peek on %s: %s", s.queueName, text)
+			cmds = append(cmds, func() tea.Msg { return msg.ToastError(text) })
+		}
+	}
+	return cmds
 }
 
 func (s *SQSMessages) pollRedrive() tea.Cmd {
@@ -239,15 +311,25 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	case sqsQueueARNMsg:
-		s.queueARN = m.arn
-		s.isDLQ = m.isDLQ
+	case sqsQueueAttrsMsg:
+		s.attrsLoaded = true
+		if m.err != nil {
+			s.attrsErr = m.err
+			eventlog.Warnf(eventlog.CatAWS, "Could not read attributes of %s: %v", s.queueName, m.err)
+			return s, nil
+		}
+		s.attrsErr = nil
+		s.queueARN = m.queue.ARN
+		s.isDLQ = m.queue.RedriveAllowPolicy != nil
+		s.redrive = m.queue.RedrivePolicy
+		s.visTimeout = m.queue.VisibilityTimeout
 		return s, nil
 
 	case sqsMessagesLoadedMsg:
 		s.loading = false
 		s.fetched = true
 		s.spinner.Hide()
+		warnings := s.peekWarnings(m)
 		newCount := 0
 		for _, m := range m.messages {
 			if !s.seen[m.MessageID] {
@@ -268,7 +350,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if newCount > 0 {
 			eventlog.Infof(eventlog.CatAWS, "Peeked %d new messages (%d total)", newCount, len(s.messages))
 		}
-		return s, nil
+		return s, tea.Batch(warnings...)
 
 	case sqsMessageDeletedMsg:
 		if m.err != nil {
@@ -384,6 +466,9 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.filter.Activate()
 			return s, nil
 		case key.Matches(m, s.keys.Refresh):
+			if reason := s.peekBlocked(); reason != "" {
+				return s, func() tea.Msg { return msg.ToastError(reason) }
+			}
 			s.loading = true
 			s.fetched = false
 			s.err = nil
@@ -394,6 +479,9 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, s.keys.LoadMore):
 			if s.loading {
 				return s, nil
+			}
+			if reason := s.peekBlocked(); reason != "" {
+				return s, func() tea.Msg { return msg.ToastError(reason) }
 			}
 			s.loading = true
 			s.spinner.Show("Loading more messages...")
@@ -641,10 +729,30 @@ func (s *SQSMessages) Footer() string {
 	return footer
 }
 
+// bannerText explains what a peek does to this queue. It is one line so the
+// table height (m.Height-4) stays correct.
+func (s *SQSMessages) bannerText() string {
+	switch {
+	case s.redrive != nil && ui.ReadOnly:
+		return fmt.Sprintf("⚠ Peek blocked in ReadOnly mode: each peek adds 1 to the receive count (DLQ after %d)",
+			s.redrive.MaxReceiveCount)
+	case s.redrive != nil:
+		return fmt.Sprintf("⚠ Each peek adds 1 to the receive count. This queue moves messages to its DLQ after %d",
+			s.redrive.MaxReceiveCount)
+	case s.attrsErr != nil && ui.ReadOnly:
+		return "⚠ Peek blocked in ReadOnly mode: could not read queue settings"
+	}
+	return "⚠ Peek makes messages visible again at once, but adds 1 to their receive count"
+}
+
 func (s *SQSMessages) View() tea.View {
 	t := ui.ActiveTheme
 	warnStyle := lipgloss.NewStyle().Foreground(t.StatePending)
-	banner := warnStyle.Render("  ⚠ Peek mode (VisibilityTimeout=0) — ReceiveCount is incremented on each fetch")
+	text := "  " + s.bannerText()
+	if s.width > 0 {
+		text = ansi.Truncate(text, s.width, "…")
+	}
+	banner := warnStyle.Render(text)
 
 	var content string
 	if s.loading && len(s.messages) == 0 {
@@ -653,6 +761,8 @@ func (s *SQSMessages) View() tea.View {
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
 	} else if len(s.messages) == 0 && s.fetched {
 		content = "\n  No messages in queue. Press l to peek again."
+	} else if len(s.messages) == 0 && s.attrsLoaded && s.peekBlocked() != "" {
+		content = "\n  Press W to switch to ReadWrite mode, then l to peek at messages"
 	} else if len(s.messages) == 0 {
 		content = "\n  Press l to peek at messages"
 	} else {

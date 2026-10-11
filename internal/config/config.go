@@ -17,7 +17,9 @@ type Config struct {
 
 // AWSConfig holds AWS-related settings.
 type AWSConfig struct {
-	Profile  string `toml:"profile"`
+	Profile string `toml:"profile"`
+	// Region is an explicit override. Empty means "let the AWS SDK resolve it"
+	// from the profile in ~/.aws/config (the resolved value lives on aws.Client).
 	Region   string `toml:"region"`
 	Endpoint string `toml:"endpoint"`
 }
@@ -36,9 +38,6 @@ type LogConfig struct {
 // DefaultConfig returns the default configuration.
 func DefaultConfig() Config {
 	return Config{
-		AWS: AWSConfig{
-			Region: "us-east-1",
-		},
 		Display: DisplayConfig{
 			Theme:     "catppuccin",
 			NerdFonts: true,
@@ -106,7 +105,8 @@ func WriteDefault(path string) error {
 # Default AWS profile (overridden by --profile flag or AWS_PROFILE env var)
 # profile = "default"
 
-# Default AWS region (overridden by --region flag or AWS_REGION env var)
+# AWS region override (overridden by --region flag or AWS_REGION / AWS_DEFAULT_REGION
+# env vars). Leave unset to use the region of the active profile in ~/.aws/config.
 # region = "us-east-1"
 
 # Endpoint override for LocalStack (overridden by --endpoint flag or AWS_ENDPOINT_URL env var)
@@ -130,6 +130,10 @@ nerd_fonts = true
 func (c *Config) ApplyEnv() {
 	if v := os.Getenv("AWS_PROFILE"); v != "" {
 		c.AWS.Profile = v
+	}
+	// AWS_REGION wins over AWS_DEFAULT_REGION, matching the AWS SDK and CLI.
+	if v := os.Getenv("AWS_DEFAULT_REGION"); v != "" {
+		c.AWS.Region = v
 	}
 	if v := os.Getenv("AWS_REGION"); v != "" {
 		c.AWS.Region = v

@@ -1,0 +1,197 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+)
+
+func benchCols() []Column {
+	return []Column{
+		{Title: "T", Width: 2},
+		{Title: "Name", Width: 30, Weight: 3},
+		{Title: "Size", Width: 10},
+		{Title: "Modified", Width: 19},
+		{Title: "Class", Width: 12},
+	}
+}
+
+func makeRows(n int) ([]table.Row, []table.Row) {
+	rows := make([]table.Row, n)
+	keys := make([]table.Row, n)
+	for i := 0; i < n; i++ {
+		name := fmt.Sprintf("logs/2026/10/%06d/object-%d.json", (i*7919)%n, i)
+		rows[i] = table.Row{"F", name, fmt.Sprintf("%d KB", i%5000), "2026-10-11 12:00:00", "STANDARD"}
+		keys[i] = table.Row{"1", name, SortKeyBytes(int64(i % 5000)), "2026-10-11 12:00:00", "STANDARD"}
+	}
+	return rows, keys
+}
+
+func benchSetRows(b *testing.B, n int, sorted bool, filter string) {
+	rows, keys := makeRows(n)
+	t := NewTable(benchCols(), nil)
+	t.SetSize(160, 40)
+	if sorted {
+		t.Sort(1)
+	}
+	if filter != "" {
+		t.Filter(filter)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.SetRowsWithSortKeys(rows, keys)
+	}
+}
+
+func BenchmarkSetRows100k(b *testing.B)             { benchSetRows(b, 100000, false, "") }
+func BenchmarkSetRows100kSorted(b *testing.B)       { benchSetRows(b, 100000, true, "") }
+func BenchmarkSetRows100kSortedFilter(b *testing.B) { benchSetRows(b, 100000, true, "obj") }
+
+func BenchmarkFilterKeystroke100k(b *testing.B) {
+	rows, keys := makeRows(100000)
+	t := NewTable(benchCols(), nil)
+	t.SetSize(160, 40)
+	t.Sort(1)
+	t.SetRowsWithSortKeys(rows, keys)
+	qs := []string{"o", "ob", "obj", "obje", "objec", "object"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.Filter(qs[i%len(qs)])
+	}
+}
+
+func BenchmarkToggleSelect100k(b *testing.B) {
+	rows, keys := makeRows(100000)
+	t := NewTable(benchCols(), nil)
+	t.SetSize(160, 40)
+	t.Sort(1)
+	t.SetRowsWithSortKeys(rows, keys)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.ToggleSelect()
+	}
+}
+
+func BenchmarkTableView100k(b *testing.B) {
+	rows, keys := makeRows(100000)
+	t := NewTable(benchCols(), nil)
+	t.SetSize(160, 40)
+	t.SetRowsWithSortKeys(rows, keys)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = t.View()
+	}
+}
+
+func BenchmarkTableCursorDown100k(b *testing.B) {
+	rows, keys := makeRows(100000)
+	t := NewTable(benchCols(), nil)
+	t.SetSize(160, 40)
+	t.SetRowsWithSortKeys(rows, keys)
+	down := tea.KeyPressMsg{Code: 'j', Text: "j"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t, _ = t.Update(down)
+	}
+}
+
+// Simulate progressive load: 100 pages of 1000 rows, SetRows with all rows each page.
+func BenchmarkProgressiveLoad100k(b *testing.B) {
+	rows, keys := makeRows(100000)
+	for i := 0; i < b.N; i++ {
+		t := NewTable(benchCols(), nil)
+		t.SetSize(160, 40)
+		t.Sort(1)
+		for p := 1000; p <= len(rows); p += 1000 {
+			t.SetRowsWithSortKeys(rows[:p], keys[:p])
+		}
+	}
+}
+
+func bigJSON(lines int) string {
+	var b strings.Builder
+	b.WriteString("{\n")
+	for i := 0; i < lines; i++ {
+		fmt.Fprintf(&b, "  \"key%d\": {\"name\": \"value-%d\", \"n\": %d, \"ok\": true},\n", i, i, i)
+	}
+	b.WriteString("  \"end\": 1\n}")
+	return b.String()
+}
+
+func benchCV(b *testing.B, lines int) {
+	cv := NewContentView("x.json", bigJSON(lines), FormatJSON)
+	cv.SetEmbedded(true)
+	cv.SetSize(100, 40)
+	down := tea.KeyPressMsg{Code: 'j', Text: "j"}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		cv, _ = cv.Update(down)
+		_ = cv.View()
+	}
+}
+
+func BenchmarkContentViewKeypress1k(b *testing.B)  { benchCV(b, 1000) }
+func BenchmarkContentViewKeypress10k(b *testing.B) { benchCV(b, 10000) }
+func BenchmarkContentViewKeypress1MB(b *testing.B) {
+	b.Logf("bytes=%d", len(bigJSON(18500)))
+	benchCV(b, 18500)
+}
+
+func BenchmarkContentViewViewOnly10k(b *testing.B) {
+	cv := NewContentView("x.json", bigJSON(10000), FormatJSON)
+	cv.SetSize(100, 40)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cv.View()
+	}
+}
+
+func BenchmarkContentViewViewOnly10kNoSoftWrap(b *testing.B) {
+	cv := NewContentView("x.json", bigJSON(10000), FormatJSON)
+	cv.SetSize(100, 40)
+	cv.viewport.SoftWrap = false
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = cv.View()
+	}
+}
+
+func BenchmarkHighlightOnly10k(b *testing.B) {
+	s := bigJSON(10000)
+	for i := 0; i < b.N; i++ {
+		_ = syntaxHighlight(s, "json")
+	}
+}
+
+func BenchmarkSortOnly100k(b *testing.B) {
+	rows, keys := makeRows(100000)
+	t := NewTable(benchCols(), nil)
+	t.SetSize(160, 40)
+	t.SetRowsWithSortKeys(rows, keys)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		t.sortCol = 1
+		t.applyFilterAndSort()
+	}
+}
+
+func BenchmarkCloudView200x50(b *testing.B) {
+	a := NewCloudAnimation(42)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		a.Update()
+		_ = a.View(200, 50)
+	}
+}
+
+func BenchmarkStormView200x50(b *testing.B) {
+	a := NewStormAnimation(42)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		a.Update()
+		_ = a.View(200, 50)
+	}
+}

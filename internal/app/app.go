@@ -78,7 +78,6 @@ type Model struct {
 // New creates the root model with the home view as the starting screen.
 func New(cfg config.Config) Model {
 	home := views.NewHome()
-	eventlog.Infof(eventlog.CatApp, "LazyCloud started (theme=%s, region=%s)", cfg.Display.Theme, cfg.AWS.Region)
 	if cfg.AWS.Profile != "" {
 		eventlog.Infof(eventlog.CatConfig, "AWS profile: %s", cfg.AWS.Profile)
 	}
@@ -91,7 +90,7 @@ func New(cfg config.Config) Model {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
 	}
 
-	return Model{
+	m := Model{
 		config:     cfg,
 		awsClient:  awsClient,
 		s3:         aws.NewS3Service(awsClient),
@@ -106,6 +105,8 @@ func New(cfg config.Config) Model {
 		keys:       ui.DefaultAppKeyMap(),
 		isDark:     true,
 	}
+	eventlog.Infof(eventlog.CatApp, "LazyCloud started (theme=%s, region=%s)", cfg.Display.Theme, m.activeRegion())
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -601,6 +602,18 @@ func (m *Model) pushView(v nav.View) tea.Cmd {
 	return initCmd
 }
 
+// activeRegion returns the region the AWS client actually uses. The config
+// value is only an override and is empty when the profile decides the region.
+func (m Model) activeRegion() string {
+	if m.awsClient != nil {
+		return m.awsClient.Region
+	}
+	if m.config.AWS.Region != "" {
+		return m.config.AWS.Region
+	}
+	return aws.FallbackRegion
+}
+
 // --- Side panel helpers ---
 
 func (m Model) canShowPanel() bool {
@@ -923,10 +936,7 @@ func (m Model) applyMode(mode string) (Model, tea.Cmd) {
 }
 
 func (m *Model) showRegionPicker() {
-	current := m.config.AWS.Region
-	if current == "" {
-		current = "us-east-1"
-	}
+	current := m.activeRegion()
 
 	var options []ui.PickerOption
 	currentIdx := 0
@@ -1031,7 +1041,7 @@ func (m Model) View() tea.View {
 	}
 	header := ui.RenderHeader(ui.HeaderData{
 		Profile:           m.config.AWS.Profile,
-		Region:            m.config.AWS.Region,
+		Region:            m.activeRegion(),
 		Mode:              mode,
 		Breadcrumbs:       crumbs,
 		CrossNavBackLabel: crossNavLabel,
@@ -1248,7 +1258,7 @@ func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 	case "subnet_list":
 		return views.NewSubnetList(m.ec2, n.Params["vpc_id"])
 	case "s3_list":
-		return views.NewS3List(m.s3, m.config.AWS.Region)
+		return views.NewS3List(m.s3, m.activeRegion())
 	case "s3_objects":
 		return views.NewS3Objects(m.s3, n.Params["bucket"], n.Params["prefix"])
 	case "s3_versions":

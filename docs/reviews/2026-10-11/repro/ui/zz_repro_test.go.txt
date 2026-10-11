@@ -1,0 +1,96 @@
+package ui
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// Cursor line background is killed by chroma's per-token \x1b[0m resets.
+func TestReproCursorLineBg(t *testing.T) {
+	cv := NewContentView("x.json", "{\n  \"name\": \"value\", \"n\": 1\n}", FormatJSON)
+	cv.SetEmbedded(true)
+	cv.SetSize(60, 10)
+	cv, _ = cv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	lines := strings.Split(cv.viewport.View(), "\n")
+	fmt.Printf("cursor line raw: %q\n", lines[1])
+}
+
+// Long single line: wrapped visually, cursor index cannot scroll through it.
+func TestReproLongLineScroll(t *testing.T) {
+	long := strings.Repeat("{\"k\":\"vvvvvvvvvv\"},", 2000) // ~38k chars, 1 logical line
+	cv := NewContentView("x.json", long, FormatJSON)
+	cv.SetEmbedded(true)
+	cv.SetSize(80, 20)
+	before := cv.viewport.View()
+	for _, k := range []tea.KeyPressMsg{{Code: 'G', Text: "G"}, {Code: 'j', Text: "j"}, {Code: 'd', Mod: tea.ModCtrl}} {
+		cv, _ = cv.Update(k)
+	}
+	after := cv.viewport.View()
+	fmt.Printf("viewport total lines=%d yoffset=%d sameView=%v\n", cv.viewport.TotalLineCount(), cv.viewport.YOffset(), before == after)
+}
+
+// Wrapped earlier line pushes cursor out of view.
+func TestReproCursorOffscreenAfterWrap(t *testing.T) {
+	var b strings.Builder
+	b.WriteString(strings.Repeat("x", 2000) + "\n") // line 0 wraps to ~26 visual lines
+	for i := 1; i < 40; i++ {
+		fmt.Fprintf(&b, "line %d\n", i)
+	}
+	cv := NewContentView("x.txt", b.String(), FormatText)
+	cv.SetEmbedded(true)
+	cv.SetSize(80, 20)
+	for i := 0; i < 5; i++ {
+		cv, _ = cv.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	}
+	v := ansi.Strip(cv.viewport.View())
+	fmt.Printf("cursor=%d yoffset=%d visible contains 'line 5'=%v\n", cv.cursor, cv.viewport.YOffset(), strings.Contains(v, "line 5 "))
+}
+
+// Filter matches ANSI escape sequences in FgRender'ed cells.
+func TestReproFilterMatchesANSI(t *testing.T) {
+	cols := []Column{{Title: "ID", Width: 10}, {Title: "State", Width: 15}}
+	rows := []table.Row{
+		{"i-aaa", StateColor("running")},
+		{"i-bbb", StateColor("stopped")},
+		{"i-ccc", "unknown"},
+	}
+	tb := NewTable(cols, rows)
+	for _, q := range []string{"38", "39", ";", "2;"} {
+		tb.Filter(q)
+		f, total := tb.RowCount()
+		fmt.Printf("filter %q -> %d/%d rows\n", q, f, total)
+	}
+}
+
+// DistributeWidths edge cases.
+func TestReproDistribute(t *testing.T) {
+	cols := []Column{{Title: "a", Width: 10}, {Title: "b", Width: 30}, {Title: "c", Width: 10}}
+	for _, w := range []int{0, 20, 40, 56, 57} {
+		res := DistributeWidths(cols, w)
+		sum := 0
+		for _, c := range res {
+			sum += c.Width + cellPadding
+		}
+		fmt.Printf("w=%d widths=%v total=%d overflow=%d\n", w, []int{res[0].Width, res[1].Width, res[2].Width}, sum, sum-w)
+	}
+	// extra not divisible, multiple weights, maxwidth
+	cols2 := []Column{{Title: "a", Width: 5, Weight: 1}, {Title: "b", Width: 5, Weight: 1}, {Title: "c", Width: 5, Weight: 1}}
+	res := DistributeWidths(cols2, 3*7+1)
+	fmt.Printf("weights rem: %v\n", []int{res[0].Width, res[1].Width, res[2].Width})
+}
+
+// Selection markers survive SetRows when underlying data reorders (index-based selection).
+func TestReproSelectionIndexDrift(t *testing.T) {
+	cols := []Column{{Title: "Key", Width: 10}}
+	tb := NewTable(cols, []table.Row{{"b"}, {"c"}})
+	tb.ToggleSelect() // selects allRows[0] = "b"
+	// refresh: a new object "a" sorts first in the source listing
+	tb.SetRows([]table.Row{{"a"}, {"b"}, {"c"}})
+	idx := tb.SelectedIndices()
+	fmt.Printf("selected after refresh: %v -> row %v\n", idx, tb.allRows[idx[0]])
+}

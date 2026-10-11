@@ -36,8 +36,8 @@ Pressing `enter` or `d` fetches full instance metadata via `DescribeInstances` a
 | Key | Action |
 |-----|--------|
 | `enter` / `d` | View instance details as JSON |
-| `o` | Start SSM session (connect to instance) |
-| `m` | Manage instance (start/stop/reboot/terminate picker) |
+| `o` | Start SSM session (connect to instance). ReadWrite mode only. |
+| `m` | Manage instance (start/stop/reboot/terminate picker). ReadWrite mode only. |
 | `y` | Copy instance ID to clipboard |
 | `/` | Filter instances |
 | `r` | Refresh |
@@ -70,12 +70,16 @@ After any operation, the instance list auto-refreshes to show the updated state.
 
 Press `o` on a running instance to start an SSM Session Manager shell. This suspends the TUI, opens an interactive terminal session, and restores the TUI when you exit.
 
+An SSM session is an interactive shell on the instance, so ReadOnly mode blocks it. Press `W` to switch to ReadWrite mode first.
+
+LazyCloud runs the `aws` CLI directly, without a shell. The instance name is shown in a banner as plain text, so a Name tag cannot inject commands or terminal escape sequences.
+
 **Prerequisites:**
 - AWS CLI installed (`aws` command available)
 - [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) installed
 - Instance must be running with SSM agent and an appropriate IAM instance profile
 
-If the instance is not running or the plugin is not installed, a toast error is shown.
+If the app is in ReadOnly mode, the instance is not running, or the `aws` CLI or the plugin is not installed, a toast error is shown.
 
 ## Security Group List
 

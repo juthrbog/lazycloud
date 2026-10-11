@@ -1,0 +1,108 @@
+package app
+
+import (
+	"errors"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/aws"
+	"github.com/juthrbog/lazycloud/internal/aws/awstest"
+	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
+)
+
+// 9. :home leaves panel open over home and keeps stale cross-nav history.
+func TestRepro_HomeCommandKeepsPanelAndHistory(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	openTabbedPanel(&m, "web-1 (i-1)")
+	m, c := upd(t, m, ui.ContentLinkActivatedMsg{ViewID: "sg_list", Params: map[string]string{}})
+	m, _ = upd(t, m, find(collect(c), "msg.NavigateMsg"))
+	openTabbedPanel(&m, "sg-1")
+	m, _ = m.executeCommand("home")
+	assert.Equal(t, 1, m.nav.Depth())
+	assert.True(t, m.panelOpen, "panel for sg-1 still open over home")
+	assert.Len(t, m.crossNavHistory, 1, "stale history survives :home")
+	m.closePanel()
+	m, _ = upd(t, m, kp("backspace"))
+	assert.True(t, m.panelOpen)
+	assert.Equal(t, "web-1 (i-1)", m.panelTitle, "old EC2 panel restored over home")
+}
+
+// 10. Theme switch at depth>1 keeps stale history.
+func TestRepro_ThemeKeepsHistory(t *testing.T) {
+	m := newTestModel(140, 40)
+	m.crossNavHistory = []crossNavEntry{{navDepth: 2, panelTitle: "web-1"}}
+	m, _ = m.applyTheme("dracula")
+	assert.Len(t, m.crossNavHistory, 1)
+}
+
+// 11. Backspace after navigating deeper pops only one level and restores the
+// source panel over an unrelated view.
+func TestRepro_CrossNavBackAfterDeeperNav(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"}) // depth 2
+	openTabbedPanel(&m, "web-1 (i-1)")
+	m, c := upd(t, m, ui.ContentLinkActivatedMsg{ViewID: "vpc_list", Params: map[string]string{}})
+	m, _ = upd(t, m, find(collect(c), "msg.NavigateMsg"))                                                   // depth 3 vpc_list
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "subnet_list", Params: map[string]string{"vpc_id": "vpc-1"}}) // depth 4
+	require.Equal(t, 4, m.nav.Depth())
+	m, _ = upd(t, m, kp("backspace"))
+	assert.Equal(t, "vpc_list", m.nav.Current().ID(), "only one level popped")
+	assert.Equal(t, "web-1 (i-1)", m.panelTitle, "EC2 panel shown over VPC list")
+}
+
+// 12. Stashed panel (narrow) restored over a different view after widening.
+func TestRepro_StashRestoredOverOtherView(t *testing.T) {
+	m := newTestModel(140, 40)
+	openTabbedPanel(&m, "web-1 (i-1)")
+	m, _ = upd(t, m, tea.WindowSizeMsg{Width: 100, Height: 40})
+	require.False(t, m.panelOpen)
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = upd(t, m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	assert.Equal(t, "eventlog", m.nav.Current().ID())
+	assert.True(t, m.panelOpen)
+	assert.Equal(t, "web-1 (i-1)", m.panelTitle)
+}
+
+// 13. ErrorMsg from another view's cmd replaces current view's table.
+func TestRepro_ErrorMsgMisrouted(t *testing.T) {
+	e := new(awstest.MockEC2Service)
+	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
+		Instances: []aws.Instance{{ID: "i-abc", State: "running"}},
+	}, nil)
+	m := newTestModel(140, 40)
+	m.ec2 = e
+	m, c := upd(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	m, _ = upd(t, m, find(collect(c), "views.ec2PageLoadedMsg"))
+	m, _ = upd(t, m, msg.ErrorMsg{Err: errors.New("AccessDenied"), Context: "head s3://b/k"})
+	v := ansi.Strip(m.nav.Current().View().Content)
+	assert.Contains(t, v, "AccessDenied")
+	assert.NotContains(t, v, "i-abc", "EC2 table hidden by unrelated S3 error")
+	m, _ = upd(t, m, kp("q"))
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	assert.Contains(t, ansi.Strip(m.View().Content), "AccessDenied", "status bar error persists")
+}
+
+// 14. Late TabbedContentMsg opens panel over unrelated view.
+func TestRepro_LatePanelOverOtherView(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = upd(t, m, msg.TabbedContentMsg{PanelTitle: "report.csv (metadata)", Tabs: []msg.TabContent{{Title: "Info", Content: "x"}}})
+	assert.True(t, m.panelOpen)
+	assert.Equal(t, "eventlog", m.nav.Current().ID())
+}
+
+// 15. Self-link pushes the same cached instance twice onto the stack.
+func TestRepro_SamePointerTwiceOnStack(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = upd(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = upd(t, m, kp("L"))
+	assert.Equal(t, 3, m.nav.Depth())
+	assert.Equal(t, []string{"Services", "Event Log", "Event Log"}, m.nav.Breadcrumbs())
+}

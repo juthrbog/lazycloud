@@ -18,7 +18,10 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # go.mod sets the minimum Go version. Build and scan with the latest
+          # patch of that minor version, so standard library fixes apply.
+          go-version: "1.26.x"
+          check-latest: true
 
       # golangci-lint with gosec enabled for Go-specific security patterns
       - uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9.2.0
@@ -33,7 +36,10 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version-file: go.mod
+          # go.mod sets the minimum Go version. Build and scan with the latest
+          # patch of that minor version, so standard library fixes apply.
+          go-version: "1.26.x"
+          check-latest: true
 
       # Official Go vulnerability scanner with call-graph analysis
       - name: Install govulncheck
