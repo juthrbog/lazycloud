@@ -100,7 +100,7 @@ func (e *EC2List) Title() string { return "EC2 Instances" }
 func (e *EC2List) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: e.keys.Details},
-		{Binding: e.keys.Connect},
+		{Binding: e.keys.Connect, Mode: ui.ModeReadWrite},
 		{Binding: e.keys.Manage, Mode: ui.ModeReadWrite},
 		{Binding: e.keys.CopyID},
 		{Binding: e.keys.Select},
@@ -504,6 +504,18 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(m, e.keys.Connect):
+			// An SSM session is an interactive shell on the instance, so it
+			// is a mutation as far as ReadOnly mode is concerned.
+			if ui.ReadOnly {
+				return e, func() tea.Msg {
+					return msg.ToastError("ReadOnly mode — press W to switch")
+				}
+			}
+			if e.awsClient == nil {
+				return e, func() tea.Msg {
+					return msg.ToastError("AWS client not available — check the profile")
+				}
+			}
 			selected := e.table.SelectedRow()
 			if selected == nil {
 				return e, nil

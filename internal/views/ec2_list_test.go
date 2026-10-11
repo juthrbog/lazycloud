@@ -48,6 +48,52 @@ func TestEC2List_ReadOnlyBlocksManage(t *testing.T) {
 	assert.Contains(t, toast.Text, "ReadOnly")
 }
 
+// An SSM session is an interactive shell, so ReadOnly mode must block it.
+func TestEC2List_ReadOnlyBlocksConnect(t *testing.T) {
+	ui.ReadOnly = true
+	defer func() { ui.ReadOnly = true }()
+
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance})
+
+	_, cmd := view.Update(keyPress('o'))
+	require.NotNil(t, cmd)
+
+	result := cmd()
+	toast, ok := result.(msg.ToastMsg)
+	require.True(t, ok, "expected ToastMsg, got %T", result)
+	assert.Equal(t, 2, toast.Level) // error
+	assert.Contains(t, toast.Text, "ReadOnly")
+}
+
+// Without a client (failed profile load), Connect must report an error
+// instead of dereferencing nil.
+func TestEC2List_ConnectWithoutClient(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance})
+
+	var cmd tea.Cmd
+	require.NotPanics(t, func() { _, cmd = view.Update(keyPress('o')) })
+	require.NotNil(t, cmd)
+	toast, ok := cmd().(msg.ToastMsg)
+	require.True(t, ok)
+	assert.Equal(t, 2, toast.Level)
+}
+
+func TestEC2List_ConnectHintIsReadWrite(t *testing.T) {
+	view, _ := newTestEC2List()
+	for _, h := range view.KeyMap() {
+		if h.Binding.Help().Key == "o" {
+			assert.Equal(t, ui.ModeReadWrite, h.Mode)
+			return
+		}
+	}
+	t.Fatal("connect hint not found")
+}
+
 // --- Action picker ---
 
 func TestEC2List_ManageRunningInstance(t *testing.T) {
