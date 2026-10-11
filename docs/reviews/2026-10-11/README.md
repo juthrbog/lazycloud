@@ -134,7 +134,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Problem: GO-2026-5764 is a panic in the EventStream decoder that allows denial of service. It affects `aws-sdk-go-v2/service/s3 v1.97.1` and `aws/protocol/eventstream v1.7.7`. The code reaches it through S3 calls.
   - Fix: update to `service/s3 >= v1.97.3` and `eventstream >= v1.7.8`.
 
-- [ ] H10. CI and releases build with an old Go toolchain. Evidence: govulncheck under go1.26.2.
+- [x] H10. CI and releases build with an old Go toolchain. Evidence: govulncheck under go1.26.2, and the first CI run of #199 failed on 19 standard library vulnerabilities. Fixed in #199.
   - Where: all three workflows use `setup-go` with `go-version-file: go.mod`.
   - Problem: This installs exactly `go 1.26.2`. Under that toolchain, govulncheck finds 20 reachable vulnerabilities: 19 in the standard library (fixed in 1.26.6 to 1.26.9) and H9. Release binaries use the same toolchain. A local run shows only H9 when the local Go is newer.
   - Fix: use `go-version: "1.26.x"` with `check-latest: true`, or add a `toolchain` line to `go.mod`.
