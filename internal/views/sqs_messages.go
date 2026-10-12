@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,9 +32,10 @@ type sqsMessagesLoadedMsg struct {
 	resetErr *aws.VisibilityResetError
 }
 
+// sqsMessageDeletedMsg reports a delete of several messages.
 type sqsMessageDeletedMsg struct {
-	count int
-	err   error
+	ids    []string          // IDs of the messages that the delete tried
+	failed map[string]string // message ID → error code, for the messages SQS did not delete
 }
 
 type sqsRedriveStartedMsg struct {
@@ -86,7 +88,8 @@ type SQSMessages struct {
 	queueName string
 	queueARN  string // for redrive operations
 	isFIFO    bool
-	isDLQ     bool
+	isDLQ     bool  // another queue sends its failed messages to this queue
+	dlqErr    error // set when the source queues could not be listed
 	// Queue settings that decide whether a peek is safe. See peekBlockReason.
 	attrsLoaded bool               // GetQueueAttributes has returned
 	attrsErr    error              // set when the settings could not be read
@@ -228,13 +231,22 @@ func (s *SQSMessages) fetchQueueAttrs() tea.Cmd {
 		if err == nil && q == nil {
 			err = errors.New("no queue attributes returned")
 		}
-		return sqsQueueAttrsMsg{queue: q, err: err}
+		if err != nil {
+			return sqsQueueAttrsMsg{err: err}
+		}
+		// A queue is a dead-letter queue when another queue sends its failed
+		// messages to it. A RedriveAllowPolicy is optional, so most DLQs
+		// have none.
+		sources, srcErr := svc.ListDeadLetterSourceQueues(context.Background(), queueURL)
+		return sqsQueueAttrsMsg{queue: q, sources: sources, sourcesErr: srcErr}
 	}
 }
 
 type sqsQueueAttrsMsg struct {
-	queue *aws.Queue
-	err   error
+	queue      *aws.Queue
+	err        error
+	sources    []string // URLs of the queues that use this queue as their DLQ
+	sourcesErr error    // set when the source queues could not be listed
 }
 
 // peekWarnings returns toast commands for the side effects of a peek that the
@@ -326,7 +338,11 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		s.attrsErr = nil
 		s.queueARN = m.queue.ARN
-		s.isDLQ = m.queue.RedriveAllowPolicy != nil
+		s.isDLQ = len(m.sources) > 0
+		s.dlqErr = m.sourcesErr
+		if m.sourcesErr != nil {
+			eventlog.Warnf(eventlog.CatAWS, "Could not list the source queues of %s: %v", s.queueName, m.sourcesErr)
+		}
 		s.redrive = m.queue.RedrivePolicy
 		s.visTimeout = m.queue.VisibilityTimeout
 		return s, nil
@@ -359,16 +375,35 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, tea.Batch(warnings...)
 
 	case sqsMessageDeletedMsg:
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "SQS message delete failed: %v", m.err)
-			return s, func() tea.Msg {
-				return msg.ToastError("Delete failed: " + m.err.Error())
+		// Only the messages that SQS deleted leave the list. A failed one
+		// stays, so the user can see it and try again.
+		var failures []itemFailure
+		deleted := make(map[string]bool, len(m.ids))
+		for _, id := range m.ids {
+			if code, ok := m.failed[id]; ok {
+				failures = append(failures, itemFailure{name: truncateID(id), err: errors.New(code)})
+				continue
 			}
+			deleted[id] = true
+			delete(s.seen, id)
 		}
-		eventlog.Infof(eventlog.CatAWS, "Deleted %d SQS messages", m.count)
-		count := m.count
+		s.messages = slices.DeleteFunc(s.messages, func(sm aws.SQSMessage) bool { return deleted[sm.MessageID] })
+		s.table.DeselectAll()
+		s.rebuildRows()
+		eventlog.Infof(eventlog.CatAWS, "Deleted %d SQS messages", len(deleted))
+		// On a standard queue, SQS also accepts the delete of an old receipt
+		// handle that leaves the message in the queue. Say what SQS
+		// confirmed, not more.
+		verb := "Deleted"
+		if !s.isFIFO {
+			verb = "SQS accepted the delete of"
+		}
+		text, ok := resultText(verb, len(m.ids), "message(s)", failures)
 		return s, func() tea.Msg {
-			return msg.ToastSuccess(fmt.Sprintf("Deleted %d message(s)", count))
+			if ok {
+				return msg.ToastSuccess(text)
+			}
+			return msg.ToastError(text)
 		}
 
 	case sqsRedriveStartedMsg:
@@ -537,17 +572,26 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if len(handles) == 0 {
 				return s, nil
 			}
-			count := len(handles)
+			message := fmt.Sprintf("Delete %d message(s)?", len(handles))
+			if !s.isFIFO {
+				message += "\n" + staleHandleNote
+			}
 			return s, func() tea.Msg {
 				return msg.RequestConfirmMsg{
-					Message: fmt.Sprintf("Delete %d message(s)?", count),
+					Message: message,
 					Action:  "sqs_delete_messages",
 				}
 			}
 		case key.Matches(m, s.keys.Manage):
+			if s.dlqErr != nil {
+				code := aws.ErrorCode(s.dlqErr)
+				return s, func() tea.Msg {
+					return msg.ToastError("Cannot tell whether this queue is a DLQ: " + code)
+				}
+			}
 			if !s.isDLQ {
 				return s, func() tea.Msg {
-					return msg.ToastError("Redrive is only available for DLQ queues")
+					return msg.ToastError("Redrive needs a DLQ. No queue sends its failed messages to this queue.")
 				}
 			}
 			return s, func() tea.Msg {
@@ -614,36 +658,53 @@ func (s *SQSMessages) selectedReceiptHandles() []string {
 	return handles
 }
 
+// staleHandleNote explains a limit of SQS on standard queues: the delete
+// of an old receipt handle succeeds, but the message stays when it was
+// received again after that handle.
+const staleHandleNote = "If a consumer received a message after this peek, SQS reports\n" +
+	"success but keeps the message. To be sure, cancel and press r first."
+
+// deleteSelectedMessages deletes the selected messages, or the cursor
+// message. The rows stay until the result arrives. Then only the messages
+// that SQS deleted leave the list.
 func (s *SQSMessages) deleteSelectedMessages() tea.Cmd {
-	handles := s.selectedReceiptHandles()
+	ids := s.selectedMessageIDs()
+	idByHandle := make(map[string]string, len(ids))
+	handles := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if m := s.findMessage(id); m != nil {
+			idByHandle[m.ReceiptHandle] = id
+			handles = append(handles, m.ReceiptHandle)
+		}
+	}
 	if len(handles) == 0 {
 		return nil
 	}
 	svc := s.sqs
 	queueURL := s.queueURL
-	count := len(handles)
-
-	// Remove from local state
-	selected := make(map[string]bool, count)
-	for _, h := range handles {
-		selected[h] = true
-	}
-	var remaining []aws.SQSMessage
-	for _, m := range s.messages {
-		if !selected[m.ReceiptHandle] {
-			remaining = append(remaining, m)
-		} else {
-			delete(s.seen, m.MessageID)
-		}
-	}
-	s.messages = remaining
-	s.table.DeselectAll()
-	s.rebuildRows()
-
 	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Deleting %d messages from %s", count, queueURL)
+		eventlog.Infof(eventlog.CatAWS, "Deleting %d messages from %s", len(handles), queueURL)
 		err := svc.DeleteMessageBatch(context.Background(), queueURL, handles)
-		return sqsMessageDeletedMsg{count: count, err: err}
+		res := sqsMessageDeletedMsg{failed: map[string]string{}}
+		for _, h := range handles {
+			res.ids = append(res.ids, idByHandle[h])
+		}
+		var batchErr *aws.BatchDeleteError
+		switch {
+		case err == nil:
+		case errors.As(err, &batchErr):
+			for _, f := range batchErr.Failed {
+				eventlog.Errorf(eventlog.CatAWS, "Delete of message %s failed: %s %s", idByHandle[f.ReceiptHandle], f.Code, f.Message)
+				res.failed[idByHandle[f.ReceiptHandle]] = f.Code
+			}
+		default:
+			// The call did not run, for example in ReadOnly mode.
+			eventlog.Errorf(eventlog.CatAWS, "Delete of %d messages failed: %v", len(handles), err)
+			for _, h := range handles {
+				res.failed[idByHandle[h]] = aws.ErrorCode(err)
+			}
+		}
+		return res
 	}
 }
 
@@ -659,6 +720,7 @@ func (s *SQSMessages) rebuildRows() {
 			sentSortKey = sent
 		}
 		receives := fmt.Sprintf("%d", m.ApproximateReceiveCount)
+		receivesSort := ui.SortKeyInt(int64(m.ApproximateReceiveCount))
 		bodyPreview := sanitizeBody(m.Body)
 
 		r := ui.Row{Key: m.MessageID}
@@ -669,10 +731,10 @@ func (s *SQSMessages) rebuildRows() {
 		default:
 			if s.isFIFO {
 				r.Cells = table.Row{m.MessageID, sent, receives, m.MessageGroupID, bodyPreview}
-				r.Sort = table.Row{m.MessageID, sentSortKey, receives, m.MessageGroupID, m.Body}
+				r.Sort = table.Row{m.MessageID, sentSortKey, receivesSort, m.MessageGroupID, m.Body}
 			} else {
 				r.Cells = table.Row{m.MessageID, sent, receives, bodyPreview}
-				r.Sort = table.Row{m.MessageID, sentSortKey, receives, m.Body}
+				r.Sort = table.Row{m.MessageID, sentSortKey, receivesSort, m.Body}
 			}
 		}
 		rows = append(rows, r)
