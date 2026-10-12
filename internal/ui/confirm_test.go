@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,6 +75,12 @@ func TestConfirmTypedRequiresWord(t *testing.T) {
 }
 
 // C4: a bucket delete asks for the bucket name, and "confirm" does not work.
+func TestConfirmShowsWholePlaceholder(t *testing.T) {
+	c := NewConfirm()
+	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")
+	assert.Contains(t, ansi.Strip(c.View()), "> type 'alpha-prod' to proceed")
+}
+
 func TestConfirmTypedCustomPhrase(t *testing.T) {
 	c := NewConfirm()
 	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")

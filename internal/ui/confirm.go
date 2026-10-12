@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ConfirmResultMsg is emitted when the user responds to a confirmation dialog.
@@ -51,6 +52,9 @@ func (c *Confirm) Show(message, action, phrase string) {
 	c.visible = true
 	c.quick = false
 	c.input.Placeholder = fmt.Sprintf("type '%s' to proceed", phrase)
+	// With no width, the text input draws only the first letter of the
+	// placeholder.
+	c.input.SetWidth(lipgloss.Width(c.input.Placeholder))
 	c.input.SetValue("")
 	c.input.Focus()
 }
