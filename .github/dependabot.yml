@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    # Wait a week before a version update, so that a bad or compromised
+    # release can be pulled first. Security updates do not wait.
+    cooldown:
+      default-days: 7
+    groups:
+      aws:
+        patterns: ["github.com/aws/*"]
+      charm:
+        patterns: ["charm.land/*", "github.com/charmbracelet/*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # The LocalStack image for local development.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: monthly

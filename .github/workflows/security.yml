@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # New advisories appear while the code stays the same. Scan main every
+  # Monday, off the hour, because GitHub delays runs at the start of the hour.
+  # GitHub sends a failed scheduled run to the user who last changed the cron.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -12,6 +18,8 @@ permissions:
 jobs:
   golangci-lint:
     name: Lint & SAST
+    # The weekly run looks for new advisories. This job uses no advisory data.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -72,6 +80,8 @@ jobs:
 
   gitleaks:
     name: Secret Detection
+    # The weekly run looks for new advisories. This job uses no advisory data.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
