@@ -160,6 +160,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime patterns, scaling s
 
 ```bash
 go test ./...              # unit tests
+task test:race             # unit tests like CI (race detector, random order)
 task test:integration      # integration tests against LocalStack
 ```
 

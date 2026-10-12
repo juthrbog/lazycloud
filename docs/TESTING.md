@@ -277,4 +277,5 @@ Focus test coverage where bugs are most costly:
 - **Headless testing:** All tests run without a real terminal. teatest uses a virtual terminal internally. No `TERM` configuration needed.
 - **Timeouts:** teatest `WaitFor` uses real wall-clock time. Use generous timeouts (2-5s) in CI where runners may be slow.
 - **LocalStack:** Integration tests (`task test:integration`) require Docker. Run separately from unit tests in CI, or skip with build tags.
-- **Race detection:** Run `go test -race ./...` periodically. Bubble Tea's message-based architecture avoids most races, but test helpers that directly mutate view state could trigger issues.
+- **Race detection and test order:** CI runs `go test -race -shuffle=on ./...` on every pull request. Run `task test:race` before you push. The race detector finds data races between `Update` and command goroutines. The random order finds tests that depend on global state, such as the ReadOnly mode, the theme, or the event log, which keeps only its last 500 entries.
+- **No real AWS:** App tests build a client for a closed local port (`http://127.0.0.1:1`) with dummy credentials. A test that sets an AWS profile points `AWS_CONFIG_FILE` at a temporary file. No test reads `~/.aws` or reaches an AWS account.

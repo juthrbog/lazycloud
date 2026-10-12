@@ -5,6 +5,9 @@ dotenv: [".env"]
 vars:
   BINARY: lazycloud
   LOCALSTACK_ENDPOINT: http://localhost:4566
+  # The golangci-lint version that CI uses. Keep it equal to the version in
+  # .github/workflows/security.yml.
+  GOLANGCI_LINT_VERSION: 2.14.0
 
 tasks:
   default:
@@ -62,6 +65,22 @@ tasks:
     cmds:
       - go test ./... -v
 
+  test:race:
+    desc: Run all tests like CI (race detector, random order)
+    cmds:
+      - go test -race -shuffle=on ./...
+
+  cover:
+    desc: Run all tests and show the coverage per function
+    cmds:
+      - go test -coverprofile=cover.out ./...
+      - go tool cover -func=cover.out
+
+  vuln:
+    desc: Scan for known vulnerabilities (govulncheck, pinned in go.mod)
+    cmds:
+      - go tool govulncheck ./...
+
   test:integration:
     desc: Run integration tests against LocalStack
     deps: [localstack:up, localstack:seed]
@@ -72,7 +91,10 @@ tasks:
   # ─── Linting ────────────────────────────────────────────
 
   lint:
-    desc: Run linter
+    desc: Run linter (needs the golangci-lint version of CI)
+    preconditions:
+      - sh: '[ "$(golangci-lint version --short 2>/dev/null)" = "{{.GOLANGCI_LINT_VERSION}}" ]'
+        msg: "task lint needs golangci-lint {{.GOLANGCI_LINT_VERSION}}, the version that CI uses. Install that version, for example with mise."
     cmds:
       - golangci-lint run ./...
 
