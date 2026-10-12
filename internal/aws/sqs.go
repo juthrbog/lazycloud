@@ -77,6 +77,10 @@ type Queue struct {
 	DeduplicationScope        string
 	FifoThroughputLimit       string
 	IsDLQ                     bool // derived: another queue's RedrivePolicy targets this queue
+	// Err is set when FetchAllQueueAttributes could not read the queue, for
+	// example because access is denied. Then only URL and Name are set, and
+	// the counts are unknown, not 0.
+	Err error
 }
 
 // RedrivePolicy configures dead-letter queue routing.
@@ -157,6 +161,8 @@ func (svc *SQSServiceImpl) GetQueueAttributes(ctx context.Context, queueURL stri
 }
 
 // FetchAllQueueAttributes fetches attributes for all queue URLs concurrently.
+// A queue that cannot be read does not stop the others: it comes back with
+// only URL and Name, and its Err field holds the error.
 func (svc *SQSServiceImpl) FetchAllQueueAttributes(ctx context.Context, urls []string) ([]Queue, error) {
 	queues := make([]Queue, len(urls))
 	g, ctx := errgroup.WithContext(ctx)
@@ -166,10 +172,10 @@ func (svc *SQSServiceImpl) FetchAllQueueAttributes(ctx context.Context, urls []s
 		g.Go(func() error {
 			q, err := svc.GetQueueAttributes(ctx, url)
 			if err != nil {
-				// Fall back to a minimal queue with just the URL/name
 				queues[i] = Queue{
 					URL:  url,
 					Name: QueueNameFromURL(url),
+					Err:  err,
 				}
 				return nil
 			}
@@ -299,20 +305,42 @@ func (svc *SQSServiceImpl) DeleteMessage(ctx context.Context, queueURL, receiptH
 	return nil
 }
 
-// DeleteMessageBatch deletes up to 10 messages at a time. Handles chunking internally.
+// DeleteFailure is one message that DeleteMessageBatch could not delete.
+type DeleteFailure struct {
+	ReceiptHandle string
+	Code          string // for example "ReceiptHandleIsInvalid"
+	Message       string
+}
+
+// BatchDeleteError lists the messages that DeleteMessageBatch could not
+// delete. SQS deleted the other messages of the call.
+type BatchDeleteError struct {
+	Failed []DeleteFailure
+}
+
+func (e *BatchDeleteError) Error() string {
+	return fmt.Sprintf("DeleteMessageBatch: %d message(s) not deleted", len(e.Failed))
+}
+
+// DeleteMessageBatch deletes the messages in calls of up to 10. When some
+// messages are not deleted, it returns a *BatchDeleteError that lists them.
+//
+// On a FIFO queue, an old receipt handle fails with ReceiptHandleIsInvalid.
+// On a standard queue, SQS accepts the delete of an old receipt handle, but
+// the message stays in the queue when it was received again after that
+// handle. SQS gives no way to see this.
 func (svc *SQSServiceImpl) DeleteMessageBatch(ctx context.Context, queueURL string, receiptHandles []string) error {
 	client := svc.client.SQSClient()
+	var failed []DeleteFailure
 	for i := 0; i < len(receiptHandles); i += 10 {
-		end := i + 10
-		if end > len(receiptHandles) {
-			end = len(receiptHandles)
-		}
-		chunk := receiptHandles[i:end]
+		chunk := receiptHandles[i:min(i+10, len(receiptHandles))]
 
+		// The entry ID is the index into receiptHandles, so a failed entry
+		// maps back to its handle.
 		entries := make([]sqstypes.DeleteMessageBatchRequestEntry, len(chunk))
 		for j, rh := range chunk {
 			entries[j] = sqstypes.DeleteMessageBatchRequestEntry{
-				Id:            aws.String(fmt.Sprintf("msg-%d", j)),
+				Id:            aws.String(strconv.Itoa(i + j)),
 				ReceiptHandle: aws.String(rh),
 			}
 		}
@@ -322,11 +350,26 @@ func (svc *SQSServiceImpl) DeleteMessageBatch(ctx context.Context, queueURL stri
 			Entries:  entries,
 		})
 		if err != nil {
-			return fmt.Errorf("DeleteMessageBatch: %w", err)
+			// The whole call failed, so no message of this chunk was deleted.
+			for _, rh := range chunk {
+				failed = append(failed, DeleteFailure{ReceiptHandle: rh, Code: ErrorCode(err), Message: err.Error()})
+			}
+			continue
 		}
-		if len(out.Failed) > 0 {
-			return fmt.Errorf("DeleteMessageBatch: %d messages failed to delete", len(out.Failed))
+		for _, f := range out.Failed {
+			idx, convErr := strconv.Atoi(aws.ToString(f.Id))
+			if convErr != nil || idx < 0 || idx >= len(receiptHandles) {
+				continue
+			}
+			failed = append(failed, DeleteFailure{
+				ReceiptHandle: receiptHandles[idx],
+				Code:          aws.ToString(f.Code),
+				Message:       aws.ToString(f.Message),
+			})
 		}
+	}
+	if len(failed) > 0 {
+		return &BatchDeleteError{Failed: failed}
 	}
 	return nil
 }
