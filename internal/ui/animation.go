@@ -11,13 +11,18 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// AnimationFrameMsg signals a new animation frame.
-type AnimationFrameMsg time.Time
+// AnimationFrameMsg signals a new animation frame. Gen identifies the chain
+// of ticks. A view that starts its animation again increases its generation
+// and ignores the frames of older chains, so only one chain runs.
+type AnimationFrameMsg struct {
+	Gen int
+}
 
-// AnimationTick returns a command that schedules the next frame at ~20 FPS.
-func AnimationTick() tea.Cmd {
-	return tea.Tick(time.Second/20, func(t time.Time) tea.Msg {
-		return AnimationFrameMsg(t)
+// AnimationTick returns a command that schedules the next frame of chain gen
+// at ~20 FPS.
+func AnimationTick(gen int) tea.Cmd {
+	return tea.Tick(time.Second/20, func(time.Time) tea.Msg {
+		return AnimationFrameMsg{Gen: gen}
 	})
 }
 

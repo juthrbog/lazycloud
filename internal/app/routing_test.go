@@ -107,7 +107,7 @@ func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 	s3m.On("DeleteObjects", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	m := newTestModel(140, 40)
-	m.s3 = s3m
+	m.svc.S3 = s3m
 
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "bucket-a"}})
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3PageLoadedMsg"))
@@ -140,7 +140,7 @@ func TestRouting_StaleRegionPageDropped(t *testing.T) {
 		Instances: []aws.Instance{{ID: "i-old1", State: "running"}, {ID: "i-old2", State: "running"}},
 	}, nil)
 	m := newTestModel(140, 40)
-	m.ec2 = old
+	m.svc.EC2 = old
 	m, oldCmd := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 
 	m, rc := m.applyRegion("eu-west-1")
@@ -158,7 +158,7 @@ func TestRouting_ReenterWhileLoadingNoDuplicates(t *testing.T) {
 		Instances: []aws.Instance{{ID: "i-1", State: "running"}, {ID: "i-2", State: "running"}},
 	}, nil)
 	m := newTestModel(140, 40)
-	m.ec2 = e
+	m.svc.EC2 = e
 	m, first := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 	m, _ = update(t, m, press("q")) // back to home before the load finishes
 	m, second := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
@@ -183,10 +183,13 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
 		Instances: []aws.Instance{{ID: "i-abc", State: "running"}},
 	}, nil)
-	e.On("StopInstances", mock.Anything, []string{"i-abc"}).Return(errors.New("UnauthorizedOperation"))
+	// The event log keeps only the last 500 entries, so the test finds the
+	// failure by a text that is unique to this run, not by position.
+	failure := fmt.Sprintf("UnauthorizedOperation %d", time.Now().UnixNano())
+	e.On("StopInstances", mock.Anything, []string{"i-abc"}).Return(errors.New(failure))
 
 	m := newTestModel(140, 40)
-	m.ec2 = e
+	m.svc.EC2 = e
 	m, c := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 	m, _ = update(t, m, findMsg(collectMsgs(c), "views.ec2PageLoadedMsg"))
 	m, c = update(t, m, press("m"))
@@ -197,13 +200,12 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	m.confirm = ui.NewConfirm()
 	m, stopCmd := update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 
-	before := eventlog.Len()
 	m, _ = update(t, m, press("q")) // leave the view
 	m, toastCmd := update(t, m, findMsg(collectMsgs(stopCmd), "views.ec2InstanceMutatedMsg"))
 
 	errs := 0
-	for _, en := range eventlog.Entries()[before:] {
-		if en.Level == eventlog.LevelError {
+	for _, en := range eventlog.Entries() {
+		if en.Level == eventlog.LevelError && strings.Contains(en.Message, failure) {
 			errs++
 		}
 	}
@@ -221,7 +223,7 @@ func TestRouting_ErrorStaysWithOriginView(t *testing.T) {
 		Instances: []aws.Instance{{ID: "i-abc", State: "running"}},
 	}, nil)
 	m := newTestModel(140, 40)
-	m.ec2 = e
+	m.svc.EC2 = e
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	hidden := m.nav.Current()
 	m, c := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
@@ -264,7 +266,7 @@ func TestRouting_SubnetPagesStayInTheirView(t *testing.T) {
 	e.On("ListSubnetsPage", mock.Anything, (*string)(nil), "vpc-B").
 		Return(&aws.SubnetPage{}, nil)
 	m := newTestModel(140, 40)
-	m.ec2 = e
+	m.svc.EC2 = e
 
 	m, cmdA := update(t, m, msg.NavigateMsg{ViewID: "subnet_list", Params: map[string]string{"vpc_id": "vpc-A"}})
 	viewA := m.nav.Current()

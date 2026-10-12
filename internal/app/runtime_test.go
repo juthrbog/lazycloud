@@ -25,7 +25,7 @@ func TestRuntime_RoutedMessagesEndToEnd(t *testing.T) {
 	}, nil)
 
 	m := newTestModel(0, 0)
-	m.ec2 = ec2
+	m.svc.EC2 = ec2
 	tm := teatest.NewTestModel(t, m, teatest.WithInitialTermSize(140, 40))
 	wait := func(want string) {
 		t.Helper()
