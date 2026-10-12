@@ -66,6 +66,12 @@ type VPCList struct {
 
 func (v *VPCList) ID() string    { return "vpc_list" }
 func (v *VPCList) Title() string { return "VPCs" }
+
+// CapturingInput implements nav.InputCapturer.
+func (v *VPCList) CapturingInput() bool {
+	return v.filter.Active()
+}
+
 func (v *VPCList) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
 		{Binding: v.keys.Details},

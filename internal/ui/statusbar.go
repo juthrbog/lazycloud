@@ -42,10 +42,10 @@ func RenderStatusBar(data StatusBarData) string {
 	// Filter by mode
 	var filtered []HintBinding
 	for _, k := range data.Keys {
-		if k.Mode == ModeReadWrite && ReadOnly {
+		if k.Mode == ModeReadWrite && IsReadOnly() {
 			continue
 		}
-		if k.Mode == ModeReadOnly && !ReadOnly {
+		if k.Mode == ModeReadOnly && !IsReadOnly() {
 			continue
 		}
 		filtered = append(filtered, k)

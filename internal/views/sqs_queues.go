@@ -113,6 +113,12 @@ type SQSQueues struct {
 
 func (s *SQSQueues) ID() string    { return "sqs_queues" }
 func (s *SQSQueues) Title() string { return "SQS Queues" }
+
+// CapturingInput implements nav.InputCapturer.
+func (s *SQSQueues) CapturingInput() bool {
+	return s.filter.Active()
+}
+
 func (s *SQSQueues) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: s.keys.Details},
@@ -601,11 +607,6 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case key.Matches(m, s.keys.Manage):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			urls := s.selectedQueueURLs()
 			if len(urls) == 0 {
 				return s, nil

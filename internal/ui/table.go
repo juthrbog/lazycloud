@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -79,9 +80,7 @@ func NewTable(columns []Column) Table {
 		Bold(false)
 	t.SetStyles(st)
 
-	// Remove "space" from the default PageDown binding so views can use it
-	// for selection without triggering an unwanted page-down.
-	t.KeyMap.PageDown.SetKeys("f", "pgdown")
+	t.KeyMap = DefaultTableKeyMap()
 
 	flex := make([]Column, len(columns))
 	copy(flex, columns)
@@ -93,6 +92,23 @@ func NewTable(columns []Column) Table {
 		flexColumns: flex,
 		sortCol:     -1,
 	}
+}
+
+// DefaultTableKeyMap returns the navigation keys of a Table. It leaves out
+// the single letters that views bind to actions: space selects, d describes,
+// and u presigns. A half page moves with ctrl+d and ctrl+u.
+func DefaultTableKeyMap() table.KeyMap {
+	km := table.DefaultKeyMap()
+	km.PageDown.SetKeys("f", "pgdown")
+	km.HalfPageUp = key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "½ page up"))
+	km.HalfPageDown = key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "½ page down"))
+	return km
+}
+
+// SetKeyMap replaces the navigation keys, for example to free a key that a
+// view binds to an action.
+func (t *Table) SetKeyMap(km table.KeyMap) {
+	t.inner.KeyMap = km
 }
 
 // SetSize sets the table dimensions and redistributes column widths.

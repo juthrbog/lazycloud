@@ -74,6 +74,12 @@ type AMIList struct {
 
 func (a *AMIList) ID() string    { return "ami_list" }
 func (a *AMIList) Title() string { return "AMIs" }
+
+// CapturingInput implements nav.InputCapturer.
+func (a *AMIList) CapturingInput() bool {
+	return a.filter.Active() || a.search.Active()
+}
+
 func (a *AMIList) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: a.keys.Details},

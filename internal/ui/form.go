@@ -80,6 +80,11 @@ func (f *FormView) isDirty() bool {
 	}
 	return false
 }
+
+// CapturingInput implements nav.InputCapturer. A form takes every key
+// except ctrl+c.
+func (f *FormView) CapturingInput() bool { return true }
+
 func (f *FormView) KeyMap() []HintBinding {
 	return []HintBinding{
 		{Binding: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "next"))},

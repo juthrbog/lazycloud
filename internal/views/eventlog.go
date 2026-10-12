@@ -70,6 +70,12 @@ type EventLog struct {
 func (e *EventLog) ID() string     { return "eventlog" }
 func (e *EventLog) Title() string  { return "Event Log" }
 func (e *EventLog) Footer() string { return "" }
+
+// CapturingInput implements nav.InputCapturer.
+func (e *EventLog) CapturingInput() bool {
+	return e.filter.Active()
+}
+
 func (e *EventLog) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
 		{Binding: e.keys.Level1},

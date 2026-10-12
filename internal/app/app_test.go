@@ -13,8 +13,13 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
+// newTestModel builds a model whose AWS client points at a closed local port
+// with dummy credentials. A test that runs a service call without a mock
+// gets "connection refused" and never reaches a real AWS account.
 func newTestModel(width, height int) Model {
-	m := New(config.DefaultConfig())
+	cfg := config.DefaultConfig()
+	cfg.AWS.Endpoint = "http://127.0.0.1:1"
+	m := New(cfg)
 	m.width = width
 	m.height = height
 	return m
@@ -298,23 +303,18 @@ func TestToastDismissMsgRemovesToast(t *testing.T) {
 }
 
 func TestReadOnlyToastFullPath(t *testing.T) {
-	// Simulate the full path: view closure → ToastMsg → dismiss cmd
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
+	// The app blocks a ReadWrite key and shows the toast itself. It returns
+	// the command that dismisses the toast later. The test does not run that
+	// command, because it waits for the toast duration.
+	ui.SetReadOnly(true)
+	defer func() { ui.SetReadOnly(true) }()
 
 	m := newTestModel(140, 40)
 
 	result, _ := m.Update(msg.NavigateMsg{ViewID: "ec2_list"})
 	m = result.(Model)
 
-	// Press 'm' — view returns closure that produces ToastError
-	result, viewCmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
-	m = result.(Model)
-	assert.NotNil(t, viewCmd)
-
-	// Execute closure, feed result back to Update
-	toastMsg := viewCmd()
-	result, dismissCmd := m.Update(toastMsg)
+	result, dismissCmd := m.Update(tea.KeyPressMsg{Code: 'm', Text: "m"})
 	m = result.(Model)
 
 	assert.True(t, m.toasts.HasActive(), "toast should be visible")

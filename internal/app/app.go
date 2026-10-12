@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -93,9 +94,6 @@ func New(cfg config.Config) Model {
 	m := Model{
 		config:     cfg,
 		awsClient:  awsClient,
-		s3:         aws.NewS3Service(awsClient),
-		ec2:        aws.NewEC2Service(awsClient),
-		sqs:        aws.NewSQSService(awsClient),
 		nav:        nav.New(home),
 		confirm:    ui.NewConfirm(),
 		picker:     ui.NewPicker(),
@@ -105,8 +103,18 @@ func New(cfg config.Config) Model {
 		keys:       ui.DefaultAppKeyMap(),
 		isDark:     true,
 	}
+	m.setServices(awsClient)
 	eventlog.Infof(eventlog.CatApp, "LazyCloud started (theme=%s, region=%s)", cfg.Display.Theme, m.activeRegion())
 	return m
+}
+
+// setServices builds the AWS services for a client. Each service refuses
+// mutating calls while the app is in ReadOnly mode, also when the call comes
+// from a prompt or a picker that was opened in ReadWrite mode.
+func (m *Model) setServices(c *aws.Client) {
+	m.s3 = aws.GuardS3(aws.NewS3Service(c), ui.IsReadOnly)
+	m.ec2 = aws.GuardEC2(aws.NewEC2Service(c), ui.IsReadOnly)
+	m.sqs = aws.GuardSQS(aws.NewSQSService(c), ui.IsReadOnly)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -480,20 +488,21 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.executeCommand(msg.Value)
 
 	case tea.KeyPressMsg:
-		// Tab toggles focus between main view and panel
-		if m.panelOpen && key.Matches(msg, m.keys.TabToggle.Binding) {
-			m.panelFocused = !m.panelFocused
-			return m, nil
-		}
-
-		// When a form view is active, only ctrl+c is global — all other keys
-		// go to the form so text input works (q, T, P, etc. are typed characters).
-		if _, isForm := m.nav.Current().(*ui.FormView); isForm {
+		// A view that takes text input, such as a filter or a form, gets every
+		// key except ctrl+c. Typed letters such as q, W, or tab must not run
+		// app-wide keys.
+		if m.capturingInput() {
 			if msg.String() == "ctrl+c" {
 				return m, tea.Quit
 			}
 			cmd := m.nav.UpdateCurrent(teaMsg)
 			return m, cmd
+		}
+
+		// Tab toggles focus between main view and panel
+		if m.panelOpen && key.Matches(msg, m.keys.TabToggle.Binding) {
+			m.panelFocused = !m.panelFocused
+			return m, nil
 		}
 
 		// Global keys — work regardless of focus state
@@ -593,10 +602,37 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showServicePicker()
 			return m, nil
 		}
+
+		// ReadOnly mode blocks the ReadWrite keys of the view here, before the
+		// view gets the key. The guarded AWS services check again when the
+		// action runs.
+		if ui.IsReadOnly() && readWriteKey(m.nav.Current().KeyMap(), msg) {
+			_, cmd := m.toasts.Add("ReadOnly mode — press W to switch", ui.ToastError, 0)
+			return m, cmd
+		}
 	}
 
 	cmd := m.nav.UpdateCurrent(teaMsg)
 	return m, cmd
+}
+
+// capturingInput reports whether the view on top takes text input.
+func (m Model) capturingInput() bool {
+	c, ok := m.nav.Current().(nav.InputCapturer)
+	return ok && c.CapturingInput()
+}
+
+// readWriteKey reports whether k is a key of a ReadWrite binding in hints. It
+// compares the keys and ignores the enabled flag, because ApplyModeAll
+// disables the ReadWrite hints in ReadOnly mode.
+func readWriteKey(hints []ui.HintBinding, k tea.KeyPressMsg) bool {
+	s := k.String()
+	for _, h := range hints {
+		if h.Mode == ui.ModeReadWrite && slices.Contains(h.Keys(), s) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m Model) executeCommand(input string) (Model, tea.Cmd) {
@@ -936,9 +972,7 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
 	}
 	m.awsClient = awsClient
-	m.s3 = aws.NewS3Service(awsClient)
-	m.ec2 = aws.NewEC2Service(awsClient)
-	m.sqs = aws.NewSQSService(awsClient)
+	m.setServices(awsClient)
 
 	// Remember the active service view before resetting navigation
 	returnTo := m.topLevelViewID()
@@ -973,7 +1007,7 @@ func (m *Model) showModePicker() {
 		{Label: "ReadWrite   Allow create/delete/copy/move", Value: "readwrite"},
 	}
 	currentIdx := 0
-	if !ui.ReadOnly {
+	if !ui.IsReadOnly() {
 		currentIdx = 1
 	}
 	m.picker.Show("mode", "Access Mode", options, currentIdx)
@@ -982,12 +1016,12 @@ func (m *Model) showModePicker() {
 func (m Model) applyMode(mode string) (Model, tea.Cmd) {
 	switch mode {
 	case "readonly":
-		ui.ReadOnly = true
+		ui.SetReadOnly(true)
 		eventlog.Infof(eventlog.CatApp, "Mode changed → ReadOnly")
 		_, cmd := m.toasts.Add("Mode: ReadOnly", ui.ToastInfo, 0)
 		return m, cmd
 	case "readwrite":
-		ui.ReadOnly = false
+		ui.SetReadOnly(false)
 		eventlog.Warnf(eventlog.CatApp, "Mode changed → ReadWrite")
 		_, cmd := m.toasts.Add("Mode: ReadWrite", ui.ToastSuccess, 0)
 		return m, cmd
@@ -1023,9 +1057,7 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
 	}
 	m.awsClient = awsClient
-	m.s3 = aws.NewS3Service(awsClient)
-	m.ec2 = aws.NewEC2Service(awsClient)
-	m.sqs = aws.NewSQSService(awsClient)
+	m.setServices(awsClient)
 
 	// Remember the active service view before resetting navigation
 	returnTo := m.topLevelViewID()
@@ -1088,7 +1120,7 @@ func (m Model) View() tea.View {
 	t := ui.ActiveTheme
 
 	mode := "RO"
-	if !ui.ReadOnly {
+	if !ui.IsReadOnly() {
 		mode = "RW"
 	}
 	crumbs := m.nav.Breadcrumbs()
@@ -1371,8 +1403,9 @@ func (m Model) currentKeyHints() []ui.HintBinding {
 	// View-specific hints first
 	hints := m.nav.Current().KeyMap()
 
-	// Forms handle all keys internally — don't show global hints.
-	if _, isForm := m.nav.Current().(*ui.FormView); isForm {
+	// While the view takes text input, app-wide keys do not work, so their
+	// hints are not shown.
+	if m.capturingInput() {
 		return hints
 	}
 

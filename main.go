@@ -71,7 +71,7 @@ func main() {
 	}
 
 	if *readWrite {
-		ui.ReadOnly = false
+		ui.SetReadOnly(false)
 	}
 
 	if cfg.Log.File != "" {

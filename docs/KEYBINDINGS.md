@@ -18,7 +18,7 @@ type HintBinding struct {
 }
 ```
 
-- `Mode` controls visibility in status bar/help and dispatch eligibility via `ApplyModeAll()`
+- `Mode` marks the keys that change AWS resources (`ModeReadWrite`). The app blocks these keys in ReadOnly mode. The status bar and the help overlay also read it.
 - `Category` groups bindings in the help overlay (Current View, Navigation, Panel, Global)
 - Builder methods: `.WithMode()`, `.WithCategory()`
 
@@ -46,18 +46,18 @@ case tea.KeyPressMsg:
     }
 ```
 
-- `key.Matches` checks both the key string AND the binding's enabled state
-- Disabled bindings (e.g. ReadWrite keys in ReadOnly mode) never match
-- Modal guards (filter active, search active) remain above the switch as before
+- `key.Matches` checks the key string and the enabled state of the binding.
+- The view matches its own `keys` struct. `ApplyModeAll` does not change this struct, so a ReadWrite key still matches in the view. The ReadOnly block is in the app (see below).
+- Modal guards (filter active, search active) stay above the switch.
 
 ## ReadOnly / ReadWrite Mode
 
-Bindings tagged with `ModeReadWrite` are disabled when `ui.ReadOnly == true`:
+In ReadOnly mode, the app blocks each key that a binding with `ModeReadWrite` has in the `KeyMap()` of the view on top:
 
-- Views call `ui.ApplyModeAll(hints)` in their `KeyMap()` method before returning
-- `key.Matches` returns false for disabled bindings, so dispatch naturally blocks them
-- The status bar and help overlay filter by mode to hide irrelevant hints
-- The `[RW]` badge in the help overlay is driven by `hint.Mode == ModeReadWrite`
+- The app checks the key before the view gets it. It shows the toast "ReadOnly mode — press W to switch".
+- The check compares the keys and ignores the enabled state. `ApplyModeAll(hints)` in `KeyMap()` disables only the returned copies, for the status bar and the help overlay.
+- The guarded AWS services check the mode again when the action runs. See Access Mode in `ARCHITECTURE.md`.
+- The status bar hides ReadWrite hints in ReadOnly mode. The help overlay shows all hints and marks ReadWrite keys with an `[RW]` badge.
 
 ## Hint Flow
 
@@ -78,7 +78,7 @@ collectAllKeyHints()       --> help overlay (? key)
 
 ## Built-in Table Navigation
 
-The bubbles `table` component provides these keybindings by default. They are not defined in our KeyMap structs — they come from the upstream `table.DefaultKeyMap()` and apply to all table-based views.
+These keys move the cursor in every table-based view. They come from `ui.DefaultTableKeyMap()`, which starts from the bubbles `table.DefaultKeyMap()`. A view can replace them with `Table.SetKeyMap`.
 
 | Key | Action |
 |-----|--------|
@@ -86,12 +86,12 @@ The bubbles `table` component provides these keybindings by default. They are no
 | `k` / `↑` | Line up |
 | `f` / `pgdown` | Page down |
 | `b` / `pgup` | Page up |
-| `d` / `ctrl+d` | Half page down |
-| `u` / `ctrl+u` | Half page up |
+| `ctrl+d` | Half page down |
+| `ctrl+u` | Half page up |
 | `g` / `home` | Go to top |
 | `G` / `end` | Go to bottom |
 
-Note: `space` was removed from the default PageDown binding in `NewTable()` so views can use it for multi-select.
+Note: `DefaultTableKeyMap()` leaves out three keys of the bubbles defaults, because views bind them to actions. `space` selects a row, `d` describes, and `u` presigns.
 
 ## What Uses String-Based Dispatch
 
@@ -107,16 +107,21 @@ Modal UI components that intercept all input when visible and don't expose hints
 
 These stay string-based because they're self-contained, don't participate in the hint system, and don't benefit from `key.Binding`.
 
-## Form Key Handling
+## Input Capture
 
-When a `FormView` is the active view, the app bypasses **all** global key handlers except `ctrl+c`. This prevents single-letter global bindings (`q`, `T`, `P`, `W`, `L`, `:`, `?`) from intercepting form text input. Huh handles all field navigation internally (`tab`/`shift+tab`, `enter` to advance, `esc` to cancel). The status bar hides global hints and shows only form-relevant ones.
+When the view on top takes text input, the app skips all global key handlers except `ctrl+c`. Single-letter global keys (`q`, `T`, `P`, `R`, `W`, `L`, `:`, `?`) and `tab` are typed text, and `backspace` deletes a character. The status bar hides the global hints.
+
+A view reports text input with `nav.InputCapturer`. Its `CapturingInput()` returns true while an input is active:
+
+- A list view captures while its filter is active. The S3 views also capture during bucket create and the copy or move destination. The AMI view also captures during the public search.
+- A `FormView` always captures. Huh handles the field keys (`tab` and `shift+tab`, `enter` to advance, `esc` to cancel).
 
 ## Adding a New Keybinding
 
 1. Add a `key.Binding` field to the relevant KeyMap struct
 2. Initialize it in the default constructor with `key.NewBinding(key.WithKeys(...), key.WithHelp(...))`
 3. Use `key.Matches(msg, v.keys.NewKey)` in the dispatch switch
-4. Add the binding to the view's `KeyMap()` return slice (with `.WithMode()` if mode-sensitive)
+4. Add the binding to the view's `KeyMap()` return slice. If the key changes AWS resources, set `Mode: ui.ModeReadWrite`, so the app blocks it in ReadOnly mode.
 5. That's it -- status bar and help overlay pick it up automatically
 
 ## Adding a New View

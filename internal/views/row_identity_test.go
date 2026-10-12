@@ -32,8 +32,8 @@ func newBucketList(t *testing.T, names ...string) (*S3List, *awstest.MockS3Servi
 
 // C4: a bucket that the filter hides is never deleted.
 func TestS3List_DeleteSkipsBucketHiddenByFilter(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 	v, svc := newBucketList(t, "alpha-prod", "test-1")
 	v.Update(keyPress(' ')) // select alpha-prod
 	v.Update(ui.FilterChangedMsg{Text: "test"})
@@ -54,8 +54,8 @@ func TestS3List_DeleteSkipsBucketHiddenByFilter(t *testing.T) {
 }
 
 func TestS3List_DeletePromptForSeveralBuckets(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 	v, _ := newBucketList(t, "a-logs", "b-tmp")
 	v.table.SelectAll()
 

@@ -31,46 +31,11 @@ var testTerminatedInstance = aws.Instance{ID: "i-terminated", Name: "old-1", Sta
 
 // --- ReadOnly guard ---
 
-func TestEC2List_ReadOnlyBlocksManage(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestEC2List()
-	loadInstances(view, []aws.Instance{testRunningInstance})
-
-	_, cmd := view.Update(keyPress('m'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Equal(t, 2, toast.Level) // error
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
-// An SSM session is an interactive shell, so ReadOnly mode must block it.
-func TestEC2List_ReadOnlyBlocksConnect(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestEC2List()
-	loadInstances(view, []aws.Instance{testRunningInstance})
-
-	_, cmd := view.Update(keyPress('o'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Equal(t, 2, toast.Level) // error
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
 // Without a client (failed profile load), Connect must report an error
 // instead of dereferencing nil.
 func TestEC2List_ConnectWithoutClient(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
@@ -97,8 +62,8 @@ func TestEC2List_ConnectHintIsReadWrite(t *testing.T) {
 // --- Action picker ---
 
 func TestEC2List_ManageRunningInstance(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
@@ -114,8 +79,8 @@ func TestEC2List_ManageRunningInstance(t *testing.T) {
 }
 
 func TestEC2List_ManageStoppedInstance(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testStoppedInstance})
@@ -130,8 +95,8 @@ func TestEC2List_ManageStoppedInstance(t *testing.T) {
 }
 
 func TestEC2List_ManageTerminatedInstance(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testTerminatedInstance})

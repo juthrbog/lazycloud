@@ -264,3 +264,35 @@ func TestEmptyTable(t *testing.T) {
 	tbl.SetRows(namedRows("a"))
 	assert.Equal(t, "a", tbl.CursorKey(), "the cursor lands on the first row")
 }
+
+// D14: views bind d, u, and space to actions, so the table must not move on
+// them. A half page moves with ctrl+d and ctrl+u.
+func TestTableKeysLeaveActionLetters(t *testing.T) {
+	names := make([]string, 40)
+	for i := range names {
+		names[i] = fmt.Sprintf("r%02d", i)
+	}
+	tbl := nameTable(names...)
+	for _, k := range []tea.KeyPressMsg{
+		{Code: 'd', Text: "d"},
+		{Code: 'u', Text: "u"},
+		{Code: tea.KeySpace, Text: " "},
+	} {
+		tbl, _ = tbl.Update(k)
+		assert.Equal(t, "r00", tbl.CursorKey(), "key %q must not move the cursor", k.String())
+	}
+	tbl, _ = tbl.Update(tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl})
+	assert.NotEqual(t, "r00", tbl.CursorKey(), "ctrl+d moves half a page")
+}
+
+func TestSetKeyMapReplacesNavigationKeys(t *testing.T) {
+	tbl := nameTable("a", "b")
+	km := DefaultTableKeyMap()
+	km.LineDown.SetKeys("n")
+	tbl.SetKeyMap(km)
+
+	tbl, _ = tbl.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})
+	assert.Equal(t, "a", tbl.CursorKey(), "j is no longer bound")
+	tbl, _ = tbl.Update(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	assert.Equal(t, "b", tbl.CursorKey())
+}

@@ -78,7 +78,24 @@ Transient feedback (copy, download, delete) uses auto-dismissing toasts rendered
 
 ### Access Mode
 
-LazyCloud starts in **ReadOnly** mode by default. All mutating operations (create, delete, copy, move) are blocked at the UI level regardless of your AWS IAM permissions. Press `W` to switch to ReadWrite mode, which then falls back to normal IAM permission checks. The current mode is shown as an `RO`/`RW` badge in the header.
+LazyCloud starts in **ReadOnly** mode by default. In ReadOnly mode, LazyCloud blocks all mutating operations (create, delete, copy, move), whatever your AWS IAM permissions allow. Press `W` to switch to ReadWrite mode. Then only IAM limits what you can do. The header shows the mode as an `RO` or `RW` badge. `ui.IsReadOnly()` reads the mode, and `ui.SetReadOnly()` changes it.
+
+Two guards enforce ReadOnly mode:
+
+1. When the user presses a key, the app looks for it in the `KeyMap()` of the view on top. If a binding with `ui.ModeReadWrite` has that key, the app shows the toast "ReadOnly mode — press W to switch", and the view does not get the key.
+2. When the action runs, the AWS service refuses it. The app wraps each service with `aws.GuardS3`, `aws.GuardEC2`, or `aws.GuardSQS`. In ReadOnly mode, each mutating method returns `aws.ErrReadOnly` before it sends a request. This guard also covers a prompt, a picker, or a form that the user opened in ReadWrite mode.
+
+Rules for view code:
+
+- Give each key that changes AWS resources `Mode: ui.ModeReadWrite` in `KeyMap()`. Do not test `ui.IsReadOnly()` for these keys in the view.
+- Call AWS only through the services that the app gives the view.
+- When you add a mutating method to a service interface, add a guard for it in `internal/aws/readonly.go`. A test in `readonly_test.go` fails until each interface method is listed as a read or as a mutation.
+
+### Input Capture
+
+A view that takes text input implements `nav.InputCapturer`. Its `CapturingInput()` returns true while a filter, a form, or another input is active. While it returns true, the app sends every key except `ctrl+c` to the view. Typed letters such as `q`, `W`, `:`, or `tab` do not run app-wide keys, and the status bar shows only the hints of the view. `FormView` always returns true.
+
+When a view gets a filter or another text input, add the input to `CapturingInput()`.
 
 ### Side Detail Panel
 
@@ -145,7 +162,7 @@ Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a 
 
 Multi-field input forms use `charm.land/huh/v2` wrapped in a `FormView` (`internal/ui/form.go`). Unlike overlays (confirm, picker), forms are pushed onto the nav stack as full views. Views declare fields via `RequestFormMsg` with declarative `FormField` specs — no `huh` import needed. The `FormView` translates specs to huh fields, applies the LazyCloud theme, and emits `FormResultMsg` on submit/cancel.
 
-**Key handling:** When a `FormView` is active, all global key handlers (`q`, `T`, `P`, etc.) are bypassed so text input works. Only `ctrl+c` remains global. The status bar shows only form-relevant hints.
+**Key handling:** A `FormView` always captures input (see Input Capture), so the app gives it every key except `ctrl+c`. The status bar shows only the hints of the form.
 
 **Field types:** `input` (single-line), `text` (multi-line textarea), `select` (single choice), `confirm` (yes/no). Custom validation via `FormField.Validate`.
 

@@ -95,8 +95,8 @@ func press(s string) tea.KeyPressMsg {
 // C2: keys resolved for a folder delete in bucket A must never be deleted in
 // bucket B, even when the user opens bucket B before the resolution ends.
 func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	s3m := new(awstest.MockS3Service)
 	s3m.On("ListObjectsPage", mock.Anything, "bucket-a", "", (*string)(nil)).
@@ -177,8 +177,8 @@ func TestRouting_ReenterWhileLoadingNoDuplicates(t *testing.T) {
 // H4: the result of a mutation reaches its view after the user leaves it,
 // so the failure is logged and shown.
 func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 	e := new(awstest.MockEC2Service)
 	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
 		Instances: []aws.Instance{{ID: "i-abc", State: "running"}},

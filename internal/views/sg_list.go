@@ -59,6 +59,12 @@ type SGList struct {
 
 func (s *SGList) ID() string    { return "sg_list" }
 func (s *SGList) Title() string { return "Security Groups" }
+
+// CapturingInput implements nav.InputCapturer.
+func (s *SGList) CapturingInput() bool {
+	return s.filter.Active()
+}
+
 func (s *SGList) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
 		{Binding: s.keys.Details},

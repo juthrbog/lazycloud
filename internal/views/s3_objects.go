@@ -146,6 +146,11 @@ func (s *S3Objects) ID() string {
 	return "s3_objects:" + s.bucket + ":" + s.prefix
 }
 
+// CapturingInput implements nav.InputCapturer.
+func (s *S3Objects) CapturingInput() bool {
+	return s.filter.Active() || s.copyInput.Active()
+}
+
 func (s *S3Objects) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: s.keys.View},
@@ -158,6 +163,7 @@ func (s *S3Objects) KeyMap() []ui.HintBinding {
 		{Binding: s.keys.CopyPath},
 		{Binding: s.keys.Select},
 		{Binding: s.keys.Delete, Mode: ui.ModeReadWrite},
+		{Binding: s.keys.DeleteAll, Mode: ui.ModeReadWrite},
 		{Binding: s.keys.Sort},
 		{Binding: s.keys.Filter},
 		{Binding: s.keys.Refresh},
@@ -668,11 +674,6 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case key.Matches(m, s.keys.Delete, s.keys.DeleteAll):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			entries := s.collectDeleteEntries()
 			if len(entries) == 0 {
 				return s, func() tea.Msg {
@@ -718,11 +719,6 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, s.downloadObject(entry.fullPath)
 		case key.Matches(m, s.keys.Copy):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil
@@ -733,11 +729,6 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.copyInput.Activate()
 			return s, nil
 		case key.Matches(m, s.keys.Move):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			entry := s.selectedEntry()
 			if entry == nil || entry.isFolder {
 				return s, nil
