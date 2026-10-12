@@ -33,6 +33,32 @@ func TestNew(t *testing.T) {
 	assert.Equal(t, "root", n.Current().ID())
 }
 
+func TestPopToAndViews(t *testing.T) {
+	n := New(stubView{id: "root"})
+	n.Push(stubView{id: "a"})
+	n.Push(stubView{id: "b"})
+	n.Push(stubView{id: "c"})
+
+	n.PopTo(2)
+	assert.Equal(t, "a", n.Current().ID())
+	ids := []string{}
+	for _, v := range n.Views() {
+		ids = append(ids, v.ID())
+	}
+	assert.Equal(t, []string{"root", "a"}, ids)
+
+	n.PopTo(5)
+	assert.Equal(t, 2, n.Depth(), "a depth above the stack changes nothing")
+	n.PopTo(0)
+	assert.Equal(t, "root", n.Current().ID(), "the root view always stays")
+}
+
+func TestViewsReturnsACopy(t *testing.T) {
+	n := New(stubView{id: "root"})
+	n.Views()[0] = stubView{id: "changed"}
+	assert.Equal(t, "root", n.Current().ID())
+}
+
 func TestPushPop(t *testing.T) {
 	root := stubView{id: "root", title: "Root"}
 	child := stubView{id: "child", title: "Child"}

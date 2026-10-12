@@ -91,6 +91,16 @@ Rules for view code:
 - Call AWS only through the services that the app gives the view.
 - When you add a mutating method to a service interface, add a guard for it in `internal/aws/readonly.go`. A test in `readonly_test.go` fails until each interface method is listed as a read or as a mutation.
 
+### AWS Sessions
+
+A session is one profile and one region. `aws.NewServices` builds its client and its guarded services into one `aws.Services` value, and the app keeps it in `m.svc`. The app builds every session through this function: at startup and in `switchSession()`, which handles both a profile switch and a region switch.
+
+- If the client cannot be built at startup, for example because the profile does not exist, the app starts without a session. Home shows the error, and the app opens no AWS view until a switch succeeds. The event log still opens.
+- If a switch fails, nothing changes. The old session, the views, and the configuration stay, and a toast shows the error.
+- If a switch succeeds, `resetNav()` builds a new navigator with a new home view. It closes the panel and clears the stashed panel, the cross-navigation history, and the error. Then the app opens the service view that was on top again. `topLevelViewID()` finds it: the nearest view under the top of the stack that is a service view in the registry.
+
+A theme switch and `:home` also call `resetNav()`. Each time Home is shown again, the app calls its `Init()`. This starts a new chain of animation ticks with a new generation, and Home ignores the frames of older chains.
+
 ### Input Capture
 
 A view that takes text input implements `nav.InputCapturer`. Its `CapturingInput()` returns true while a filter, a form, or another input is active. While it returns true, the app sends every key except `ctrl+c` to the view. Typed letters such as `q`, `W`, `:`, or `tab` do not run app-wide keys, and the status bar shows only the hints of the view. `FormView` always returns true.
@@ -156,7 +166,7 @@ Reference implementations: `sqs_queues.go` (per-resource), `ec2_list.go` (batch 
 
 Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a `focus` parameter, the target view auto-selects the matching resource and opens its detail panel. If the view is still loading data, the focus is deferred until the data arrives. This lets users follow links seamlessly — e.g., clicking a security group in an EC2 instance detail navigates to the SG list with that group's detail panel already open.
 
-**Back traversal:** Before navigating forward, the app saves the current panel state (title, tabs, links) to a bounded history stack (max 10 entries). Press `backspace` to pop the history, navigate back, and restore the previous panel. This preserves the user's context through chains of cross-resource links. The history is automatically invalidated when the user manually navigates back via `esc`/`q`, and cleared on profile or region changes.
+**Back traversal:** Before navigating forward, the app saves the current panel state (title, tabs, links) and the stack depth to a bounded history stack (max 10 entries). Press `backspace` to pop the history. The app goes back to the view where the user followed the link, also when the user opened more views after the link, and restores its panel. This preserves the user's context through chains of cross-resource links. The history is automatically invalidated when the user manually navigates back via `esc`/`q`. A profile, region, or theme switch and `:home` clear it.
 
 ### Forms
 
@@ -210,11 +220,12 @@ Home (service grid)
 ### Adding a New Service
 
 1. **AWS layer**: Create `internal/aws/<service>.go` with a service interface and SDK implementation
-2. **Mock**: Create `internal/aws/awstest/mock_<service>.go` for testing
-3. **Views**: Create one or more view files in `internal/views/`
-4. **Registry**: Add a `Service` entry (with `Feature` sub-resources) and `Command` entries in `internal/registry/registry.go` — this automatically populates the home view and command bar
-5. **View factory**: Add a case in `app.go`'s `resolveView()` for each new ViewID (the sync test will catch any missing entries)
-6. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
+2. **Session**: Add the service to `aws.Services` and `aws.NewServices` in `internal/aws/services.go`. Add a ReadOnly guard for its mutating methods in `internal/aws/readonly.go`. Profile and region switches then rebuild it with no other change.
+3. **Mock**: Create `internal/aws/awstest/mock_<service>.go` for testing
+4. **Views**: Create one or more view files in `internal/views/`
+5. **Registry**: Add a `Service` entry (with `Feature` sub-resources) and `Command` entries in `internal/registry/registry.go`. The home view and the command bar then show the service.
+6. **View factory**: Add a case in `app.go`'s `resolveView()` for each new ViewID, with the service from `m.svc` (the sync test will catch any missing entries)
+7. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
 
 ## Context-Aware Action System
 
@@ -258,7 +269,7 @@ The root model collects actions from: global bindings + current view + focused U
 
 - **Lazy loading**: Don't fetch resources for services the user hasn't visited. Only call AWS APIs when a view is first pushed onto the nav stack (via `Init()`)
 - **Pagination**: Continue the existing pattern (S3 fetches 1000/page with progressive UI updates). Apply the same to EC2 DescribeInstances, Lambda ListFunctions, etc.
-- **Cache invalidation**: Profile/region changes already call `ClearCache()`. Add TTL-based staleness detection — if a cached view is older than 60s, show a subtle "stale" indicator and auto-refresh on focus
+- **Cache invalidation**: A profile, region, or theme switch and `:home` build a new navigator in `resetNav()`, so no cached view survives them. Add TTL-based staleness detection: if a cached view is older than 60s, show a subtle "stale" indicator and auto-refresh on focus
 - **Background refresh**: When a list view regains focus, trigger a non-blocking refresh. Show the cached data immediately, then update when fresh data arrives (optimistic UI)
 
 ### Terminal Size Adaptation
@@ -322,4 +333,4 @@ type Command struct {
 - `registry.LookupCommand(input)` resolves names and aliases in `executeCommand()`
 - A sync test (`TestRegistryNavCommandsCoveredByResolveView`) ensures every nav command has a corresponding view factory entry in `app.go`'s `resolveView()`
 
-The view factory (`resolveView()`) remains in `app.go` because it needs access to live service clients (`m.ec2`, `m.s3`, etc.) that change on profile/region switches. The registry is the source of truth for *what exists*; `resolveView()` handles *how to create it*.
+The view factory (`resolveView()`) remains in `app.go` because it needs the services of the current session (`m.svc`), which change on profile and region switches. The registry is the source of truth for *what exists*, and `resolveView()` handles *how to create it*.

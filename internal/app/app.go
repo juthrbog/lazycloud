@@ -40,10 +40,8 @@ type crossNavEntry struct {
 // Model is the root application model — message router and layout compositor.
 type Model struct {
 	config     config.Config
-	awsClient  *aws.Client
-	s3         aws.S3Service
-	ec2        aws.EC2Service
-	sqs        aws.SQSService
+	svc        aws.Services // AWS services of the current session
+	svcErr     error        // why no session exists; nil when svc is usable
 	nav        *nav.Navigator
 	confirm    ui.Confirm
 	picker     ui.Picker
@@ -86,14 +84,8 @@ func New(cfg config.Config) Model {
 		eventlog.Infof(eventlog.CatConfig, "Endpoint override: %s (LocalStack)", cfg.AWS.Endpoint)
 	}
 
-	awsClient, err := aws.NewClient(cfg.AWS.Profile, cfg.AWS.Region, cfg.AWS.Endpoint)
-	if err != nil {
-		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
-	}
-
 	m := Model{
 		config:     cfg,
-		awsClient:  awsClient,
 		nav:        nav.New(home),
 		confirm:    ui.NewConfirm(),
 		picker:     ui.NewPicker(),
@@ -103,18 +95,21 @@ func New(cfg config.Config) Model {
 		keys:       ui.DefaultAppKeyMap(),
 		isDark:     true,
 	}
-	m.setServices(awsClient)
+	// Without a session, the app still starts. It shows the error on Home and
+	// opens no AWS view until a profile or region switch succeeds.
+	m.svc, m.svcErr = aws.NewServices(cfg.AWS.Profile, cfg.AWS.Region, cfg.AWS.Endpoint, ui.IsReadOnly)
+	if m.svcErr != nil {
+		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", m.svcErr)
+		m.err = noSessionText(m.svcErr)
+		m.errView = home
+	}
 	eventlog.Infof(eventlog.CatApp, "LazyCloud started (theme=%s, region=%s)", cfg.Display.Theme, m.activeRegion())
 	return m
 }
 
-// setServices builds the AWS services for a client. Each service refuses
-// mutating calls while the app is in ReadOnly mode, also when the call comes
-// from a prompt or a picker that was opened in ReadWrite mode.
-func (m *Model) setServices(c *aws.Client) {
-	m.s3 = aws.GuardS3(aws.NewS3Service(c), ui.IsReadOnly)
-	m.ec2 = aws.GuardEC2(aws.NewEC2Service(c), ui.IsReadOnly)
-	m.sqs = aws.GuardSQS(aws.NewSQSService(c), ui.IsReadOnly)
+// noSessionText explains why the app has no AWS session and how to fix it.
+func noSessionText(err error) string {
+	return "No AWS session (press P for a profile or R for a region): " + err.Error()
 }
 
 func (m Model) Init() tea.Cmd {
@@ -243,6 +238,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			// cursor. Pushing would put the same view on the stack twice.
 			return m, func() tea.Msg { return appmsg.FocusResourceMsg{ResourceID: focusID} }
 		}
+		if m.svcErr != nil && needsSession(msg.ViewID) {
+			_, cmd := m.toasts.Add(noSessionText(m.svcErr), ui.ToastError, 0)
+			return m, cmd
+		}
 		view := m.resolveView(msg)
 		if view != nil {
 			eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
@@ -270,7 +269,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resizeViews()
 		}
 		if m.nav.Depth() == 1 {
-			return m, ui.AnimationTick()
+			return m, m.nav.InitCurrent()
 		}
 		return m, nil
 
@@ -523,7 +522,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.resizeViews()
 			// Restart animation tick when returning to home screen
 			if m.nav.Depth() == 1 {
-				return m, ui.AnimationTick()
+				return m, m.nav.InitCurrent()
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.ThemePicker.Binding):
@@ -655,10 +654,7 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 	case "quit":
 		return m, tea.Quit
 	case "home":
-		home := views.NewHome()
-		m.nav = nav.New(home)
-		m.err = ""
-		return m, tea.Batch(m.resizeCmd(), ui.AnimationTick())
+		return m, m.resetNav()
 	case "mode":
 		m.showModePicker()
 		return m, nil
@@ -701,8 +697,8 @@ func (m *Model) pushView(v nav.View) tea.Cmd {
 // activeRegion returns the region the AWS client actually uses. The config
 // value is only an override and is empty when the profile decides the region.
 func (m Model) activeRegion() string {
-	if m.awsClient != nil {
-		return m.awsClient.Region
+	if m.svc.Client != nil {
+		return m.svc.Client.Region
 	}
 	if m.config.AWS.Region != "" {
 		return m.config.AWS.Region
@@ -832,7 +828,9 @@ func (m *Model) pushCrossNavHistory() {
 	}
 }
 
-// popCrossNavBack pops the cross-nav history, navigates back, and restores the panel.
+// popCrossNavBack pops the cross-nav history, goes back to the view that
+// showed the panel, and restores the panel. The user can open more views
+// after a link, so it pops to the saved depth, not one level.
 func (m *Model) popCrossNavBack() {
 	n := len(m.crossNavHistory)
 	entry := m.crossNavHistory[n-1]
@@ -841,10 +839,8 @@ func (m *Model) popCrossNavBack() {
 	if m.panelOpen {
 		m.closePanel()
 	}
-	if m.nav.Depth() > 1 {
-		m.nav.Pop()
-		m.resizeViews()
-	}
+	m.nav.PopTo(entry.navDepth)
+	m.resizeViews()
 
 	m.openTabbedPanel(entry.panelTitle, entry.panelTabs)
 }
@@ -962,43 +958,53 @@ func (m *Model) showProfilePicker() tea.Cmd {
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Profile changed → %s", profile)
-	m.clearStashedPanel()
-	m.closePanel()
-	m.config.AWS.Profile = profile
+	return m.switchSession(profile, m.config.AWS.Region, "Profile", profile)
+}
 
-	// Recreate AWS client with new profile
-	awsClient, err := aws.NewClient(profile, m.config.AWS.Region, m.config.AWS.Endpoint)
+// switchSession builds the AWS services for profile and region. kind and
+// value name the change for the toast, for example "Region" and "eu-west-1".
+//
+// If the build fails, nothing changes: the current session, the views, and
+// the configuration stay, and the user sees the error. If it succeeds, the
+// app resets the navigation and opens the service view that was on top
+// again, now with the new session.
+func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cmd) {
+	svc, err := aws.NewServices(profile, region, m.config.AWS.Endpoint, ui.IsReadOnly)
 	if err != nil {
-		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
+		eventlog.Errorf(eventlog.CatAWS, "Cannot switch %s to %s: %v", strings.ToLower(kind), value, err)
+		_, cmd := m.toasts.Add(fmt.Sprintf("Cannot switch %s to %s: %v", strings.ToLower(kind), value, err), ui.ToastError, 0)
+		return m, cmd
 	}
-	m.awsClient = awsClient
-	m.setServices(awsClient)
+	m.config.AWS.Profile = profile
+	m.config.AWS.Region = region
+	m.svc, m.svcErr = svc, nil
 
-	// Remember the active service view before resetting navigation
 	returnTo := m.topLevelViewID()
-
-	home := views.NewHome()
-	m.nav = nav.New(home)
-	m.crossNavHistory = nil
-	m.err = ""
-	_, toastCmd := m.toasts.Add("Profile: "+profile, ui.ToastSuccess, 0)
-
-	var cmds []tea.Cmd
-	if toastCmd != nil {
-		cmds = append(cmds, toastCmd)
-	}
+	cmds := []tea.Cmd{m.resetNav()}
+	_, toastCmd := m.toasts.Add(kind+": "+value, ui.ToastSuccess, 0)
+	cmds = append(cmds, toastCmd)
 	if returnTo != "" {
-		viewID := returnTo
 		cmds = append(cmds, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: viewID}
-		})
-	}
-	if m.width > 0 && m.height > 0 {
-		cmds = append(cmds, func() tea.Msg {
-			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
+			return appmsg.NavigateMsg{ViewID: returnTo}
 		})
 	}
 	return m, tea.Batch(cmds...)
+}
+
+// resetNav replaces the navigation with a new home view. It closes the panel
+// and clears the stashed panel, the cross-navigation history, and the error,
+// so nothing of the old views comes back. It returns the commands that start
+// the home animation and size the new view.
+func (m *Model) resetNav() tea.Cmd {
+	m.clearStashedPanel()
+	m.closePanel()
+	m.crossNavHistory = nil
+	m.err, m.errView = "", nil
+	m.nav = nav.New(views.NewHome())
+	if m.svcErr != nil {
+		m.err, m.errView = noSessionText(m.svcErr), m.nav.Current()
+	}
+	return tea.Batch(m.nav.InitCurrent(), m.resizeCmd())
 }
 
 func (m *Model) showModePicker() {
@@ -1047,73 +1053,23 @@ func (m *Model) showRegionPicker() {
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "Region changed → %s", region)
-	m.clearStashedPanel()
-	m.closePanel()
-	m.config.AWS.Region = region
-
-	// Recreate AWS client with new region
-	awsClient, err := aws.NewClient(m.config.AWS.Profile, region, m.config.AWS.Endpoint)
-	if err != nil {
-		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", err)
-	}
-	m.awsClient = awsClient
-	m.setServices(awsClient)
-
-	// Remember the active service view before resetting navigation
-	returnTo := m.topLevelViewID()
-
-	home := views.NewHome()
-	m.nav = nav.New(home)
-	m.crossNavHistory = nil
-	m.err = ""
-	_, toastCmd := m.toasts.Add("Region: "+region, ui.ToastSuccess, 0)
-
-	var cmds []tea.Cmd
-	if toastCmd != nil {
-		cmds = append(cmds, toastCmd)
-	}
-	if returnTo != "" {
-		viewID := returnTo
-		cmds = append(cmds, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: viewID}
-		})
-	}
-	if m.width > 0 && m.height > 0 {
-		cmds = append(cmds, func() tea.Msg {
-			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-		})
-	}
-	return m, tea.Batch(cmds...)
+	return m.switchSession(m.config.AWS.Profile, region, "Region", region)
 }
 
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatUI, "Theme changed → %s", name)
-	m.clearStashedPanel()
-	m.closePanel()
 	if t, ok := ui.Themes[name]; ok {
 		ui.ActiveTheme = t
 		ui.RebuildStyles()
 	}
 
-	// Rebuild navigator with fresh views using new theme
-	home := views.NewHome()
-	m.nav = nav.New(home)
+	// The views keep theme colors in their rows (L17), so the app builds
+	// the navigation and the overlays again with the new theme.
+	cmd := m.resetNav()
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
-	m.err = ""
 	_, toastCmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
-
-	// Re-send window size so the new home view sizes correctly
-	var cmds []tea.Cmd
-	if toastCmd != nil {
-		cmds = append(cmds, toastCmd)
-	}
-	if m.width > 0 && m.height > 0 {
-		cmds = append(cmds, func() tea.Msg {
-			return tea.WindowSizeMsg{Width: m.width, Height: m.height}
-		})
-	}
-	return m, tea.Batch(cmds...)
+	return m, tea.Batch(cmd, toastCmd)
 }
 
 func (m Model) View() tea.View {
@@ -1318,47 +1274,50 @@ func composeOverlay(bg, dialog string, bgWidth, bgHeight int) string {
 // is currently in (e.g. "ec2_list", "s3_list"), or "" if on the home screen.
 // Used to restore navigation after region/profile changes.
 func (m Model) topLevelViewID() string {
-	id := m.nav.Current().ID()
-	switch {
-	case strings.HasPrefix(id, "ec2"):
-		return "ec2_list"
-	case strings.HasPrefix(id, "ami"):
-		return "ami_list"
-	case strings.HasPrefix(id, "s3"):
-		return "s3_list"
-	case strings.HasPrefix(id, "sqs"):
-		return "sqs_queues"
-	case strings.HasPrefix(id, "sg"):
-		return "sg_list"
-	case strings.HasPrefix(id, "vpc"), strings.HasPrefix(id, "subnet"):
-		return "vpc_list"
-	default:
-		return ""
+	// The view on top can be a detail view such as s3_objects, or a view
+	// without AWS data such as the event log. The nearest service view of
+	// the registry under it is the one to open again.
+	views := m.nav.Views()
+	for i := len(views) - 1; i >= 0; i-- {
+		id, _, _ := strings.Cut(views[i].ID(), ":")
+		if registry.IsServiceView(id) {
+			return id
+		}
 	}
+	return ""
+}
+
+// needsSession reports whether the view needs an AWS session.
+func needsSession(viewID string) bool {
+	switch viewID {
+	case "eventlog", "content":
+		return false
+	}
+	return true
 }
 
 func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
 	switch n.ViewID {
 	case "ec2_list":
-		return views.NewEC2List(m.ec2, m.awsClient)
+		return views.NewEC2List(m.svc.EC2, m.svc.Client)
 	case "ami_list":
-		return views.NewAMIList(m.ec2)
+		return views.NewAMIList(m.svc.EC2)
 	case "sg_list":
-		return views.NewSGList(m.ec2)
+		return views.NewSGList(m.svc.EC2)
 	case "vpc_list":
-		return views.NewVPCList(m.ec2)
+		return views.NewVPCList(m.svc.EC2)
 	case "subnet_list":
-		return views.NewSubnetList(m.ec2, n.Params["vpc_id"])
+		return views.NewSubnetList(m.svc.EC2, n.Params["vpc_id"])
 	case "s3_list":
-		return views.NewS3List(m.s3, m.activeRegion())
+		return views.NewS3List(m.svc.S3, m.activeRegion())
 	case "s3_objects":
-		return views.NewS3Objects(m.s3, n.Params["bucket"], n.Params["prefix"])
+		return views.NewS3Objects(m.svc.S3, n.Params["bucket"], n.Params["prefix"])
 	case "s3_versions":
-		return views.NewS3Versions(m.s3, n.Params["bucket"], n.Params["key"])
+		return views.NewS3Versions(m.svc.S3, n.Params["bucket"], n.Params["key"])
 	case "sqs_queues":
-		return views.NewSQSQueues(m.sqs)
+		return views.NewSQSQueues(m.svc.SQS)
 	case "sqs_messages":
-		return views.NewSQSMessages(m.sqs, n.Params["queue_url"], n.Params["queue_name"], n.Params["fifo"] == "true")
+		return views.NewSQSMessages(m.svc.SQS, n.Params["queue_url"], n.Params["queue_name"], n.Params["fifo"] == "true")
 	case "eventlog":
 		return views.NewEventLog()
 	case "content":

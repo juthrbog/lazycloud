@@ -47,7 +47,7 @@ func TestFilterTakesAppWideKeys(t *testing.T) {
 	ec2m.On("ListInstancesPage", mock.Anything, (*string)(nil)).
 		Return(&aws.InstancePage{Instances: []aws.Instance{{ID: "i-1", Name: "web"}}}, nil)
 	m := newTestModel(140, 40)
-	m.ec2 = ec2m
+	m.svc.EC2 = ec2m
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.ec2PageLoadedMsg"))
 	m.openPanel("detail", "{}", "json")
@@ -93,7 +93,7 @@ func s3ObjectsModel(t *testing.T, s3m *awstest.MockS3Service) Model {
 	s3m.On("ListObjectsPage", mock.Anything, "b", "", (*string)(nil)).
 		Return(&aws.ObjectPage{Objects: []aws.S3Object{{Key: "a.txt"}}}, nil)
 	m := newTestModel(140, 40)
-	m.s3 = aws.GuardS3(s3m, ui.IsReadOnly)
+	m.svc.S3 = aws.GuardS3(s3m, ui.IsReadOnly)
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "b"}})
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3PageLoadedMsg"))
 	return m
@@ -169,7 +169,7 @@ func TestReadOnlyBlocksEveryReadWriteKey(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.viewID, func(t *testing.T) {
 			m := newTestModel(140, 40)
-			m.s3, m.ec2, m.sqs = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
+			m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: tc.viewID, Params: tc.params})
 			require.Equal(t, tc.viewID, strings.SplitN(m.nav.Current().ID(), ":", 2)[0])
 
@@ -219,7 +219,7 @@ func TestViewsWithFiltersCaptureInput(t *testing.T) {
 	} {
 		t.Run(viewID, func(t *testing.T) {
 			m := newTestModel(140, 40)
-			m.s3, m.ec2, m.sqs = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
+			m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: viewID, Params: params})
 			_, ok := m.nav.Current().(nav.InputCapturer)
 			require.True(t, ok, "%s implements nav.InputCapturer", viewID)
@@ -238,17 +238,20 @@ func TestAppServicesAreGuarded(t *testing.T) {
 	check := func(t *testing.T, m Model) {
 		t.Helper()
 		ctx := context.Background()
-		assert.ErrorIs(t, m.s3.DeleteBucket(ctx, "b"), aws.ErrReadOnly)
-		assert.ErrorIs(t, m.ec2.TerminateInstances(ctx, []string{"i-1"}), aws.ErrReadOnly)
-		assert.ErrorIs(t, m.sqs.PurgeQueue(ctx, "u"), aws.ErrReadOnly)
+		assert.ErrorIs(t, m.svc.S3.DeleteBucket(ctx, "b"), aws.ErrReadOnly)
+		assert.ErrorIs(t, m.svc.EC2.TerminateInstances(ctx, []string{"i-1"}), aws.ErrReadOnly)
+		assert.ErrorIs(t, m.svc.SQS.PurgeQueue(ctx, "u"), aws.ErrReadOnly)
 	}
 	// newTestModel points the client at a closed local port, so a missing
 	// guard fails with "connection refused" and never reaches AWS.
+	awsConfigEnv(t, "good")
 	m := newTestModel(140, 40)
 	check(t, m)
 	m, _ = m.applyRegion("eu-west-1")
+	require.NoError(t, m.svcErr)
 	check(t, m)
-	m, _ = m.applyProfile("default")
+	m, _ = m.applyProfile("good")
+	require.Equal(t, "good", m.config.AWS.Profile, "the switch succeeded")
 	check(t, m)
 }
 

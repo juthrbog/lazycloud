@@ -48,7 +48,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
 - [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
 - [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done in #214, with T3, T5, D3, D4, and D14.
-- [ ] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3.
+- [x] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3. Done in #215, with L5 and D8.
 - [ ] Phase 6, CI and release: H10, H11, H12, I1 to I9.
 - [ ] Phase 7, the remaining medium findings.
 - [ ] Phase 8, generic resource list (A10).
@@ -115,7 +115,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Problem: Press `r` twice, or press `r` during a load. Both fetch chains append to the list. `sqs_queues` duplicates rows even with one page. The bucket and prefix guard in `s3_objects` does not stop this case.
   - Fix: put a load generation in every page message, and drop pages from an old generation (A1).
 
-- [ ] H6. A failed AWS client build crashes the app. Evidence: reproduced. #199 adds a nil guard for SSM Connect only.
+- [x] H6. A failed AWS client build crashes the app. Evidence: reproduced. Fixed in #215. `aws.NewServices` returns the error and no services. Without a session at startup, the app shows the error on Home and opens no AWS view. A failed switch keeps the old session and shows an error toast. #199 adds a nil guard for SSM Connect only.
   - Where: `app.go:89-99`, `:861-868`, `:951-958`.
   - Problem: When `aws.NewClient` fails, for example with `--profile typo`, the app logs the error and keeps a nil `*Client`. `aws.NewS3Service(nil)` returns a non-nil interface that holds the nil pointer. So `svc == nil` guards such as `s3_objects.go:226` and `ec2_list.go:171` never fire. The first AWS call panics in a command goroutine, and Bubble Tea exits. `applyProfile` already showed a "Profile: x" success toast. SSM Connect dereferences the nil client inside `Update`.
   - Fix: if the build fails, keep the old client, do not apply the change, and show an error toast (A4).
@@ -181,7 +181,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - `sqs_queues` emits focus links to itself, but it has no `FocusResourceMsg` handler. A link also pushes a second copy of the view on the stack.
   - AMI focus does nothing for AMIs that the account does not own. Most instances use such AMIs.
 
-- [ ] M11. Cross-navigation history restores a panel into the wrong view. Evidence: reproduced.
+- [x] M11. Cross-navigation history restores a panel into the wrong view. Evidence: reproduced. Fixed in #215. Back traversal pops to the saved depth. `resetNav()` clears the panel, the stash, and the history for a session switch, a theme switch, and `:home`. The stash case of M12 (A6) is still open.
   - `popCrossNavBack` (`app.go:727-741`) pops only one level. For EC2, then a link to VPCs, then Subnets, `backspace` opens the EC2 instance panel over the VPC list.
   - `:home` (`app.go:560-564`) keeps the panel open and keeps the history. `applyTheme` (`app.go:987-1015`) keeps the history. In both cases, `backspace` on Home restores an old resource panel.
 
@@ -224,9 +224,9 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] L1. `pushView` sizes the view with `height-5` (`app.go:595`) and ignores the footer that `chromeHeight` counts. The view draws 22 lines into 20, so the last 2 rows are cut off until the next resize.
 - [ ] L2. The navigator cache never removes views (`navigator.go:35-43`). Content viewers get unique IDs, so the cache keeps each one forever, up to 1 MB each. When the ID is already on the stack, the navigator pushes the same pointer twice. This happens for `L` on the event log, VPC and subnet links, and SQS DLQ links.
-- [ ] L3. The home animation tick has no generation (`home.go:44-55`). `:home` on Home starts a second tick chain, so the animation runs twice as fast. A theme or region reset from a deeper view never restarts the tick, so the animation stops.
+- [x] L3. Fixed in #215: each `Home.Init()` starts a tick chain with a new generation, and the app calls it each time Home is shown again. The home animation tick has no generation (`home.go:44-55`). `:home` on Home starts a second tick chain, so the animation runs twice as fast. A theme or region reset from a deeper view never restarts the tick, so the animation stops.
 - [ ] L4. Configuration gaps: flags can only turn booleans off, so nothing can turn nerd fonts back on. Read-write mode cannot be set in the file. Unknown keys such as `nerd_font` are ignored without a warning. A missing `--config` file is ignored without a warning. `--init-config` says "written" when the file exists. `AWS_ENDPOINT_URL` forces the dummy `test` credentials.
-- [ ] L5. The `topLevelViewID` prefix map (`app.go:1218-1236`) sends a subnet list back to VPCs. The event log, content, and form views fall back to Home.
+- [x] L5. Fixed in #215: `topLevelViewID()` returns the nearest service view of the registry under the top of the stack. The `topLevelViewID` prefix map (`app.go:1218-1236`) sends a subnet list back to VPCs. The event log, content, and form views fall back to Home.
 - [ ] L6. Commands use `time.Sleep` for the EC2 refresh after 2 seconds and for redrive polling. `tea.Tick` is easier to test.
 - [ ] L7. `TabbedPanel.SetSize` resizes only the active tab (`tabbedpanel.go:136`). Tabs that were opened before keep the old size.
 - [ ] L8. `DistributeWidths` can overflow by one column when it shrinks columns, because of rounding. At width 40, the widest line is 41, so the border wraps the header.
@@ -337,7 +337,7 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 - [ ] D5. `README.md:107` says that `W` toggles the mode. It opens a picker (`keys.go:82`).
 - [ ] D6. The README keybinding table says that `s` sorts. On Home, `s` opens the service picker (`keys.go:93`). The table does not list `L`, `T`, `P`, `R`, or `backspace`.
 - [ ] D7. The VPC, subnet, and security group views are not in `README.md:39`, `services/aws/ec2.md`, or `ARCHITECTURE.md:131-158`. The navigation tree in `ARCHITECTURE.md` lists Volumes and Key Pairs, which do not exist.
-- [ ] D8. `ARCHITECTURE.md:212` says that profile and region changes call `ClearCache()`. They replace the navigator (`app.go:874`, `:964`).
+- [x] D8. Fixed in #215. `ARCHITECTURE.md:212` says that profile and region changes call `ClearCache()`. They replace the navigator (`app.go:874`, `:964`).
 - [ ] D9. `services/aws/ec2.md:136` says that `?` searches public AMIs. The key is `p` (`ami_list.go:48`).
 - [ ] D10. `TESTING.md:146` says that EC2 has 8 methods and S3 has 17. The interfaces have 21 and 18. `TESTING.md:189` names `ec2InstancesLoadedMsg`. The real type is `ec2PageLoadedMsg`.
 - [ ] D11. `DEVELOPMENT.md:7` says Go 1.22 or later. `go.mod` needs 1.26.2. `DEVELOPMENT.md:57` does not list `sqs` in the seed `--service` values.
@@ -358,7 +358,7 @@ Three gaps cause most of the bugs above:
 - [x] A1. Addressed messages. Done in #201, with view identity in place of a session generation (each session builds a new navigator). Wrap command results in `msg.Routed{ViewID, Gen, Msg}` with a helper such as `nav.Tag(viewID, gen, cmd)`. Keep a session generation on the model, and increase it on each profile or region switch. Drop results from an old generation. Deliver other results to the cached view, also when it is not on top. Open panels and overlays only when the source view is current. Add a load generation per view for refresh. Fixes C2, H3, H4, H5, M12, and M13.
 - [x] A2. Table keyed by resource ID. Done in #213 with `ui.Row`, `SetRows`, `AppendRows`, `CursorKey`, `SetCursorByKey`, `SelectedKeys`, and `TargetKeys`. The configurable table KeyMap is not done. It belongs with the input work in A3. Add `SetRowsKeyed`, `SelectedKeys`, `SetCursorByKey`, and `AppendRows`. Draw the marker outside the cell data. Allow only visible selections. Cache the sorted order and the search text. Make the table KeyMap configurable. Fixes C3, C4, M8, M10, M17, and P2.
 - [x] A3. Input capture and a central ReadOnly guard. Done in #214, with ReadOnly guards on the AWS services. The table KeyMap from A2 is configurable with `Table.SetKeyMap`. Add an `InputCapturer` interface that replaces the `FormView` special case. Test ReadOnly again when an action runs. Consider ReadOnly decorators for the AWS services. Fixes H2 and M27.
-- [ ] A4. AWS services bundle. Add `aws.Services` and one `switchSession(profile, region)` function (#195). Build all services from one client and handle the error. Increase the session generation. Clear the panel, the stash, the history, and `err` in one `resetNav()`, which also calls `home.Init()`. Fixes H6, M11, and L3.
+- [x] A4. AWS services bundle. Done in #215 with `aws.Services`, `aws.NewServices`, `switchSession()`, and `resetNav()`, and it closes #195. There is no session generation: as in A1, each session builds a new navigator, so view identity does the same job. Add `aws.Services` and one `switchSession(profile, region)` function (#195). Build all services from one client and handle the error. Increase the session generation. Clear the panel, the stash, the history, and `err` in one `resetNav()`, which also calls `home.Init()`. Fixes H6, M11, and L3.
 - [ ] A5. Data-driven routes. Use `map[viewID]struct{Factory func(*aws.Services, params) nav.View; Root string}`. This replaces `resolveView`, `topLevelViewID`, and the sync test. Fixes L5.
 - [ ] A6. Panel controller. Move open, close, stash, and history into a `panelController` type. Key the stash and the history by owner view ID and depth. Back traversal pops to `entry.navDepth`.
 - [ ] A7. Overlay stack. Define an `Overlay` interface (`Visible`, `Update`, `View`, `SetSize`) and keep overlays in a stack. Use typed replies with a `ReplyTo` view ID in place of string IDs. Return a typed picker result in place of the values -1, -2, and `"_clear"`.
