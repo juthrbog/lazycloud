@@ -45,6 +45,20 @@ Follow these rules when you write a view:
 - For a paginated list, give each full load a generation. Put the generation in each page message, and drop pages from an older load. See `startLoad` in `internal/views/ec2_list.go`. Without a generation, a refresh during a load duplicates rows.
 - The navigator calls `Init` each time it shows a cached view. If a load is already running, do not start a second one.
 
+### Table Rows and Selection
+
+`ui.Table` identifies each row by a key: the ID of the resource in the row. A view passes `[]ui.Row` values with a `Key`, the `Cells`, and optional `Sort` values. The cursor and the selection follow the key. They stay on the same resource when the rows are reloaded, sorted, or filtered.
+
+Rules for view code:
+
+- Use a key that is unique in the list, for example an instance ID, a bucket name, an S3 object key, a queue URL, or a message ID.
+- Read the row under the cursor with `CursorKey()`, and find the resource by its key. Do not read the ID from the cell text.
+- For an action on several rows, use `TargetKeys()`. It returns the selected keys, or the cursor key when no row is selected.
+- To move the cursor to a resource, for example for a focus link, use `SetCursorByKey`.
+- For the first page of a load, call `SetRows`. For each later page, call `AppendRows`, which sorts only the new rows.
+- The filter deselects the rows that it hides, so an action never applies to a row that the user cannot see.
+- A selected key whose row is not loaded stays selected, so a reload keeps the selection. After an action removes resources, call `DeselectAll()`.
+
 ### Progressive Loading
 
 Large S3 listings use command chaining: each page fetch returns a message, the handler appends data and returns a command for the next page. The table updates after each page so users see results within ~200ms.
