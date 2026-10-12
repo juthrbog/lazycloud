@@ -139,7 +139,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Problem: This installs exactly `go 1.26.2`. Under that toolchain, govulncheck finds 20 reachable vulnerabilities: 19 in the standard library (fixed in 1.26.6 to 1.26.9) and H9. Release binaries use the same toolchain. A local run shows only H9 when the local Go is newer.
   - Fix: use `go-version: "1.26.x"` with `check-latest: true`, or add a `toolchain` line to `go.mod`.
 
-- [x] H11. No scan runs when the repository is idle. Evidence: GitHub settings and workflow files. Fixed on branch `ci/scheduled-scans` with a weekly schedule, `workflow_dispatch`, and `dependabot.yml` (I8). The weekly run skips lint and gitleaks, because they use no advisory data. Dependabot alerts and security updates are on in the repository settings.
+- [x] H11. No scan runs when the repository is idle. Evidence: GitHub settings and workflow files. Fixed in #202 with a weekly schedule, `workflow_dispatch`, and `dependabot.yml` (I8). The weekly run skips lint and gitleaks, because they use no advisory data. Dependabot alerts and security updates are on in the repository settings.
   - Problem: Security scans run only on push and pull request. The last run was in April 2026. Dependabot alerts and Dependabot security updates are off, and there is no `dependabot.yml`. GitHub also turns off scheduled workflows after 60 days without activity in a public repository.
   - Fix: add a weekly `schedule` and `workflow_dispatch` to `security.yml`. Add `.github/dependabot.yml` (I8). Turn on Dependabot alerts and security updates.
 
@@ -305,7 +305,7 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 - [ ] I5. The lint configuration is light. Add these linters (hit counts with v2.14): `nilerr` (1), `noctx` (3), `exhaustive` with `default-signifies-exhaustive: true` (2), `errorlint` (0), `bodyclose` (0), `contextcheck` (0), `nolintlint` (0), `testifylint` (35, auto-fix), `gocritic` (28), `unparam` (7), and `modernize` (23, auto-fix). Do not add `revive` (192, mostly the "exported" rule), `goconst` (186), `wrapcheck` (101), or `perfsprint` (33). Also read all 14 `//nolint` comments again. One of them hid C1.
 - [ ] I6. `task lint` uses the golangci-lint version that is installed on the machine. There are no `test:race`, `vuln`, or `cover` tasks.
 - [ ] I7. Release gaps: no Windows build (it compiles, but SSM needs a guard). No Homebrew tap (#41). `go install` prints the version "dev", so add a `debug.ReadBuildInfo()` fallback and document `go install`. The changelog filters (`^docs:` and others) match nothing, because commits do not use these prefixes. Use `changelog: use: github` with groups. No SBOM, no cosign signature, no provenance, no `-trimpath`, no `mod_timestamp`. The README demo GIF is commented out.
-- [x] I8. Add `.github/dependabot.yml`. Done on branch `ci/scheduled-scans`. It updates Go modules (with `aws` and `charm` groups) and actions (one group) every week, and the LocalStack image every month. Version updates for Go modules and actions wait 7 days after a release (`cooldown`). Security updates do not wait.
+- [x] I8. Add `.github/dependabot.yml`. Done in #202. It updates Go modules (with `aws` and `charm` groups) and actions (one group) every week, and the LocalStack image every month. Version updates for Go modules and actions wait 7 days after a release (`cooldown`). Security updates do not wait.
 
 - [ ] I9. 16 of 17 direct dependencies are out of date. Only `huh` is current.
 
