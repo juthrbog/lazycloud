@@ -47,7 +47,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [ ] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199.
 - [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
 - [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
-- [ ] Phase 4, input capture and central ReadOnly guard (A3): H2, M27.
+- [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done on branch `fix/input-capture`, with T3, T5, D3, D4, and D14.
 - [ ] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3.
 - [ ] Phase 6, CI and release: H10, H11, H12, I1 to I9.
 - [ ] Phase 7, the remaining medium findings.
@@ -87,7 +87,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Problem: `ReceiveMessages` sets `VisibilityTimeout: 0`. The SDK sends this field only when it is not zero (`sqs@v1.42.25/serializers.go:2100`). So the default visibility timeout of the queue applies: 30 seconds by default, up to 12 hours. Each `l` or `r` press hides up to 10 messages from real consumers and adds 1 to their receive count. On a queue with a redrive policy and a low `maxReceiveCount`, a few peeks make the next real receive move the message to the dead-letter queue (DLQ) without processing. On FIFO queues, a peek also locks the message group. Peek works in ReadOnly mode. The banner says "VisibilityTimeout=0", which is false. The seed tool sets the queue default to 0, which hides the bug in LocalStack.
   - Fix: right after the receive, call `ChangeMessageVisibilityBatch` with `VisibilityTimeout` 0 for the received handles. The receive count still goes up, so block peek in ReadOnly mode, or warn when a message is near `maxReceiveCount`. Fix the banner. Remove the workaround in the seed tool.
 
-- [ ] H2. Global keys act while the user types in a filter or input. Evidence: reproduced.
+- [x] H2. Global keys act while the user types in a filter or input. Evidence: reproduced. Fixed on branch `fix/input-capture`. Views implement `nav.InputCapturer`. While a filter or another input is active, the app gives the view every key except `ctrl+c`. The guarded AWS services refuse the copy in the ReadOnly bypass below.
   - Where: `internal/app/app.go:438-492`.
   - Problem: The app handles global keys before the view gets the key. Only `FormView` is exempt. In a filter, or in the S3 copy and move input, these keys misfire:
     - `q` closes the view.
@@ -218,7 +218,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] M26. Pagination is incomplete for versions and AMIs. Evidence: traced. `ListObjectVersions` (`s3.go:562`) reads one page with `Prefix=key`, so results stop at 1,000 and include sibling keys. Use `NewListObjectVersionsPaginator`. `SearchAMIs` sets no `Owners`, so it scans all public images, and it reads one filtered page of 100. Such a page can come back almost empty while `NextToken` is set (plausible). `ListOwnedAMIs` is not paginated. `ListInstancesPage` sets no `MaxResults`.
 
-- [ ] M27. ReadOnly is not enforced in one place. Evidence: traced. ReadOnly depends on 11 hand-written `if ui.ReadOnly` tests at key press. No prompt or picker callback tests ReadOnly again. `ui.ApplyModeAll` changes copies of the bindings (`keys.go:49`), so disabled bindings still match. Fix: A3.
+- [x] M27. ReadOnly is not enforced in one place. Evidence: traced. Fixed on branch `fix/input-capture`. The app blocks every `ModeReadWrite` key of the view on top, and the 10 key-press checks of `ui.ReadOnly` in the views are gone. `aws.GuardS3`, `aws.GuardEC2`, and `aws.GuardSQS` refuse the 22 mutating methods when the action runs. `ui.ReadOnly` is now an atomic value behind `ui.IsReadOnly()` and `ui.SetReadOnly()`, because the guards read it from command goroutines. ReadOnly depends on 11 hand-written `if ui.ReadOnly` tests at key press. No prompt or picker callback tests ReadOnly again. `ui.ApplyModeAll` changes copies of the bindings (`keys.go:49`), so disabled bindings still match. Fix: A3.
 
 ## Low
 
@@ -291,9 +291,9 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 
 - [ ] T1. The mocks are weak. `MockSQSService` is not used. In 7 of 9 view test helpers, the returned mock is not used. Only 2 tests call `AssertExpectations`, and 1 test calls `AssertCalled`.
 - [ ] T2. Tests change the global `ui.ReadOnly` in 24 places, so tests cannot use `t.Parallel()`.
-- [ ] T3. The ReadOnly tests look only at the toast on key press. No test drives a prompt callback. The KeyMap tests look at hint metadata, which supports the false idea that `ApplyModeAll` blocks keys.
+- [x] T3. Fixed on branch `fix/input-capture`: app tests drive a confirmed delete and a copy input after a switch to ReadOnly. The ReadOnly tests look only at the toast on key press. No test drives a prompt callback. The KeyMap tests look at hint metadata, which supports the false idea that `ApplyModeAll` blocks keys.
 - [ ] T4. Only 4 tests use teatest, all for S3. `TestTeatest_S3ListFilter` is weak (plausible): "alpha" also matches the filter prompt, and the diff renderer does not redraw removed rows, so the `!gamma` assertion passes even if filtering breaks.
-- [ ] T5. Add a table-driven ReadOnly guard test across all views and every ReadWrite key. Assert an error toast and no mock calls.
+- [x] T5. Done on branch `fix/input-capture` in `internal/app/input_test.go` and `internal/aws/readonly_test.go`. Add a table-driven ReadOnly guard test across all views and every ReadWrite key. Assert an error toast and no mock calls.
 - [ ] T6. Add SQS view tests with `MockSQSService`: purge, delete queue, batch delete of messages, and redrive. Assert the exact arguments, then call `AssertExpectations`.
 - [ ] T7. Add S3 delete resolution tests: folder expansion through `ListAllKeys`, selected rows that the filter hides, and the error path.
 - [ ] T8. Add AWS layer tests with an httptest server. `NewClient("", "us-east-1", srv.URL)` uses `BaseEndpoint`, so no code change is necessary. Assert request bodies and headers (`VisibilityTimeout`, `CopySource`, pagination loops) and error handling (`out.Errors`, `Failed`). Cover 1,001 keys in two delete batches.
@@ -332,8 +332,8 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 
 - [ ] D1. `README.md:163`, `TESTING.md:8` and `:279`, and `DEVELOPMENT.md:111` describe integration tests. No file has a `//go:build integration` tag, so `task test:integration` runs the unit tests again.
 - [ ] D2. `ARCHITECTURE.md:169-203` describes a "Context-Aware Action System" with `ActionProvider` and `Actions()`. This code does not exist. The real mechanism is `HintBinding` and `KeyMap()`.
-- [ ] D3. `KEYBINDINGS.md:50` and `:58` say that disabled ReadWrite bindings never match. This is false. The only guards are the `if ui.ReadOnly` tests in each view (M27).
-- [ ] D4. `KEYBINDINGS.md:59` says that the help overlay filters by mode. It shows all hints with an `[RW]` badge (`help.go:160-172`).
+- [x] D3. Fixed on branch `fix/input-capture`. `KEYBINDINGS.md:50` and `:58` say that disabled ReadWrite bindings never match. This is false. The only guards are the `if ui.ReadOnly` tests in each view (M27).
+- [x] D4. Fixed on branch `fix/input-capture`. `KEYBINDINGS.md:59` says that the help overlay filters by mode. It shows all hints with an `[RW]` badge (`help.go:160-172`).
 - [ ] D5. `README.md:107` says that `W` toggles the mode. It opens a picker (`keys.go:82`).
 - [ ] D6. The README keybinding table says that `s` sorts. On Home, `s` opens the service picker (`keys.go:93`). The table does not list `L`, `T`, `P`, `R`, or `backspace`.
 - [ ] D7. The VPC, subnet, and security group views are not in `README.md:39`, `services/aws/ec2.md`, or `ARCHITECTURE.md:131-158`. The navigation tree in `ARCHITECTURE.md` lists Volumes and Key Pairs, which do not exist.
@@ -343,7 +343,7 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 - [ ] D11. `DEVELOPMENT.md:7` says Go 1.22 or later. `go.mod` needs 1.26.2. `DEVELOPMENT.md:57` does not list `sqs` in the seed `--service` values.
 - [ ] D12. `UI_COMPONENTS.md` and `THEMING.md` have small errors: glyphs (`▀` and `▄`, fallback icons), the hint separator, toast timeouts, and log colors.
 - [ ] D13. `BUBBLETEA.md` is the original bootstrap spec, not a tutorial. It shows an old tree without SQS, a seed script that was never built, and a type named `EC2ListView`. Delete it. `CHARM.md` is a general layout reference for v2.0.x. Move it to `docs/reference/` with an "as of" note.
-- [ ] D14. The docs list `d` and `u` as half-page keys. The bubbles table binds them, but they collide with Describe and Presign.
+- [x] D14. Fixed on branch `fix/input-capture`: `ui.DefaultTableKeyMap()` binds a half page to `ctrl+d` and `ctrl+u` only. The docs list `d` and `u` as half-page keys. The bubbles table binds them, but they collide with Describe and Presign.
 
 ## Architecture
 
@@ -357,7 +357,7 @@ Three gaps cause most of the bugs above:
 
 - [x] A1. Addressed messages. Done in #201, with view identity in place of a session generation (each session builds a new navigator). Wrap command results in `msg.Routed{ViewID, Gen, Msg}` with a helper such as `nav.Tag(viewID, gen, cmd)`. Keep a session generation on the model, and increase it on each profile or region switch. Drop results from an old generation. Deliver other results to the cached view, also when it is not on top. Open panels and overlays only when the source view is current. Add a load generation per view for refresh. Fixes C2, H3, H4, H5, M12, and M13.
 - [x] A2. Table keyed by resource ID. Done in #213 with `ui.Row`, `SetRows`, `AppendRows`, `CursorKey`, `SetCursorByKey`, `SelectedKeys`, and `TargetKeys`. The configurable table KeyMap is not done. It belongs with the input work in A3. Add `SetRowsKeyed`, `SelectedKeys`, `SetCursorByKey`, and `AppendRows`. Draw the marker outside the cell data. Allow only visible selections. Cache the sorted order and the search text. Make the table KeyMap configurable. Fixes C3, C4, M8, M10, M17, and P2.
-- [ ] A3. Input capture and a central ReadOnly guard. Add an `InputCapturer` interface that replaces the `FormView` special case. Test ReadOnly again when an action runs. Consider ReadOnly decorators for the AWS services. Fixes H2 and M27.
+- [x] A3. Input capture and a central ReadOnly guard. Done on branch `fix/input-capture`, with ReadOnly guards on the AWS services. The table KeyMap from A2 is configurable with `Table.SetKeyMap`. Add an `InputCapturer` interface that replaces the `FormView` special case. Test ReadOnly again when an action runs. Consider ReadOnly decorators for the AWS services. Fixes H2 and M27.
 - [ ] A4. AWS services bundle. Add `aws.Services` and one `switchSession(profile, region)` function (#195). Build all services from one client and handle the error. Increase the session generation. Clear the panel, the stash, the history, and `err` in one `resetNav()`, which also calls `home.Init()`. Fixes H6, M11, and L3.
 - [ ] A5. Data-driven routes. Use `map[viewID]struct{Factory func(*aws.Services, params) nav.View; Root string}`. This replaces `resolveView`, `topLevelViewID`, and the sync test. Fixes L5.
 - [ ] A6. Panel controller. Move open, close, stash, and history into a `panelController` type. Key the stash and the history by owner view ID and depth. Back traversal pops to `entry.navDepth`.
@@ -385,7 +385,7 @@ Three gaps cause most of the bugs above:
 
 ## ReadOnly coverage
 
-This table lists every mutating action at `f107757`, with the changes from #199. The security group, VPC, subnet, AMI, and versions views have no mutations.
+This table lists every mutating action at `f107757`, with the changes from #199. Since Phase 4 (on branch `fix/input-capture`), the app blocks each ReadWrite key centrally, and the guarded AWS services refuse each mutating call in ReadOnly mode when the action runs. The "ReadOnly guard" and "Guard runs again at commit" columns show the state before Phase 4. The security group, VPC, subnet, AMI, and versions views have no mutations.
 
 | View | Action | ReadOnly guard | Guard runs again at commit | Prompt | Prompt shows targets |
 |---|---|---|---|---|---|
