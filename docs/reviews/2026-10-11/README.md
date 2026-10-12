@@ -2,7 +2,7 @@
 
 This file tracks the findings of a full review of LazyCloud at commit `f107757` on `main`. Six reviewers each read one area: app core, AWS layer, views, UI components, tests and CI, and the market. Most findings have a repro test or a benchmark. The archived repro tests are in [`repro/`](repro/). The market research is in [`market-research.md`](market-research.md).
 
-PR #199 fixes C1 and adds this file. Release v0.5.0 soon after the merge, because v0.4.0 still contains C1.
+PR #199 fixed C1 and added this file. Release v0.5.0 contains the fix. v0.4.0 still contains C1.
 
 ## How to use this file
 
@@ -45,7 +45,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and in #200.
 - [ ] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199.
-- [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done on branch `fix/addressed-messages`, except the stash parts of M12 (A6).
+- [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
 - [ ] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M18, P2.
 - [ ] Phase 4, input capture and central ReadOnly guard (A3): H2, M27.
 - [ ] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3.
@@ -62,7 +62,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Related: the code looks up `session-manager-plugin` but not `aws`. Connect works in ReadOnly mode. `sh` does not exist on Windows.
   - Fix: do not build a shell string. Run `aws` directly with `exec.Command`. Print the banner from Go in a small `tea.ExecCommand` wrapper. Remove control characters from the label. Look up `aws` with `exec.LookPath`. Decide if Connect needs ReadWrite mode.
 
-- [x] C2. An S3 delete can run in a different bucket. Evidence: reproduced. Fixed on branch `fix/addressed-messages` (routing, plus a bucket guard in `s3DeleteResolvedMsg`).
+- [x] C2. An S3 delete can run in a different bucket. Evidence: reproduced. Fixed in #201 (routing, plus a bucket guard in `s3DeleteResolvedMsg`).
   - Where: `internal/views/s3_objects.go:247-265` and `:381-388`, `internal/app/app.go:537`.
   - Problem: To delete a folder, the view first lists all keys under the folder. For a large folder, this takes seconds. The result message `s3DeleteResolvedMsg` holds the keys but not the bucket. The app sends each unknown message to the view on top of the stack. If the user opens bucket B before the list finishes, the view for B receives the keys and calls `DeleteObjects` on bucket B. No prompt shows for B. `DeleteObjects` also succeeds for keys that do not exist, so the user sees no sign of the problem. Buckets for staging and production often share a key layout.
   - Fix: put the bucket and prefix in the message, and drop a message that does not match. The general fix is A1. Also test ReadOnly again before the delete starts (A3).
@@ -97,12 +97,12 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - ReadOnly bypass: in ReadWrite mode, press `c` to copy. Press `W` and choose ReadOnly. Press `enter`. `CopyObject` still runs. Move and Create bucket act the same way.
   - Fix: add an `InputCapturer` interface for views (A3). When the view captures input, skip all global keys except `ctrl+c`. Test ReadOnly again when the action runs.
 
-- [x] H3. Results from the old region or profile appear in the new view. Evidence: reproduced. Fixed on branch `fix/addressed-messages`.
+- [x] H3. Results from the old region or profile appear in the new view. Evidence: reproduced. Fixed in #201.
   - Where: `applyProfile` at `app.go:854-895`, `applyRegion` at `app.go:944-985`, `ec2_list.go:323`.
   - Problem: Open EC2 in one account, and switch the profile or the region before the load ends. The old page is appended to the new list, so one table mixes two accounts. The next-page token from the old account then goes to the new client and fails. No message carries a session ID or a request ID.
   - Fix: add a session generation to the app and to each routed message (A1).
 
-- [x] H4. Async results go only to the view on top. Evidence: reproduced. Fixed on branch `fix/addressed-messages`.
+- [x] H4. Async results go only to the view on top. Evidence: reproduced. Fixed in #201.
   - Where: `app.go:537`, `internal/nav/navigator.go:76-84`.
   - Problem: Results for a view that is not on top are lost, or they reach the wrong view:
     - Stop an instance and press `q` before the call returns. Home receives `ec2InstanceMutatedMsg` and drops it. No toast and no event log entry show. The cached EC2 view keeps the "stopping" state and a frozen spinner.
@@ -110,7 +110,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
     - A view that is still loading starts a second fetch when the user opens it again. Rows then appear twice, for example "4/4" for 2 instances.
   - Fix: A1.
 
-- [x] H5. Two refreshes in a row duplicate rows. Evidence: reproduced. Fixed on branch `fix/addressed-messages` with a load generation in the EC2, VPC, subnet, SQS queue, and S3 object lists.
+- [x] H5. Two refreshes in a row duplicate rows. Evidence: reproduced. Fixed in #201 with a load generation in the EC2, VPC, subnet, SQS queue, and S3 object lists.
   - Where: `ec2_list.go:316`, `vpc_list.go:151`, `subnet_list.go:177`, `sqs_queues.go:417`, and `s3_objects.go`.
   - Problem: Press `r` twice, or press `r` during a load. Both fetch chains append to the list. `sqs_queues` duplicates rows even with one page. The bucket and prefix guard in `s3_objects` does not stop this case.
   - Fix: put a load generation in every page message, and drop pages from an old generation (A1).
@@ -185,12 +185,12 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - `popCrossNavBack` (`app.go:727-741`) pops only one level. For EC2, then a link to VPCs, then Subnets, `backspace` opens the EC2 instance panel over the VPC list.
   - `:home` (`app.go:560-564`) keeps the panel open and keeps the history. `applyTheme` (`app.go:987-1015`) keeps the history. In both cases, `backspace` on Home restores an old resource panel.
 
-- [ ] M12. Panel state leaks across views. Evidence: reproduced. The late `TabbedContentMsg` case is fixed on branch `fix/addressed-messages`. The stash and `L` cases are open (A6).
+- [ ] M12. Panel state leaks across views. Evidence: reproduced. The late `TabbedContentMsg` case is fixed in #201. The stash and `L` cases are open (A6).
   - The app clears the stashed panel only when `panelOpen` is true (`app.go:174`, `:264`, `:443`). Make the terminal narrow, navigate, then make it wide. The old panel opens over the new view.
   - The `L` key pushes the event log with the panel still open (`app.go:470`).
   - `fetchMetadataAndNavigate` returns `TabbedContentMsg` directly (`s3_objects.go:861-882`). A late result opens and focuses a panel over an unrelated view.
 
-- [x] M13. Errors go to the wrong view and stay on screen. Evidence: reproduced. Fixed on branch `fix/addressed-messages`. `app.go:230-234` sends each `ErrorMsg` to the current view. An S3 `HeadObject` error then hides the EC2 table. The app never clears `m.err` on navigation. `RenderStatusBar` (`statusbar.go:32-40`) shows that error in place of all key hints until `:home`, a session switch, or a restart.
+- [x] M13. Errors go to the wrong view and stay on screen. Evidence: reproduced. Fixed in #201. `app.go:230-234` sends each `ErrorMsg` to the current view. An S3 `HeadObject` error then hides the EC2 table. The app never clears `m.err` on navigation. `RenderStatusBar` (`statusbar.go:32-40`) shows that error in place of all key hints until `:home`, a session switch, or a restart.
 
 - [x] M14. In quick-confirm mode, Enter means Yes. Fixed in #199. Evidence: traced. Where: `internal/ui/confirm.go:78`. Quick mode is used for "Discard unsaved changes?" and for the theme switch, which clears the navigation stack. The hint shows only `y` and `n`. Fix: make Enter mean No.
 
@@ -368,7 +368,7 @@ Three gaps cause most of the bugs above:
 2. The table identifies rows by position, and it draws the selection marker by changing the data.
 3. ReadOnly depends on per-view tests at key press, and global keys run before the view.
 
-- [x] A1. Addressed messages. Done on branch `fix/addressed-messages`, with view identity in place of a session generation (each session builds a new navigator). Wrap command results in `msg.Routed{ViewID, Gen, Msg}` with a helper such as `nav.Tag(viewID, gen, cmd)`. Keep a session generation on the model, and increase it on each profile or region switch. Drop results from an old generation. Deliver other results to the cached view, also when it is not on top. Open panels and overlays only when the source view is current. Add a load generation per view for refresh. Fixes C2, H3, H4, H5, M12, and M13.
+- [x] A1. Addressed messages. Done in #201, with view identity in place of a session generation (each session builds a new navigator). Wrap command results in `msg.Routed{ViewID, Gen, Msg}` with a helper such as `nav.Tag(viewID, gen, cmd)`. Keep a session generation on the model, and increase it on each profile or region switch. Drop results from an old generation. Deliver other results to the cached view, also when it is not on top. Open panels and overlays only when the source view is current. Add a load generation per view for refresh. Fixes C2, H3, H4, H5, M12, and M13.
 - [ ] A2. Table keyed by resource ID. Add `SetRowsKeyed`, `SelectedKeys`, `SetCursorByKey`, and `AppendRows`. Draw the marker outside the cell data. Allow only visible selections. Cache the sorted order and the search text. Make the table KeyMap configurable. Fixes C3, C4, M8, M10, M17, and P2.
 - [ ] A3. Input capture and a central ReadOnly guard. Add an `InputCapturer` interface that replaces the `FormView` special case. Test ReadOnly again when an action runs. Consider ReadOnly decorators for the AWS services. Fixes H2 and M27.
 - [ ] A4. AWS services bundle. Add `aws.Services` and one `switchSession(profile, region)` function (#195). Build all services from one client and handle the error. Increase the session generation. Clear the panel, the stash, the history, and `err` in one `resetNav()`, which also calls `home.Init()`. Fixes H6, M11, and L3.
