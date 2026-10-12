@@ -6,6 +6,15 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIsServiceView(t *testing.T) {
+	for _, id := range []string{"ec2_list", "subnet_list", "s3_list", "sqs_queues"} {
+		assert.True(t, IsServiceView(id), id)
+	}
+	for _, id := range []string{"s3_objects", "sqs_messages", "eventlog", "home", ""} {
+		assert.False(t, IsServiceView(id), id)
+	}
+}
+
 func TestEveryServiceFeatureHasNavCommand(t *testing.T) {
 	for _, svc := range Services {
 		for _, feat := range svc.Features {

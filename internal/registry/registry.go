@@ -48,6 +48,20 @@ var Services = []Service{
 	}},
 }
 
+// IsServiceView reports whether viewID is the view of a service feature, for
+// example "ec2_list" or "s3_list". These are the views that a user opens from
+// the service picker or the command bar.
+func IsServiceView(viewID string) bool {
+	for _, s := range Services {
+		for _, f := range s.Features {
+			if f.ViewID == viewID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Commands is the ordered list of commands available in the command palette.
 var Commands = []Command{
 	{Name: "quit", Aliases: []string{"q", "qa", "qall"}, Description: "Exit LazyCloud"},

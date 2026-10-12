@@ -2,6 +2,7 @@ package nav
 
 import (
 	"reflect"
+	"slices"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -159,9 +160,20 @@ func (n *Navigator) Pop() (View, tea.Cmd) {
 	return n.Current(), nil
 }
 
+// PopTo removes views from the top until depth views are left. The root view
+// always stays. Like Pop, it keeps the removed views in the cache.
+func (n *Navigator) PopTo(depth int) {
+	n.stack = n.stack[:max(1, min(depth, len(n.stack)))]
+}
+
 // Current returns the top of the stack.
 func (n *Navigator) Current() View {
 	return n.stack[len(n.stack)-1]
+}
+
+// Views returns the views on the stack, from the root to the top.
+func (n *Navigator) Views() []View {
+	return slices.Clone(n.stack)
 }
 
 // Breadcrumbs returns the Title() of each view in the stack.
