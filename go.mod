@@ -18,7 +18,7 @@ require (
 	github.com/aws/smithy-go v1.24.2
 	github.com/charmbracelet/x/ansi v0.11.6
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260316093931-f2fb44ab3145
-	github.com/pelletier/go-toml/v2 v2.2.4
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.20.0
 )
