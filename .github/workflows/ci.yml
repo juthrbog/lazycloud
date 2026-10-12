@@ -13,9 +13,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           # go.mod sets the minimum Go version. Build and scan with the latest
           # patch of that minor version, so standard library fixes apply.
