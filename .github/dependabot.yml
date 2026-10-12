@@ -8,6 +8,11 @@ updates:
     # release can be pulled first. Security updates do not wait.
     cooldown:
       default-days: 7
+    # Version updates cover the direct dependencies. go.mod lists the
+    # govulncheck tool as indirect, so it needs a rule of its own.
+    allow:
+      - dependency-type: direct
+      - dependency-name: golang.org/x/vuln
     groups:
       aws:
         patterns: ["github.com/aws/*"]
