@@ -211,10 +211,10 @@ func TestSetColumnsSwapsColumns(t *testing.T) {
 	tbl.SetColumns(newCols)
 
 	assert.Equal(t, 2, len(tbl.flexColumns))
-	assert.Equal(t, -1, tbl.sortCol, "sort should be reset after SetColumns")
+	assert.Equal(t, -1, tbl.sortCol, "an unsorted table stays unsorted")
 }
 
-func TestSetColumnsResetsSortState(t *testing.T) {
+func TestSetColumnsClearsSortWhenColumnIsGone(t *testing.T) {
 	tbl := testTable()
 	tbl.Sort(0) // sort by Name
 	assert.Equal(t, 0, tbl.sortCol)
@@ -225,4 +225,28 @@ func TestSetColumnsResetsSortState(t *testing.T) {
 	})
 
 	assert.Equal(t, -1, tbl.sortCol, "sort column should reset")
+}
+
+// A change of width tier can move the sorted column to another index. The
+// sort follows the column title.
+func TestSetColumnsKeepsSortOnMovedColumn(t *testing.T) {
+	tbl := testTable()
+	tbl.Sort(1)
+	tbl.SortReverse() // Size, descending
+
+	tbl.SetColumns([]Column{
+		{Title: "Name", Width: 20},
+		{Title: "Date", Width: 12},
+		{Title: "Size", Width: 10},
+	})
+	tbl.SetRows(keyed(
+		table.Row{"charlie", "2024-03-01", "100"},
+		table.Row{"alpha", "2024-01-01", "300"},
+		table.Row{"bravo", "2024-02-01", "200"},
+	))
+
+	assert.Equal(t, 2, tbl.sortCol)
+	assert.Equal(t, SortDesc, tbl.sortDir)
+	assert.Equal(t, "Size ▼", tbl.inner.Columns()[2].Title)
+	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, tbl.VisibleKeys())
 }

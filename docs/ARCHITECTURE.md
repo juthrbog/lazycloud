@@ -56,6 +56,7 @@ Rules for view code:
 - For an action on several rows, use `TargetKeys()`. It returns the selected keys, or the cursor key when no row is selected.
 - To move the cursor to a resource, for example for a focus link, use `SetCursorByKey`.
 - For the first page of a load, call `SetRows`. For each later page, call `AppendRows`, which sorts only the new rows.
+- When the width tier changes the column set, call `SetColumns`, then `SetRows` with the cells in the new column order. The sort stays on the column with the same title. Give each column a unique title, or keep a shared title, such as an empty icon column, at the same index in every tier.
 - The filter deselects the rows that it hides, so an action never applies to a row that the user cannot see.
 - A selected key whose row is not loaded stays selected, so a reload keeps the selection. After an action removes resources, call `DeselectAll()`.
 

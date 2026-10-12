@@ -109,11 +109,16 @@ func (t Table) Columns() []Column {
 	return t.flexColumns
 }
 
-// SetColumns swaps the column set without recreating the table.
-// Clears rows and resets sort state since column indices may have changed.
-// The selection and the cursor key are kept — callers repopulate rows with
-// the same data.
+// SetColumns swaps the column set without recreating the table, for example
+// when a change in width moves the view to another tier. It clears the rows.
+// The sort stays on the column with the same title, at its new index, and is
+// cleared when the new set has no such column. The selection and the cursor
+// key are kept, because callers repopulate rows with the same data.
 func (t *Table) SetColumns(columns []Column) {
+	sortCol := -1
+	if t.sorted() {
+		sortCol = columnIndex(columns, t.flexColumns[t.sortCol].Title, t.sortCol)
+	}
 	flex := make([]Column, len(columns))
 	copy(flex, columns)
 	t.flexColumns = flex
@@ -124,9 +129,26 @@ func (t *Table) SetColumns(columns []Column) {
 	t.index = make(map[string]int)
 	t.selCount = 0
 	t.inner.SetRows(nil)
-	t.sortCol = -1
-	t.sortDir = SortAsc
+	t.sortCol = sortCol
+	if sortCol < 0 {
+		t.sortDir = SortAsc
+	}
 	t.resolveColumns()
+}
+
+// columnIndex returns the index of the column with the given title, or -1.
+// It prefers index hint, so that columns with the same title (for example
+// two empty titles) keep their position.
+func columnIndex(columns []Column, title string, hint int) int {
+	if hint >= 0 && hint < len(columns) && columns[hint].Title == title {
+		return hint
+	}
+	for i, c := range columns {
+		if c.Title == title {
+			return i
+		}
+	}
+	return -1
 }
 
 // resolveColumns computes fixed-width columns from flex definitions

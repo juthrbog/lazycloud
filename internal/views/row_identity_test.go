@@ -168,6 +168,29 @@ func TestSQSQueues_SelectedURLsInSortedList(t *testing.T) {
 	assert.Equal(t, []string{"ua"}, v.selectedQueueURLs())
 }
 
+// Opening a details panel makes the list narrower, and a narrower tier has
+// fewer columns. The sort stays on its column, so a DLQ link lands in the
+// same sorted list.
+func TestSQSQueues_SortSurvivesTierChange(t *testing.T) {
+	v, _ := newQueueList()
+	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{
+		{Name: "qa", URL: "ua", ApproximateMessageCount: 3},
+		{Name: "qb", URL: "ub", ApproximateMessageCount: 1},
+		{Name: "qc", URL: "uc", ApproximateMessageCount: 2},
+	}})
+	require.Len(t, v.table.Columns(), 7)
+	v.table.Sort(2) // Messages
+	require.Equal(t, []string{"ub", "uc", "ua"}, v.table.VisibleKeys())
+
+	v.Update(tea.WindowSizeMsg{Width: 40, Height: 30})
+	require.Len(t, v.table.Columns(), 2, "the narrow tier")
+	assert.Equal(t, []string{"ub", "uc", "ua"}, v.table.VisibleKeys())
+	names, col := v.table.SortColumnNames()
+	require.GreaterOrEqual(t, col, 0)
+	assert.Equal(t, "Messages", names[col])
+}
+
 // C3: the refresh after an SSM session reloads the list. The selection
 // stays on the same instances when the order changes.
 func TestEC2List_SelectionFollowsInstanceAcrossReload(t *testing.T) {
