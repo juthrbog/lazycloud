@@ -101,7 +101,7 @@ func NewVPCList(ec2 aws.EC2Service) *VPCList {
 	return &VPCList{
 		keys:      defaultVPCListKeyMap,
 		ec2:       ec2,
-		table:     ui.NewTable(vpcColumns(ui.TierMedium), nil),
+		table:     ui.NewTable(vpcColumns(ui.TierMedium)),
 		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner("Loading VPCs..."),
 		loading:   true,
@@ -169,7 +169,11 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return v, nil // page from a superseded load
 		}
 		v.vpcs = append(v.vpcs, m.vpcs...)
-		v.table.SetRows(buildVPCRows(v.vpcs, v.widthTier))
+		if m.pageNum == 1 {
+			v.table.SetRows(buildVPCRows(m.vpcs, v.widthTier)) // replaces the rows of the last load
+		} else {
+			v.table.AppendRows(buildVPCRows(m.vpcs, v.widthTier))
+		}
 		if m.hasMorePages {
 			return v, v.fetchPage(m.token, m.pageNum+1)
 		}
@@ -236,9 +240,7 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			v.filter.Activate()
 			return v, nil
 		case key.Matches(m, v.keys.CopyID):
-			selected := v.table.SelectedRow()
-			if selected != nil {
-				id := selected[0]
+			if id := v.table.CursorKey(); id != "" {
 				return v, tea.Batch(
 					tea.SetClipboard(id),
 					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
@@ -250,20 +252,15 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			v.spinner.Show("Loading VPCs...")
 			return v, v.startLoad()
 		case key.Matches(m, v.keys.Subnets):
-			selected := v.table.SelectedRow()
-			if selected == nil {
+			vpcID := v.table.CursorKey()
+			if vpcID == "" {
 				return v, nil
 			}
-			vpcID := selected[0]
 			return v, func() tea.Msg {
 				return msg.NavigateMsg{ViewID: "subnet_list", Params: map[string]string{"vpc_id": vpcID}}
 			}
 		case key.Matches(m, v.keys.Details, v.keys.Describe):
-			selected := v.table.SelectedRow()
-			if selected == nil {
-				return v, nil
-			}
-			vpc := v.findVPC(selected[0])
+			vpc := v.findVPC(v.table.CursorKey())
 			if vpc == nil {
 				return v, nil
 			}
@@ -292,12 +289,7 @@ func (v *VPCList) findVPC(id string) *aws.VPC {
 }
 
 func (v *VPCList) focusAndOpenDetail(id string) tea.Cmd {
-	for i, vpc := range v.vpcs {
-		if vpc.ID == id {
-			v.table.SetCursor(i)
-			break
-		}
-	}
+	v.table.SetCursorByKey(id)
 	vpc := v.findVPC(id)
 	if vpc == nil {
 		return nil
@@ -326,20 +318,22 @@ func (v *VPCList) openDetailCmd(vpc *aws.VPC) tea.Cmd {
 	}
 }
 
-func buildVPCRows(vpcs []aws.VPC, tier ui.WidthTier) []table.Row {
-	rows := make([]table.Row, 0, len(vpcs))
+func buildVPCRows(vpcs []aws.VPC, tier ui.WidthTier) []ui.Row {
+	rows := make([]ui.Row, 0, len(vpcs))
 	narrow := tier == ui.TierNarrow
 	for _, vpc := range vpcs {
 		state := ui.StateColor(vpc.State)
+		var cells table.Row
 		if narrow {
-			rows = append(rows, table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state})
+			cells = table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state}
 		} else {
 			def := "No"
 			if vpc.IsDefault {
 				def = "Yes"
 			}
-			rows = append(rows, table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state, def, vpc.InstanceTenancy})
+			cells = table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state, def, vpc.InstanceTenancy}
 		}
+		rows = append(rows, ui.Row{Key: vpc.ID, Cells: cells})
 	}
 	return rows
 }

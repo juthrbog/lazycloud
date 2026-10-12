@@ -133,14 +133,49 @@ func TestS3Objects_PageLoadedBuildsEntries(t *testing.T) {
 	})
 
 	assert.Len(t, view.entries, 2)
+	assert.True(t, view.entries["docs/"].isFolder)
+	assert.False(t, view.entries["file.txt"].isFolder)
+	assert.Equal(t, []string{"docs/", "file.txt"}, view.table.VisibleKeys(), "folders come first")
+}
 
-	// First entry is folder
-	assert.True(t, view.entries[0].isFolder)
-	assert.Equal(t, "docs/", view.entries[0].fullPath)
+// C3: a later page with a new folder moves every object down by one row.
+// The selection must stay on the selected object.
+func TestS3Objects_SelectionFollowsObjectWhenFolderArrives(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	view, _ := newTestS3Objects()
+	view.Update(s3PageLoadedMsg{
+		bucket: "test-bucket", objects: []aws.S3Object{{Key: "a.txt"}, {Key: "b.txt"}},
+		hasMorePages: true, pageNum: 1,
+	})
+	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	view.Update(tea.KeyPressMsg{Code: ' ', Text: " "}) // select b.txt
 
-	// Second entry is object
-	assert.False(t, view.entries[1].isFolder)
-	assert.Equal(t, "file.txt", view.entries[1].fullPath)
+	view.Update(s3PageLoadedMsg{
+		bucket: "test-bucket", prefixes: []string{"new/"}, objects: []aws.S3Object{{Key: "c.txt"}},
+		pageNum: 2,
+	})
+	require.Equal(t, []string{"new/", "a.txt", "b.txt", "c.txt"}, view.table.VisibleKeys())
+
+	entries := view.collectDeleteEntries()
+	require.Len(t, entries, 1)
+	assert.Equal(t, "b.txt", entries[0].fullPath)
+}
+
+func TestS3Objects_DeletePromptListsNames(t *testing.T) {
+	ui.ReadOnly = false
+	defer func() { ui.ReadOnly = true }()
+	view, _ := newTestS3Objects()
+	view.Update(s3PageLoadedMsg{
+		bucket: "test-bucket", prefixes: []string{"logs/"}, objects: []aws.S3Object{{Key: "a.txt"}},
+		pageNum: 1,
+	})
+	view.table.SelectAll()
+
+	_, cmd := view.Update(tea.KeyPressMsg{Code: 'x', Text: "x"})
+	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
+	require.True(t, ok)
+	assert.Equal(t, "Delete 1 folder(s) and 1 object(s)?\n  logs/\n  a.txt\nA folder is deleted with every object in it.", req.Message)
 }
 
 func TestS3Objects_StalePageDiscarded(t *testing.T) {
@@ -231,11 +266,11 @@ func TestS3Objects_NavigableDuringLoading(t *testing.T) {
 
 	// Press down arrow — should move cursor even while loading
 	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Equal(t, 1, view.table.SelectedIndex(), "cursor should move to row 1 during loading")
+	assert.Equal(t, "file2.json", view.table.CursorKey(), "cursor should move to row 1 during loading")
 
 	// Press down again
 	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Equal(t, 2, view.table.SelectedIndex(), "cursor should move to row 2 during loading")
+	assert.Equal(t, "file3.go", view.table.CursorKey(), "cursor should move to row 2 during loading")
 }
 
 func TestS3Objects_CursorPreservedOnNewPage(t *testing.T) {
@@ -255,7 +290,7 @@ func TestS3Objects_CursorPreservedOnNewPage(t *testing.T) {
 
 	// Move cursor to row 1
 	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Equal(t, 1, view.table.SelectedIndex(), "cursor should be at row 1")
+	assert.Equal(t, "file2.json", view.table.CursorKey(), "cursor should be at row 1")
 
 	// Second page arrives — cursor should stay at row 1
 	view.Update(s3PageLoadedMsg{
@@ -268,7 +303,7 @@ func TestS3Objects_CursorPreservedOnNewPage(t *testing.T) {
 		pageNum:      2,
 	})
 
-	assert.Equal(t, 1, view.table.SelectedIndex(), "cursor should stay at row 1 after new page loads")
+	assert.Equal(t, "file2.json", view.table.CursorKey(), "cursor should stay on its row after new page loads")
 	_, total := view.table.RowCount()
 	assert.Equal(t, 3, total, "table should now have 3 rows")
 	assert.False(t, view.loading, "loading should be complete")

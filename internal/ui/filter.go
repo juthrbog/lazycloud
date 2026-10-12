@@ -103,10 +103,16 @@ func (f Filter) Update(msg tea.Msg) (Filter, tea.Cmd) {
 		}
 	}
 
+	before := f.input.Value()
 	var cmd tea.Cmd
 	f.input, cmd = f.input.Update(msg)
 
+	// Cursor keys and blink ticks do not change the text, and each change
+	// makes the view filter all rows again.
 	text := f.input.Value()
+	if text == before {
+		return f, cmd
+	}
 	return f, tea.Batch(cmd, func() tea.Msg {
 		return FilterChangedMsg{Text: text}
 	})

@@ -146,7 +146,7 @@ func ec2Columns(tier ui.WidthTier) []ui.Column {
 
 // NewEC2List creates the EC2 instance list view.
 func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
-	t := ui.NewTable(ec2Columns(ui.TierMedium), nil)
+	t := ui.NewTable(ec2Columns(ui.TierMedium))
 	return &EC2List{
 		keys:      defaultEC2ListKeyMap,
 		ec2:       ec2,
@@ -204,12 +204,7 @@ func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 }
 
 func (e *EC2List) focusAndFetchDetail(instanceID string) tea.Cmd {
-	for i, inst := range e.instances {
-		if inst.ID == instanceID {
-			e.table.SetCursor(i)
-			break
-		}
-	}
+	e.table.SetCursorByKey(instanceID)
 	return e.fetchDetail(instanceID)
 }
 
@@ -333,8 +328,11 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return e, nil // page from a superseded load
 		}
 		e.instances = append(e.instances, m.instances...)
-		rows, sortKeys := e.buildRows(e.instances)
-		e.table.SetRowsWithSortKeys(rows, sortKeys)
+		if m.pageNum == 1 {
+			e.table.SetRows(e.buildRows(m.instances)) // replaces the rows of the last load
+		} else {
+			e.table.AppendRows(e.buildRows(m.instances))
+		}
 
 		if m.hasMorePages {
 			e.spinner.Show(fmt.Sprintf("Loading instances... %d so far", len(e.instances)))
@@ -368,8 +366,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		rows, sortKeys := e.buildRows(e.instances)
-		e.table.SetRowsWithSortKeys(rows, sortKeys)
+		e.table.SetRows(e.buildRows(e.instances))
 		return e, nil
 
 	case msg.FocusResourceMsg:
@@ -426,8 +423,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if len(cols) != len(e.table.Columns()) {
 			e.table.SetColumns(cols)
 			if len(e.instances) > 0 {
-				rows, sortKeys := e.buildRows(e.instances)
-				e.table.SetRowsWithSortKeys(rows, sortKeys)
+				e.table.SetRows(e.buildRows(e.instances))
 			}
 		}
 		e.table.SetSize(m.Width, m.Height-3)
@@ -474,10 +470,8 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			e.spinner.Show("Loading EC2 instances...")
 			return e, e.startLoad()
 		case key.Matches(m, e.keys.Details, e.keys.Describe):
-			selected := e.table.SelectedRow()
-			if selected != nil {
-				instanceID := selected[0]
-				return e, e.fetchDetail(instanceID)
+			if id := e.table.CursorKey(); id != "" {
+				return e, e.fetchDetail(id)
 			}
 		case key.Matches(m, e.keys.CopyID):
 			ids := e.selectedInstanceIDs()
@@ -534,11 +528,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastError("AWS client not available — check the profile")
 				}
 			}
-			selected := e.table.SelectedRow()
-			if selected == nil {
-				return e, nil
-			}
-			inst := e.findInstance(selected[0])
+			inst := e.findInstance(e.table.CursorKey())
 			if inst == nil {
 				return e, nil
 			}
@@ -609,24 +599,10 @@ func (e *EC2List) findInstance(id string) *aws.Instance {
 	return nil
 }
 
-// selectedInstanceIDs returns the IDs of all selected instances,
-// or the cursor instance ID if nothing is selected.
+// selectedInstanceIDs returns the IDs of the visible selected instances,
+// or the cursor instance ID if none is selected.
 func (e *EC2List) selectedInstanceIDs() []string {
-	indices := e.table.SelectedIndices()
-	if len(indices) == 0 {
-		row := e.table.SelectedRow()
-		if row == nil {
-			return nil
-		}
-		return []string{row[0]}
-	}
-	ids := make([]string, 0, len(indices))
-	for _, idx := range indices {
-		if idx < len(e.instances) {
-			ids = append(ids, e.instances[idx].ID)
-		}
-	}
-	return ids
+	return e.table.TargetKeys()
 }
 
 // commonActionsForSelection returns the actions available for ALL selected instances.
@@ -671,8 +647,7 @@ func (e *EC2List) setInstanceState(id, state string) {
 	if inst := e.findInstance(id); inst != nil {
 		inst.State = state
 	}
-	rows, sortKeys := e.buildRows(e.instances)
-	e.table.SetRowsWithSortKeys(rows, sortKeys)
+	e.table.SetRows(e.buildRows(e.instances))
 }
 
 // transitionalState returns the EC2 transitional state for a given action.
@@ -738,43 +713,44 @@ func (e *EC2List) terminateInstances(ids []string) tea.Cmd {
 	}
 }
 
-func (e *EC2List) buildRows(instances []aws.Instance) ([]table.Row, []table.Row) {
-	rows := make([]table.Row, 0, len(instances))
-	sortKeys := make([]table.Row, 0, len(instances))
+func (e *EC2List) buildRows(instances []aws.Instance) []ui.Row {
+	rows := make([]ui.Row, 0, len(instances))
 	for _, inst := range instances {
 		launched := ""
 		if !inst.LaunchTime.IsZero() {
 			launched = inst.LaunchTime.Format("2006-01-02")
 		}
+		var cells, sortKeys table.Row
 		switch e.widthTier {
 		case ui.TierNarrow:
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
-			})
-			sortKeys = append(sortKeys, table.Row{
+			}
+			sortKeys = table.Row{
 				inst.ID, inst.Name, inst.State, inst.Type,
-			})
+			}
 		case ui.TierMedium:
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
 				inst.PrivateIP,
-			})
-			sortKeys = append(sortKeys, table.Row{
+			}
+			sortKeys = table.Row{
 				inst.ID, inst.Name, inst.State, inst.Type,
 				inst.PrivateIP,
-			})
+			}
 		default:
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
 				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
-			})
-			sortKeys = append(sortKeys, table.Row{
+			}
+			sortKeys = table.Row{
 				inst.ID, inst.Name, inst.State, inst.Type,
 				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
-			})
+			}
 		}
+		rows = append(rows, ui.Row{Key: inst.ID, Cells: cells, Sort: sortKeys})
 	}
-	return rows, sortKeys
+	return rows
 }
 
 func buildEC2InfoContentWithLinks(d *aws.InstanceDetail) (string, []msg.TabLink) {

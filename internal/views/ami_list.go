@@ -123,7 +123,7 @@ func NewAMIList(ec2 aws.EC2Service) *AMIList {
 	return &AMIList{
 		keys:      defaultAMIListKeyMap,
 		ec2:       ec2,
-		table:     ui.NewTable(columns, nil),
+		table:     ui.NewTable(columns),
 		filter:    ui.NewFilter(),
 		search:    ui.NewFilterWithPrompt("?", "search public AMIs..."),
 		ownedMode: true,
@@ -330,12 +330,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			a.spinner.Show("Loading AMIs...")
 			return a, tea.Batch(a.spinner.Tick(), a.fetchOwned())
 		case key.Matches(m, a.keys.Details, a.keys.Describe):
-			selected := a.table.SelectedRow()
-			if selected == nil {
-				return a, nil
-			}
-			amiID := selected[0]
-			ami := a.findAMI(amiID)
+			ami := a.findAMI(a.table.CursorKey())
 			if ami == nil {
 				return a, nil
 			}
@@ -378,22 +373,10 @@ func (a *AMIList) findAMI(id string) *aws.AMI {
 	return nil
 }
 
+// selectedAMIIDs returns the IDs of the visible selected AMIs, or the
+// cursor AMI ID if none is selected.
 func (a *AMIList) selectedAMIIDs() []string {
-	indices := a.table.SelectedIndices()
-	if len(indices) == 0 {
-		row := a.table.SelectedRow()
-		if row == nil {
-			return nil
-		}
-		return []string{row[0]}
-	}
-	ids := make([]string, 0, len(indices))
-	for _, idx := range indices {
-		if idx < len(a.amis) {
-			ids = append(ids, a.amis[idx].ID)
-		}
-	}
-	return ids
+	return a.table.TargetKeys()
 }
 
 func (a *AMIList) refreshAMIs(ids []string) tea.Cmd {
@@ -405,12 +388,7 @@ func (a *AMIList) refreshAMIs(ids []string) tea.Cmd {
 }
 
 func (a *AMIList) focusAndOpenDetail(id string) tea.Cmd {
-	for i, ami := range a.amis {
-		if ami.ID == id {
-			a.table.SetCursor(i)
-			break
-		}
-	}
+	a.table.SetCursorByKey(id)
 	ami := a.findAMI(id)
 	if ami == nil {
 		return nil
@@ -435,33 +413,35 @@ func (a *AMIList) openDetailCmd(ami *aws.AMI) tea.Cmd {
 	}
 }
 
-func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []table.Row {
-	rows := make([]table.Row, 0, len(amis))
+func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []ui.Row {
+	rows := make([]ui.Row, 0, len(amis))
 	for _, ami := range amis {
 		owner := ami.OwnerID
 		if ami.OwnerAlias != "" {
 			owner = ami.OwnerAlias
 		}
+		var cells table.Row
 		switch tier {
 		case ui.TierNarrow:
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				ami.ID, ami.Name, ui.StateColor(ami.State),
-			})
+			}
 		case ui.TierMedium:
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				ami.ID, ami.Name, ami.Architecture,
 				ui.StateColor(ami.State),
-			})
+			}
 		default:
 			created := ami.CreationDate
 			if len(created) >= 10 {
 				created = created[:10]
 			}
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				ami.ID, ami.Name, owner, ami.Architecture,
 				ui.StateColor(ami.State), created,
-			})
+			}
 		}
+		rows = append(rows, ui.Row{Key: ami.ID, Cells: cells})
 	}
 	return rows
 }

@@ -57,7 +57,7 @@ func TestConfirmQuickIgnoresOtherKeys(t *testing.T) {
 
 func TestConfirmTypedRequiresWord(t *testing.T) {
 	c := NewConfirm()
-	c.Show("Delete 3 objects?", "delete")
+	c.Show("Delete 3 objects?", "delete", "")
 
 	// Enter on an empty input must not confirm.
 	c, res := pressConfirm(t, c, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -71,4 +71,26 @@ func TestConfirmTypedRequiresWord(t *testing.T) {
 	require.NotNil(t, res)
 	assert.True(t, res.Confirmed)
 	assert.False(t, c.Visible())
+}
+
+// C4: a bucket delete asks for the bucket name, and "confirm" does not work.
+func TestConfirmTypedCustomPhrase(t *testing.T) {
+	c := NewConfirm()
+	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")
+	assert.Contains(t, c.View(), "type 'alpha-prod' + enter")
+
+	for _, r := range "confirm" {
+		c, _ = c.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	c, res := pressConfirm(t, c, tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Nil(t, res, "the default word must not confirm")
+	assert.Contains(t, c.View(), "Type 'alpha-prod' to proceed")
+
+	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")
+	for _, r := range "alpha-prod" {
+		c, _ = c.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, res = pressConfirm(t, c, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, res)
+	assert.True(t, res.Confirmed)
 }

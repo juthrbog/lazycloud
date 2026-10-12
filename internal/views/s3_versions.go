@@ -90,7 +90,7 @@ func s3VersionColumns(tier ui.WidthTier) []ui.Column {
 
 // NewS3Versions creates the version list view for an S3 object.
 func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
-	t := ui.NewTable(s3VersionColumns(ui.TierMedium), nil)
+	t := ui.NewTable(s3VersionColumns(ui.TierMedium))
 	return &S3Versions{
 		keys:      defaultS3VersionsKeyMap,
 		s3:        s3,
@@ -179,13 +179,10 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinner.Show("Loading versions...")
 			return s, tea.Batch(s.spinner.Tick(), s.fetchVersions())
 		case key.Matches(m, s.keys.View, s.keys.Describe):
-			// Rows are built in s.versions order, so map the (possibly sorted
-			// or filtered) cursor back to the original row.
-			idx := s.table.SelectedAllRowIndex()
-			if idx < 0 || idx >= len(s.versions) {
+			v := s.findVersion(s.table.CursorKey())
+			if v == nil {
 				return s, nil
 			}
-			v := s.versions[idx]
 			jsonBytes, _ := json.MarshalIndent(v, "", "  ")
 			return s, func() tea.Msg {
 				return msg.NavigateMsg{
@@ -211,6 +208,16 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	return s, cmd
 }
 
+// findVersion returns the version with the given ID, or nil.
+func (s *S3Versions) findVersion(id string) *aws.ObjectVersion {
+	for i := range s.versions {
+		if s.versions[i].VersionID == id {
+			return &s.versions[i]
+		}
+	}
+	return nil
+}
+
 // shortVersionID returns at most the first 8 characters of a version ID.
 // Unversioned buckets report the literal ID "null", which is shorter than 8.
 func shortVersionID(id string) string {
@@ -220,34 +227,32 @@ func shortVersionID(id string) string {
 	return id[:8]
 }
 
+// rebuildRows shows the versions. The version ID is the row key: it is
+// unique for one object key, including the ID "null" of unversioned buckets.
 func (s *S3Versions) rebuildRows() {
 	narrow := s.widthTier == ui.TierNarrow
-	var rows []table.Row
-	var sortKeys []table.Row
+	rows := make([]ui.Row, 0, len(s.versions))
 	for _, v := range s.versions {
 		latest := ""
 		if v.IsLatest {
 			latest = "✓"
 		}
+		r := ui.Row{Key: v.VersionID}
 		if narrow {
-			rows = append(rows, table.Row{v.VersionID, aws.FormatBytes(v.Size), latest})
-			sortKeys = append(sortKeys, table.Row{v.VersionID, ui.SortKeyBytes(v.Size), latest})
+			r.Cells = table.Row{v.VersionID, aws.FormatBytes(v.Size), latest}
+			r.Sort = table.Row{v.VersionID, ui.SortKeyBytes(v.Size), latest}
 		} else {
 			delMarker := ""
 			if v.IsDeleteMarker {
 				delMarker = "✓"
 			}
-			rows = append(rows, table.Row{
-				v.VersionID, aws.FormatBytes(v.Size),
-				v.LastModified.Format("2006-01-02 15:04:05"), latest, delMarker,
-			})
-			sortKeys = append(sortKeys, table.Row{
-				v.VersionID, ui.SortKeyBytes(v.Size),
-				v.LastModified.Format("2006-01-02 15:04:05"), latest, delMarker,
-			})
+			modified := v.LastModified.Format("2006-01-02 15:04:05")
+			r.Cells = table.Row{v.VersionID, aws.FormatBytes(v.Size), modified, latest, delMarker}
+			r.Sort = table.Row{v.VersionID, ui.SortKeyBytes(v.Size), modified, latest, delMarker}
 		}
+		rows = append(rows, r)
 	}
-	s.table.SetRowsWithSortKeys(rows, sortKeys)
+	s.table.SetRows(rows)
 }
 
 func (s *S3Versions) Footer() string {

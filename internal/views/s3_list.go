@@ -111,7 +111,7 @@ func s3BucketColumns(tier ui.WidthTier) []ui.Column {
 
 // NewS3List creates the S3 bucket list view.
 func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
-	t := ui.NewTable(s3BucketColumns(ui.TierMedium), nil)
+	t := ui.NewTable(s3BucketColumns(ui.TierMedium))
 	return &S3List{
 		keys:          defaultS3ListKeyMap,
 		s3:            s3,
@@ -300,9 +300,7 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinner.Show("Loading S3 buckets...")
 			return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets())
 		case key.Matches(m, s.keys.Browse):
-			selected := s.table.SelectedRow()
-			if selected != nil {
-				bucket := selected[0]
+			if bucket := s.table.CursorKey(); bucket != "" {
 				return s, func() tea.Msg {
 					return msg.NavigateMsg{
 						ViewID: "s3_objects",
@@ -311,11 +309,10 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(m, s.keys.Properties):
-			selected := s.table.SelectedRow()
-			if selected == nil {
+			bucket := s.table.CursorKey()
+			if bucket == "" {
 				return s, nil
 			}
-			bucket := selected[0]
 			return s, s.fetchBucketProperties(bucket)
 		case key.Matches(m, s.keys.NewBucket):
 			if ui.ReadOnly {
@@ -342,14 +339,12 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return s, nil
 			}
 			s.pendingDeleteBuckets = names
-			message := fmt.Sprintf("Delete bucket '%s'?\nThis will delete all objects first.", names[0])
-			if len(names) > 1 {
-				message = fmt.Sprintf("Delete %d buckets?\nThis will delete all objects in each bucket first.", len(names))
-			}
+			message, phrase := deleteBucketsPrompt(names)
 			return s, func() tea.Msg {
 				return msg.RequestConfirmMsg{
 					Message: message,
 					Action:  "delete_bucket",
+					Phrase:  phrase,
 				}
 			}
 		}
@@ -388,24 +383,24 @@ func (s *S3List) createBucket(name string) tea.Cmd {
 	}
 }
 
-// selectedBucketNames returns names of all selected buckets,
-// or the cursor bucket name if nothing is selected.
+// selectedBucketNames returns the names of the visible selected buckets, or
+// the cursor bucket name if none is selected. A selected bucket that the
+// filter hides is not included.
 func (s *S3List) selectedBucketNames() []string {
-	indices := s.table.SelectedIndices()
-	if len(indices) == 0 {
-		row := s.table.SelectedRow()
-		if row == nil {
-			return nil
-		}
-		return []string{row[0]}
+	return s.table.TargetKeys()
+}
+
+// deleteBucketsPrompt returns the confirm message for deleting buckets and
+// the phrase the user must type: the bucket name for one bucket, or
+// "delete N buckets" for several.
+func deleteBucketsPrompt(names []string) (message, phrase string) {
+	const warning = "Every object version and delete marker is deleted\n" +
+		"permanently, then the bucket. You cannot undo this."
+	if len(names) == 1 {
+		return fmt.Sprintf("Delete bucket '%s'?\n%s", names[0], warning), names[0]
 	}
-	names := make([]string, 0, len(indices))
-	for _, idx := range indices {
-		if idx < len(s.buckets) {
-			names = append(names, s.buckets[idx].Name)
-		}
-	}
-	return names
+	message = fmt.Sprintf("Delete %d buckets?\n%s%s", len(names), promptNameList(names), warning)
+	return message, fmt.Sprintf("delete %d buckets", len(names))
 }
 
 func (s *S3List) deleteBuckets(buckets []string) tea.Cmd {
@@ -425,16 +420,13 @@ func (s *S3List) deleteBuckets(buckets []string) tea.Cmd {
 
 func (s *S3List) rebuildRows() {
 	narrow := s.widthTier == ui.TierNarrow
-	var rows []table.Row
+	rows := make([]ui.Row, 0, len(s.buckets))
 	for _, b := range s.buckets {
+		cells := table.Row{b.Name, b.CreationDate.Format("2006-01-02 15:04:05")}
 		if narrow {
-			rows = append(rows, table.Row{b.Name})
-		} else {
-			rows = append(rows, table.Row{
-				b.Name,
-				b.CreationDate.Format("2006-01-02 15:04:05"),
-			})
+			cells = table.Row{b.Name}
 		}
+		rows = append(rows, ui.Row{Key: b.Name, Cells: cells})
 	}
 	s.table.SetRows(rows)
 }
