@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/key"
-	"charm.land/huh/v2"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/huh/v2"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
@@ -22,8 +22,8 @@ type FormView struct {
 	title         string
 	formID        string // echoed back in FormResultMsg
 	form          *huh.Form
-	keys          []msg.FormField    // field specs for value extraction
-	initialValues map[string]string  // snapshot of field values at construction
+	keys          []msg.FormField   // field specs for value extraction
+	initialValues map[string]string // snapshot of field values at construction
 	done          bool
 	width         int
 	height        int

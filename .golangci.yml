@@ -16,5 +16,9 @@ linters:
         - (io.ReadCloser).Close
         - os.Remove
 
+formatters:
+  enable:
+    - gofmt        # Fail CI on unformatted code (fix with: golangci-lint fmt)
+
 run:
   timeout: 5m

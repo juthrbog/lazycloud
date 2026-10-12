@@ -111,9 +111,9 @@ func (c *CloudAnimation) View(width, height int) string {
 	}
 
 	// Cloud shading colors (top-lit: highlight on top, shadow on bottom)
-	highlight := t.Muted    // brightest — top edge
-	body := t.Overlay       // mid-tone — interior
-	shadow := t.Surface     // darkest cloud color — bottom
+	highlight := t.Muted // brightest — top edge
+	body := t.Overlay    // mid-tone — interior
+	shadow := t.Surface  // darkest cloud color — bottom
 	sky := t.Base
 
 	// Render each pixel
@@ -255,8 +255,8 @@ func (c *CloudAnimation) makeCloud(screenW, screenH, idx, total int) cloud {
 		}
 
 		bumps[j] = cloudBump{
-			cx: cx + r,         // center X relative to cloud left edge
-			cy: -r * 0.6,       // center above baseline (negative Y = up)
+			cx: cx + r,   // center X relative to cloud left edge
+			cy: -r * 0.6, // center above baseline (negative Y = up)
 			r:  r,
 		}
 		cx += r * 1.3 // overlap ~35%
@@ -561,13 +561,13 @@ func (s *StormAnimation) makeStormCloud(screenW, screenH int) cloud {
 	var maxRadius float64
 	switch {
 	case sizeRoll < 0.30: // 30% jumbo
-		numBumps = 9 + s.rng.intn(6)         // 9-14 bumps
+		numBumps = 9 + s.rng.intn(6)          // 9-14 bumps
 		maxRadius = 14.0 + s.rng.float()*10.0 // 14-24 pixel radius
 	case sizeRoll < 0.70: // 40% large
-		numBumps = 6 + s.rng.intn(4) // 6-9 bumps
+		numBumps = 6 + s.rng.intn(4)        // 6-9 bumps
 		maxRadius = 8.0 + s.rng.float()*8.0 // 8-16 pixel radius
 	default: // 30% medium (no small in storms)
-		numBumps = 4 + s.rng.intn(3) // 4-6 bumps
+		numBumps = 4 + s.rng.intn(3)        // 4-6 bumps
 		maxRadius = 5.0 + s.rng.float()*5.0 // 5-10 pixel radius
 	}
 
@@ -654,4 +654,3 @@ func (s *StormAnimation) generateLightning(screenW, screenH int) *lightning {
 		flashTTL: 3, // sky flash for first 3 frames
 	}
 }
-

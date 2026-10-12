@@ -96,9 +96,9 @@ func TestSortWithSortKeys(t *testing.T) {
 	}
 	// Sort keys use zero-padded byte counts for correct numeric ordering
 	sortKeys := []table.Row{
-		{"small", SortKeyBytes(1536)},       // 1.5 KB
-		{"large", SortKeyBytes(536870912)},  // 512 MB
-		{"medium", SortKeyBytes(2097152)},   // 2 MB
+		{"small", SortKeyBytes(1536)},      // 1.5 KB
+		{"large", SortKeyBytes(536870912)}, // 512 MB
+		{"medium", SortKeyBytes(2097152)},  // 2 MB
 	}
 
 	tbl := NewTable(columns, rows)

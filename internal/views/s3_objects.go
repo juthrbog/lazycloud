@@ -117,26 +117,26 @@ var defaultS3ObjectsKeyMap = s3ObjectsKeyMap{
 
 // S3Objects displays objects and folders within an S3 bucket.
 type S3Objects struct {
-	keys              s3ObjectsKeyMap
-	s3                aws.S3Service
-	bucket            string
-	prefix            string
-	objects           []aws.S3Object
-	prefixes          []string
-	entries           []s3TableEntry
-	table             ui.Table
-	filter            ui.Filter
-	spinner           ui.Spinner
-	copyInput         ui.Filter // reuse Filter as a text input for copy/move dest
-	copyMode          string    // "copy" or "move", empty when inactive
-	copySrcKey        string    // source key for copy/move
-	loading           bool
-	pageNum           int
+	keys                 s3ObjectsKeyMap
+	s3                   aws.S3Service
+	bucket               string
+	prefix               string
+	objects              []aws.S3Object
+	prefixes             []string
+	entries              []s3TableEntry
+	table                ui.Table
+	filter               ui.Filter
+	spinner              ui.Spinner
+	copyInput            ui.Filter // reuse Filter as a text input for copy/move dest
+	copyMode             string    // "copy" or "move", empty when inactive
+	copySrcKey           string    // source key for copy/move
+	loading              bool
+	pageNum              int
 	pendingDeleteEntries []s3TableEntry
-	err               error
-	width             int
-	height            int
-	widthTier         ui.WidthTier
+	err                  error
+	width                int
+	height               int
+	widthTier            ui.WidthTier
 }
 
 func (s *S3Objects) ID() string {
@@ -192,12 +192,12 @@ func s3ObjectColumns(tier ui.WidthTier) []ui.Column {
 func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
 	t := ui.NewTable(s3ObjectColumns(ui.TierMedium), nil)
 	return &S3Objects{
-		keys:    defaultS3ObjectsKeyMap,
-		s3:      s3,
-		bucket:  bucket,
-		prefix:  prefix,
-		table:   t,
-		filter:  ui.NewFilter(),
+		keys:      defaultS3ObjectsKeyMap,
+		s3:        s3,
+		bucket:    bucket,
+		prefix:    prefix,
+		table:     t,
+		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner("Loading objects..."),
 		loading:   true,
 		widthTier: ui.TierMedium,

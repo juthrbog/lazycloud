@@ -78,21 +78,21 @@ var defaultEC2ListKeyMap = ec2ListKeyMap{
 
 // EC2List displays all EC2 instances.
 type EC2List struct {
-	keys              ec2ListKeyMap
-	ec2               aws.EC2Service
-	awsClient         *aws.Client
-	table             ui.Table
-	instances         []aws.Instance
-	filter            ui.Filter
-	spinner           ui.Spinner
-	loading           bool
+	keys               ec2ListKeyMap
+	ec2                aws.EC2Service
+	awsClient          *aws.Client
+	table              ui.Table
+	instances          []aws.Instance
+	filter             ui.Filter
+	spinner            ui.Spinner
+	loading            bool
 	pendingInstanceIDs []string // instances targeted by a pending action
-	pendingAction     string // action name awaiting confirmation
-	pendingFocus      string // instance ID to auto-open after data loads
-	err               error
-	width             int
-	height            int
-	widthTier         ui.WidthTier
+	pendingAction      string   // action name awaiting confirmation
+	pendingFocus       string   // instance ID to auto-open after data loads
+	err                error
+	width              int
+	height             int
+	widthTier          ui.WidthTier
 }
 
 func (e *EC2List) ID() string    { return "ec2_list" }

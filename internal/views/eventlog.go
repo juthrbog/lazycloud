@@ -56,20 +56,20 @@ var defaultEventLogKeyMap = eventLogKeyMap{
 
 // EventLog displays the in-app event log with scrolling and filtering.
 type EventLog struct {
-	keys         eventLogKeyMap
-	viewport     viewport.Model
-	filter       ui.Filter
-	autoScroll   bool
-	wrapOn       bool
-	levelIdx     int // index into levelFilters, 0 = ALL
-	width        int
-	height       int
-	lastLen      int
+	keys       eventLogKeyMap
+	viewport   viewport.Model
+	filter     ui.Filter
+	autoScroll bool
+	wrapOn     bool
+	levelIdx   int // index into levelFilters, 0 = ALL
+	width      int
+	height     int
+	lastLen    int
 }
 
-func (e *EventLog) ID() string    { return "eventlog" }
-func (e *EventLog) Title() string { return "Event Log" }
-func (e *EventLog) Footer() string    { return "" }
+func (e *EventLog) ID() string     { return "eventlog" }
+func (e *EventLog) Title() string  { return "Event Log" }
+func (e *EventLog) Footer() string { return "" }
 func (e *EventLog) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
 		{Binding: e.keys.Level1},

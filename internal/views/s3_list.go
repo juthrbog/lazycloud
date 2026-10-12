@@ -63,21 +63,21 @@ var defaultS3ListKeyMap = s3ListKeyMap{
 
 // S3List displays all S3 buckets.
 type S3List struct {
-	keys                s3ListKeyMap
-	s3                  aws.S3Service
-	defaultRegion       string
-	table               ui.Table
-	buckets             []aws.Bucket
-	filter              ui.Filter
-	createInput         ui.Filter // reuse as text input for new bucket name
-	creating            bool
-	spinner             ui.Spinner
-	loading             bool
+	keys                 s3ListKeyMap
+	s3                   aws.S3Service
+	defaultRegion        string
+	table                ui.Table
+	buckets              []aws.Bucket
+	filter               ui.Filter
+	createInput          ui.Filter // reuse as text input for new bucket name
+	creating             bool
+	spinner              ui.Spinner
+	loading              bool
 	pendingDeleteBuckets []string
-	err                 error
-	width               int
-	height              int
-	widthTier           ui.WidthTier
+	err                  error
+	width                int
+	height               int
+	widthTier            ui.WidthTier
 }
 
 func (s *S3List) ID() string    { return "s3_list" }

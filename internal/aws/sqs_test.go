@@ -9,18 +9,18 @@ import (
 
 func TestParseQueueAttributes_Standard(t *testing.T) {
 	attrs := map[string]string{
-		"QueueArn":                          "arn:aws:sqs:us-east-1:123456789012:order-processing",
-		"ApproximateNumberOfMessages":        "42",
+		"QueueArn":                              "arn:aws:sqs:us-east-1:123456789012:order-processing",
+		"ApproximateNumberOfMessages":           "42",
 		"ApproximateNumberOfMessagesNotVisible": "3",
 		"ApproximateNumberOfMessagesDelayed":    "1",
-		"CreatedTimestamp":                   "1700000000",
-		"LastModifiedTimestamp":              "1700001000",
-		"VisibilityTimeout":                  "30",
-		"DelaySeconds":                       "0",
-		"MaximumMessageSize":                 "262144",
-		"MessageRetentionPeriod":             "345600",
-		"ReceiveMessageWaitTimeSeconds":      "20",
-		"SqsManagedSseEnabled":               "true",
+		"CreatedTimestamp":                      "1700000000",
+		"LastModifiedTimestamp":                 "1700001000",
+		"VisibilityTimeout":                     "30",
+		"DelaySeconds":                          "0",
+		"MaximumMessageSize":                    "262144",
+		"MessageRetentionPeriod":                "345600",
+		"ReceiveMessageWaitTimeSeconds":         "20",
+		"SqsManagedSseEnabled":                  "true",
 	}
 
 	q := parseQueueAttributes("https://sqs.us-east-1.amazonaws.com/123456789012/order-processing", attrs)
@@ -43,12 +43,12 @@ func TestParseQueueAttributes_Standard(t *testing.T) {
 
 func TestParseQueueAttributes_FIFO(t *testing.T) {
 	attrs := map[string]string{
-		"QueueArn":                    "arn:aws:sqs:us-east-1:123456789012:payments.fifo",
-		"FifoQueue":                   "true",
-		"ContentBasedDeduplication":   "true",
-		"DeduplicationScope":          "messageGroup",
-		"FifoThroughputLimit":         "perMessageGroupId",
-		"CreatedTimestamp":            "1700000000",
+		"QueueArn":                  "arn:aws:sqs:us-east-1:123456789012:payments.fifo",
+		"FifoQueue":                 "true",
+		"ContentBasedDeduplication": "true",
+		"DeduplicationScope":        "messageGroup",
+		"FifoThroughputLimit":       "perMessageGroupId",
+		"CreatedTimestamp":          "1700000000",
 	}
 
 	q := parseQueueAttributes("https://sqs.us-east-1.amazonaws.com/123456789012/payments.fifo", attrs)
@@ -63,8 +63,8 @@ func TestParseQueueAttributes_FIFO(t *testing.T) {
 
 func TestParseQueueAttributes_WithRedrivePolicy(t *testing.T) {
 	attrs := map[string]string{
-		"QueueArn":       "arn:aws:sqs:us-east-1:123456789012:my-queue",
-		"RedrivePolicy":  `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:123456789012:my-dlq","maxReceiveCount":5}`,
+		"QueueArn":         "arn:aws:sqs:us-east-1:123456789012:my-queue",
+		"RedrivePolicy":    `{"deadLetterTargetArn":"arn:aws:sqs:us-east-1:123456789012:my-dlq","maxReceiveCount":5}`,
 		"CreatedTimestamp": "1700000000",
 	}
 
@@ -77,9 +77,9 @@ func TestParseQueueAttributes_WithRedrivePolicy(t *testing.T) {
 
 func TestParseQueueAttributes_WithRedriveAllowPolicy(t *testing.T) {
 	attrs := map[string]string{
-		"QueueArn":             "arn:aws:sqs:us-east-1:123456789012:my-dlq",
-		"RedriveAllowPolicy":   `{"redrivePermission":"byQueue","sourceQueueArns":["arn:aws:sqs:us-east-1:123456789012:q1"]}`,
-		"CreatedTimestamp":     "1700000000",
+		"QueueArn":           "arn:aws:sqs:us-east-1:123456789012:my-dlq",
+		"RedriveAllowPolicy": `{"redrivePermission":"byQueue","sourceQueueArns":["arn:aws:sqs:us-east-1:123456789012:q1"]}`,
+		"CreatedTimestamp":   "1700000000",
 	}
 
 	q := parseQueueAttributes("https://sqs.us-east-1.amazonaws.com/123456789012/my-dlq", attrs)
@@ -91,8 +91,8 @@ func TestParseQueueAttributes_WithRedriveAllowPolicy(t *testing.T) {
 
 func TestParseQueueAttributes_MalformedJSON(t *testing.T) {
 	attrs := map[string]string{
-		"QueueArn":       "arn:aws:sqs:us-east-1:123456789012:my-queue",
-		"RedrivePolicy":  `not-json`,
+		"QueueArn":         "arn:aws:sqs:us-east-1:123456789012:my-queue",
+		"RedrivePolicy":    `not-json`,
 		"CreatedTimestamp": "1700000000",
 	}
 

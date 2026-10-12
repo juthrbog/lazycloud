@@ -162,28 +162,28 @@ type Instance struct {
 // InstanceDetail holds the full metadata for a single EC2 instance,
 // suitable for JSON serialization and display in the detail panel.
 type InstanceDetail struct {
-	InstanceID       string            `json:"instance_id"`
-	Name             string            `json:"name,omitempty"`
-	State            string            `json:"state"`
-	StateReason      string            `json:"state_reason,omitempty"`
-	InstanceType     string            `json:"instance_type"`
-	Platform         string            `json:"platform,omitempty"`
-	Architecture     string            `json:"architecture,omitempty"`
-	PrivateIP        string            `json:"private_ip,omitempty"`
-	PublicIP         string            `json:"public_ip,omitempty"`
-	PrivateDNS       string            `json:"private_dns,omitempty"`
-	PublicDNS        string            `json:"public_dns,omitempty"`
-	VpcID            string            `json:"vpc_id,omitempty"`
-	SubnetID         string            `json:"subnet_id,omitempty"`
-	AvailabilityZone string            `json:"availability_zone,omitempty"`
-	KeyName          string            `json:"key_name,omitempty"`
-	AMI              string            `json:"ami,omitempty"`
-	LaunchTime       string            `json:"launch_time,omitempty"`
+	InstanceID       string             `json:"instance_id"`
+	Name             string             `json:"name,omitempty"`
+	State            string             `json:"state"`
+	StateReason      string             `json:"state_reason,omitempty"`
+	InstanceType     string             `json:"instance_type"`
+	Platform         string             `json:"platform,omitempty"`
+	Architecture     string             `json:"architecture,omitempty"`
+	PrivateIP        string             `json:"private_ip,omitempty"`
+	PublicIP         string             `json:"public_ip,omitempty"`
+	PrivateDNS       string             `json:"private_dns,omitempty"`
+	PublicDNS        string             `json:"public_dns,omitempty"`
+	VpcID            string             `json:"vpc_id,omitempty"`
+	SubnetID         string             `json:"subnet_id,omitempty"`
+	AvailabilityZone string             `json:"availability_zone,omitempty"`
+	KeyName          string             `json:"key_name,omitempty"`
+	AMI              string             `json:"ami,omitempty"`
+	LaunchTime       string             `json:"launch_time,omitempty"`
 	SecurityGroups   []SecurityGroupRef `json:"security_groups,omitempty"`
-	IAMRole          string            `json:"iam_role,omitempty"`
-	RootDeviceType   string            `json:"root_device_type,omitempty"`
-	RootDeviceName   string            `json:"root_device_name,omitempty"`
-	Tags             map[string]string `json:"tags,omitempty"`
+	IAMRole          string             `json:"iam_role,omitempty"`
+	RootDeviceType   string             `json:"root_device_type,omitempty"`
+	RootDeviceName   string             `json:"root_device_name,omitempty"`
+	Tags             map[string]string  `json:"tags,omitempty"`
 }
 
 // SecurityGroupRef is a lightweight reference to a security group.

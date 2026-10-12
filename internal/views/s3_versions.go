@@ -40,14 +40,14 @@ var defaultS3VersionsKeyMap = s3VersionsKeyMap{
 
 // S3Versions displays all versions of a specific S3 object.
 type S3Versions struct {
-	keys     s3VersionsKeyMap
-	s3       aws.S3Service
-	bucket   string
-	key      string
-	versions []aws.ObjectVersion
-	table    ui.Table
-	spinner  ui.Spinner
-	loading  bool
+	keys      s3VersionsKeyMap
+	s3        aws.S3Service
+	bucket    string
+	key       string
+	versions  []aws.ObjectVersion
+	table     ui.Table
+	spinner   ui.Spinner
+	loading   bool
 	err       error
 	width     int
 	height    int
@@ -99,7 +99,7 @@ func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
 		table:     t,
 		spinner:   ui.NewSpinner("Loading versions..."),
 		widthTier: ui.TierMedium,
-		loading: true,
+		loading:   true,
 	}
 }
 
