@@ -46,7 +46,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and in #200.
 - [ ] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199.
 - [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
-- [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done on branch `fix/table-row-identity`, except the AMI part of M10.
+- [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done on branch `fix/table-row-identity`, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
 - [ ] Phase 4, input capture and central ReadOnly guard (A3): H2, M27.
 - [ ] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3.
 - [ ] Phase 6, CI and release: H10, H11, H12, I1 to I9.
@@ -244,6 +244,10 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [ ] L20. `.gitignore` lists `demo/`, but `demo/s3.tape` is tracked.
 - [x] L21. Fixed in #199. `internal/aws/sqs.go:200` uses the deprecated `ReceiveMessageInput.AttributeNames`. The call already sets `MessageSystemAttributeNames`. This is the one golangci-lint issue.
 - [x] L22. `go.mod` marks `charm.land/log/v2` as indirect, but `internal/eventlog` imports it. Run `go mod tidy`. Also, 26 files are not gofmt-clean. The `go mod tidy` part is fixed in #199. The gofmt part is fixed in #200.
+- [x] L23. Opening a details panel clears the table sort. Evidence: reproduced in LocalStack. Fixed on branch `fix/table-row-identity`. A panel makes the list narrower. When the narrower width tier has a different number of columns, the view calls `Table.SetColumns`, which set the sort to none. A DLQ link closes and opens the panel again, so the sorted-list part of M10 never applied to SQS. Now the sort stays on the column with the same title, at its new index.
+- [x] L24. The confirm prompt shows only the first letter of its placeholder (`> t`). Evidence: reproduced in LocalStack. Fixed on branch `fix/table-row-identity`. The text input had no width, and bubbles v2 then draws one character of the placeholder. Now the input is as wide as the placeholder.
+- [ ] L25. Count columns sort as text. Evidence: reproduced in LocalStack. The SQS queue list sorts Messages as 0, 10, 16, 6, 8. The sort values of Messages, In-Flight, and Delayed (`sqs_queues.go:761`) and of Receives (`sqs_messages.go:665`) are `fmt.Sprintf("%d")`. Fix: pad them with zeros, as `ui.SortKeyBytes` does for sizes.
+- [ ] L26. The seeder sends the SQS messages again on each run, so the message counts double. Evidence: reproduced in LocalStack. `docs/DEVELOPMENT.md` says that the seeder is idempotent. Fix: send the seed messages only to a queue that the run creates, or only when the queue is empty.
 
 ## Performance
 
