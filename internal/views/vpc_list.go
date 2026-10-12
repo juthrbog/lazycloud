@@ -16,6 +16,7 @@ import (
 )
 
 type vpcPageLoadedMsg struct {
+	gen          int // load generation that requested this page
 	vpcs         []aws.VPC
 	hasMorePages bool
 	token        *string
@@ -55,6 +56,7 @@ type VPCList struct {
 	filter       ui.Filter
 	spinner      ui.Spinner
 	loading      bool
+	loadGen      int // generation of the current full load; see startLoad
 	err          error
 	width        int
 	height       int
@@ -111,11 +113,25 @@ func (v *VPCList) Init() tea.Cmd {
 	if !v.loading {
 		return nil
 	}
+	if v.loadGen > 0 {
+		// A load is already running. Its pages reach this view even while
+		// it is hidden, so restarting would only duplicate rows.
+		return v.spinner.Tick()
+	}
+	return v.startLoad()
+}
+
+// startLoad begins a full load from page 1. Pages from an older load are
+// dropped, so a refresh during a load cannot duplicate rows.
+func (v *VPCList) startLoad() tea.Cmd {
+	v.loadGen++
+	v.vpcs = nil
 	return tea.Batch(v.spinner.Tick(), v.fetchPage(nil, 1))
 }
 
 func (v *VPCList) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := v.ec2
+	gen := v.loadGen
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
@@ -127,6 +143,7 @@ func (v *VPCList) fetchPage(token *string, pageNum int) tea.Cmd {
 		}
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d VPCs (page %d)", len(page.VPCs), pageNum)
 		return vpcPageLoadedMsg{
+			gen:          gen,
 			vpcs:         page.VPCs,
 			hasMorePages: page.HasMorePages,
 			token:        page.Token,
@@ -148,6 +165,9 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return v, nil
 
 	case vpcPageLoadedMsg:
+		if m.gen != v.loadGen {
+			return v, nil // page from a superseded load
+		}
 		v.vpcs = append(v.vpcs, m.vpcs...)
 		v.table.SetRows(buildVPCRows(v.vpcs, v.widthTier))
 		if m.hasMorePages {
@@ -226,10 +246,9 @@ func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(m, v.keys.Refresh):
 			v.loading = true
-			v.vpcs = nil
 			v.err = nil
 			v.spinner.Show("Loading VPCs...")
-			return v, tea.Batch(v.spinner.Tick(), v.fetchPage(nil, 1))
+			return v, v.startLoad()
 		case key.Matches(m, v.keys.Subnets):
 			selected := v.table.SelectedRow()
 			if selected == nil {

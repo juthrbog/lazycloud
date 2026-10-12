@@ -16,6 +16,7 @@ import (
 )
 
 type subnetPageLoadedMsg struct {
+	gen          int // load generation that requested this page
 	subnets      []aws.Subnet
 	hasMorePages bool
 	token        *string
@@ -54,6 +55,7 @@ type SubnetList struct {
 	filter       ui.Filter
 	spinner      ui.Spinner
 	loading      bool
+	loadGen      int // generation of the current full load; see startLoad
 	err          error
 	width        int
 	height       int
@@ -136,12 +138,26 @@ func (s *SubnetList) Init() tea.Cmd {
 	if !s.loading {
 		return nil
 	}
+	if s.loadGen > 0 {
+		// A load is already running. Its pages reach this view even while
+		// it is hidden, so restarting would only duplicate rows.
+		return s.spinner.Tick()
+	}
+	return s.startLoad()
+}
+
+// startLoad begins a full load from page 1. Pages from an older load are
+// dropped, so a refresh during a load cannot duplicate rows.
+func (s *SubnetList) startLoad() tea.Cmd {
+	s.loadGen++
+	s.subnets = nil
 	return tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
 }
 
 func (s *SubnetList) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := s.ec2
 	vpcID := s.vpcID
+	gen := s.loadGen
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
@@ -153,6 +169,7 @@ func (s *SubnetList) fetchPage(token *string, pageNum int) tea.Cmd {
 		}
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d subnets (page %d)", len(page.Subnets), pageNum)
 		return subnetPageLoadedMsg{
+			gen:          gen,
 			subnets:      page.Subnets,
 			hasMorePages: page.HasMorePages,
 			token:        page.Token,
@@ -174,6 +191,9 @@ func (s *SubnetList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case subnetPageLoadedMsg:
+		if m.gen != s.loadGen {
+			return s, nil // page from a superseded load
+		}
 		s.subnets = append(s.subnets, m.subnets...)
 		s.table.SetRows(buildSubnetRows(s.subnets, s.widthTier))
 		if m.hasMorePages {
@@ -252,10 +272,9 @@ func (s *SubnetList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case key.Matches(m, s.keys.Refresh):
 			s.loading = true
-			s.subnets = nil
 			s.err = nil
 			s.spinner.Show("Loading subnets...")
-			return s, tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
+			return s, s.startLoad()
 		case key.Matches(m, s.keys.Details, s.keys.Describe):
 			selected := s.table.SelectedRow()
 			if selected == nil {

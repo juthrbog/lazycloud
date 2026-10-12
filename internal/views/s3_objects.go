@@ -21,6 +21,7 @@ import (
 
 // s3PageLoadedMsg delivers one page of results for progressive loading.
 type s3PageLoadedMsg struct {
+	gen          int    // load generation that requested this page
 	bucket       string // identifies the target view
 	prefix       string // identifies the target view
 	objects      []aws.S3Object
@@ -45,7 +46,8 @@ type s3PresignedURLMsg struct {
 }
 
 type s3DeleteResolvedMsg struct {
-	keys []string
+	bucket string // bucket the keys were resolved in
+	keys   []string
 }
 
 type s3DeleteCompleteMsg struct {
@@ -131,6 +133,7 @@ type S3Objects struct {
 	copyMode             string    // "copy" or "move", empty when inactive
 	copySrcKey           string    // source key for copy/move
 	loading              bool
+	loadGen              int // generation of the current full load; see startLoad
 	pageNum              int
 	pendingDeleteEntries []s3TableEntry
 	err                  error
@@ -209,11 +212,18 @@ func (s *S3Objects) Init() tea.Cmd {
 	if !s.loading {
 		return nil
 	}
-	// If re-entered from the navigator cache while still loading
-	// (e.g. user went back before the fetch completed), restart cleanly.
-	if s.pageNum > 0 {
-		return s.refreshListing()
+	if s.loadGen > 0 {
+		// A load is already running. Its pages reach this view even while
+		// it is hidden, so restarting would only duplicate rows.
+		return s.spinner.Tick()
 	}
+	return s.startLoad()
+}
+
+// startLoad begins a full load from page 1. Pages from an older load are
+// dropped, so a refresh during a load cannot duplicate rows.
+func (s *S3Objects) startLoad() tea.Cmd {
+	s.loadGen++
 	return tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
 }
 
@@ -222,6 +232,7 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	prefix := s.prefix
+	gen := s.loadGen
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
@@ -232,6 +243,7 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s/%s", bucket, prefix)}
 		}
 		return s3PageLoadedMsg{
+			gen:          gen,
 			bucket:       bucket,
 			prefix:       prefix,
 			objects:      page.Objects,
@@ -260,7 +272,7 @@ func (s *S3Objects) resolveDeleteKeys(entries []s3TableEntry) tea.Cmd {
 				keys = append(keys, e.fullPath)
 			}
 		}
-		return s3DeleteResolvedMsg{keys: keys}
+		return s3DeleteResolvedMsg{bucket: bucket, keys: keys}
 	}
 }
 
@@ -322,7 +334,7 @@ func (s *S3Objects) refreshListing() tea.Cmd {
 	s.loading = true
 	s.spinner.Show("Refreshing...")
 	s.table.SetRows(nil)
-	return tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
+	return s.startLoad()
 }
 
 func (s *S3Objects) downloadObject(key string) tea.Cmd {
@@ -379,6 +391,14 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case s3DeleteResolvedMsg:
+		// Routing delivers this to the view that started the delete. Refuse
+		// keys from another bucket anyway: a wrong-bucket delete is not
+		// recoverable.
+		if m.bucket != s.bucket {
+			eventlog.Errorf(eventlog.CatAWS, "Refused delete: keys resolved in s3://%s reached view for s3://%s", m.bucket, s.bucket)
+			s.spinner.Hide()
+			return s, nil
+		}
 		if len(m.keys) == 0 {
 			s.spinner.Hide()
 			return s, func() tea.Msg {
@@ -402,7 +422,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.spinner.Show("Refreshing...")
 		s.table.SetRows(nil)
 		count := m.count
-		return s, tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1), func() tea.Msg {
+		return s, tea.Batch(s.startLoad(), func() tea.Msg {
 			return msg.ToastSuccess(fmt.Sprintf("Deleted %d object(s)", count))
 		})
 
@@ -444,7 +464,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case s3PageLoadedMsg:
 		// Discard messages from a different S3Objects view (e.g. user navigated back
 		// before loading finished, and the message was routed to the wrong view).
-		if m.bucket != s.bucket || m.prefix != s.prefix {
+		if m.bucket != s.bucket || m.prefix != s.prefix || m.gen != s.loadGen {
 			return s, nil
 		}
 
@@ -599,7 +619,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.err = nil
 			s.spinner.Show("Loading objects...")
 			s.table.SetRows(nil)
-			return s, tea.Batch(s.spinner.Tick(), s.fetchPage(nil, 1))
+			return s, s.startLoad()
 		case key.Matches(m, s.keys.View):
 			entry := s.selectedEntry()
 			if entry == nil {

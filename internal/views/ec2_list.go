@@ -18,6 +18,7 @@ import (
 )
 
 type ec2PageLoadedMsg struct {
+	gen          int // load generation that requested this page
 	instances    []aws.Instance
 	hasMorePages bool
 	token        *string
@@ -86,6 +87,7 @@ type EC2List struct {
 	filter             ui.Filter
 	spinner            ui.Spinner
 	loading            bool
+	loadGen            int      // generation of the current full load; see startLoad
 	pendingInstanceIDs []string // instances targeted by a pending action
 	pendingAction      string   // action name awaiting confirmation
 	pendingFocus       string   // instance ID to auto-open after data loads
@@ -162,11 +164,26 @@ func (e *EC2List) Init() tea.Cmd {
 	if !e.loading {
 		return nil
 	}
+	if e.loadGen > 0 {
+		// A load is already running. Its pages reach this view even while
+		// it is hidden, so restarting would only duplicate rows.
+		return e.spinner.Tick()
+	}
+	return e.startLoad()
+}
+
+// startLoad begins a full load from page 1. Each load gets a new generation,
+// and pages from an older load are dropped, so a refresh during a load
+// cannot duplicate rows.
+func (e *EC2List) startLoad() tea.Cmd {
+	e.loadGen++
+	e.instances = nil
 	return tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
 }
 
 func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := e.ec2
+	gen := e.loadGen
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
@@ -177,6 +194,7 @@ func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 			return msg.ErrorMsg{Err: err, Context: "listing EC2 instances"}
 		}
 		return ec2PageLoadedMsg{
+			gen:          gen,
 			instances:    page.Instances,
 			hasMorePages: page.HasMorePages,
 			token:        page.Token,
@@ -288,9 +306,8 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		})
 
 	case ec2DelayedRefreshMsg:
-		e.instances = nil
 		e.spinner.Show("Refreshing instances...")
-		return e, tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
+		return e, e.startLoad()
 
 	case ec2SSMSessionFinishedMsg:
 		if m.err != nil {
@@ -306,13 +323,15 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		eventlog.Infof(eventlog.CatAWS, "SSM session ended: %s", label)
 		// Refresh instance list — state may have changed during the session
 		e.loading = true
-		e.instances = nil
 		e.spinner.Show("Refreshing instances...")
-		return e, tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1), func() tea.Msg {
+		return e, tea.Batch(e.startLoad(), func() tea.Msg {
 			return msg.ToastSuccess("Session ended: " + label)
 		})
 
 	case ec2PageLoadedMsg:
+		if m.gen != e.loadGen {
+			return e, nil // page from a superseded load
+		}
 		e.instances = append(e.instances, m.instances...)
 		rows, sortKeys := e.buildRows(e.instances)
 		e.table.SetRowsWithSortKeys(rows, sortKeys)
@@ -452,9 +471,8 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			e.loading = true
 			e.err = nil
-			e.instances = nil
 			e.spinner.Show("Loading EC2 instances...")
-			return e, tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
+			return e, e.startLoad()
 		case key.Matches(m, e.keys.Details, e.keys.Describe):
 			selected := e.table.SelectedRow()
 			if selected != nil {
