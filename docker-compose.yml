@@ -1,6 +1,6 @@
 services:
   localstack:
-    image: docker.io/localstack/localstack:2026.03.0
+    image: docker.io/localstack/localstack:2026.9.1
     ports:
       - "4566:4566"
     environment:
