@@ -99,9 +99,17 @@ type EC2List struct {
 
 func (e *EC2List) ID() string    { return "ec2_list" }
 func (e *EC2List) Title() string { return "EC2 Instances" }
+
+// CapturingInput implements nav.InputCapturer.
+func (e *EC2List) CapturingInput() bool {
+	return e.filter.Active()
+}
+
 func (e *EC2List) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: e.keys.Details},
+		// An SSM session is an interactive shell on the instance, so
+		// ReadOnly mode blocks it.
 		{Binding: e.keys.Connect, Mode: ui.ModeReadWrite},
 		{Binding: e.keys.Manage, Mode: ui.ModeReadWrite},
 		{Binding: e.keys.CopyID},
@@ -489,11 +497,6 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			e.table.ToggleSelect()
 			return e, nil
 		case key.Matches(m, e.keys.Manage):
-			if ui.ReadOnly {
-				return e, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			ids := e.selectedInstanceIDs()
 			if len(ids) == 0 {
 				return e, nil
@@ -516,13 +519,6 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(m, e.keys.Connect):
-			// An SSM session is an interactive shell on the instance, so it
-			// is a mutation as far as ReadOnly mode is concerned.
-			if ui.ReadOnly {
-				return e, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			if e.awsClient == nil {
 				return e, func() tea.Msg {
 					return msg.ToastError("AWS client not available — check the profile")

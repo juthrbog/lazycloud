@@ -77,6 +77,11 @@ func (s *SubnetList) Title() string {
 	return "Subnets"
 }
 
+// CapturingInput implements nav.InputCapturer.
+func (s *SubnetList) CapturingInput() bool {
+	return s.filter.Active()
+}
+
 func (s *SubnetList) KeyMap() []ui.HintBinding {
 	return []ui.HintBinding{
 		{Binding: s.keys.Details},

@@ -21,20 +21,6 @@ func newTestS3Objects() (*S3Objects, *awstest.MockS3Service) {
 	return view, m
 }
 
-func loadObjects(view *S3Objects) {
-	view.Update(s3PageLoadedMsg{
-		bucket: "test-bucket",
-		prefix: "",
-		objects: []aws.S3Object{
-			{Key: "file1.txt", Size: 1024, LastModified: time.Now(), StorageClass: "STANDARD"},
-			{Key: "file2.json", Size: 2048, LastModified: time.Now(), StorageClass: "STANDARD"},
-		},
-		prefixes:     []string{"folder1/"},
-		hasMorePages: false,
-		pageNum:      1,
-	})
-}
-
 // --- isPreviewable tests ---
 
 func TestIsPreviewable(t *testing.T) {
@@ -67,55 +53,6 @@ func TestIsPreviewable(t *testing.T) {
 
 // --- ReadOnly guard tests ---
 
-func TestS3Objects_ReadOnlyBlocksDelete(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestS3Objects()
-	loadObjects(view)
-
-	_, cmd := view.Update(keyPress('x'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Equal(t, 2, toast.Level)
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
-func TestS3Objects_ReadOnlyBlocksCopy(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestS3Objects()
-	loadObjects(view)
-
-	_, cmd := view.Update(keyPress('c'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
-func TestS3Objects_ReadOnlyBlocksMove(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestS3Objects()
-	loadObjects(view)
-
-	_, cmd := view.Update(keyPress('m'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
 // --- Page loading tests ---
 
 func TestS3Objects_PageLoadedBuildsEntries(t *testing.T) {
@@ -141,8 +78,8 @@ func TestS3Objects_PageLoadedBuildsEntries(t *testing.T) {
 // C3: a later page with a new folder moves every object down by one row.
 // The selection must stay on the selected object.
 func TestS3Objects_SelectionFollowsObjectWhenFolderArrives(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 	view, _ := newTestS3Objects()
 	view.Update(s3PageLoadedMsg{
 		bucket: "test-bucket", objects: []aws.S3Object{{Key: "a.txt"}, {Key: "b.txt"}},
@@ -163,8 +100,8 @@ func TestS3Objects_SelectionFollowsObjectWhenFolderArrives(t *testing.T) {
 }
 
 func TestS3Objects_DeletePromptListsNames(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 	view, _ := newTestS3Objects()
 	view.Update(s3PageLoadedMsg{
 		bucket: "test-bucket", prefixes: []string{"logs/"}, objects: []aws.S3Object{{Key: "a.txt"}},

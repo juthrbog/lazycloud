@@ -108,6 +108,12 @@ type SQSMessages struct {
 
 func (s *SQSMessages) ID() string    { return "sqs_messages:" + s.queueURL }
 func (s *SQSMessages) Title() string { return s.queueName + " Messages" }
+
+// CapturingInput implements nav.InputCapturer.
+func (s *SQSMessages) CapturingInput() bool {
+	return s.filter.Active()
+}
+
 func (s *SQSMessages) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: s.keys.View},
@@ -195,7 +201,7 @@ func peekBlockReason(readOnly, attrsLoaded bool, attrsErr error, redrive *aws.Re
 }
 
 func (s *SQSMessages) peekBlocked() string {
-	return peekBlockReason(ui.ReadOnly, s.attrsLoaded, s.attrsErr, s.redrive)
+	return peekBlockReason(ui.IsReadOnly(), s.attrsLoaded, s.attrsErr, s.redrive)
 }
 
 // ─── Data fetching ──────────────────────────────────────────────────────────
@@ -527,11 +533,6 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case key.Matches(m, s.keys.Delete):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			handles := s.selectedReceiptHandles()
 			if len(handles) == 0 {
 				return s, nil
@@ -544,11 +545,6 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case key.Matches(m, s.keys.Manage):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			if !s.isDLQ {
 				return s, func() tea.Msg {
 					return msg.ToastError("Redrive is only available for DLQ queues")
@@ -715,13 +711,13 @@ func (s *SQSMessages) Footer() string {
 // table height (m.Height-4) stays correct.
 func (s *SQSMessages) bannerText() string {
 	switch {
-	case s.redrive != nil && ui.ReadOnly:
+	case s.redrive != nil && ui.IsReadOnly():
 		return fmt.Sprintf("⚠ Peek blocked in ReadOnly mode: each peek adds 1 to the receive count (DLQ after %d)",
 			s.redrive.MaxReceiveCount)
 	case s.redrive != nil:
 		return fmt.Sprintf("⚠ Each peek adds 1 to the receive count. This queue moves messages to its DLQ after %d",
 			s.redrive.MaxReceiveCount)
-	case s.attrsErr != nil && ui.ReadOnly:
+	case s.attrsErr != nil && ui.IsReadOnly():
 		return "⚠ Peek blocked in ReadOnly mode: could not read queue settings"
 	}
 	return "⚠ Peek makes messages visible again at once, but adds 1 to their receive count"

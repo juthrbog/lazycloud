@@ -39,9 +39,9 @@ func (h HintBinding) WithCategory(cat string) HintBinding {
 func (h *HintBinding) ApplyMode() {
 	switch h.Mode {
 	case ModeReadWrite:
-		h.SetEnabled(!ReadOnly)
+		h.SetEnabled(!IsReadOnly())
 	case ModeReadOnly:
-		h.SetEnabled(ReadOnly)
+		h.SetEnabled(IsReadOnly())
 	}
 }
 

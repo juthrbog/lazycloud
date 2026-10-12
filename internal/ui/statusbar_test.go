@@ -11,8 +11,8 @@ func init() {
 }
 
 func TestRenderStatusBarFiltersReadWriteInReadOnly(t *testing.T) {
-	ReadOnly = true
-	defer func() { ReadOnly = true }()
+	SetReadOnly(true)
+	defer func() { SetReadOnly(true) }()
 
 	data := StatusBarData{
 		Keys: []HintBinding{
@@ -30,8 +30,8 @@ func TestRenderStatusBarFiltersReadWriteInReadOnly(t *testing.T) {
 }
 
 func TestRenderStatusBarShowsReadWriteInReadWrite(t *testing.T) {
-	ReadOnly = false
-	defer func() { ReadOnly = true }()
+	SetReadOnly(false)
+	defer func() { SetReadOnly(true) }()
 
 	data := StatusBarData{
 		Keys: []HintBinding{
@@ -47,8 +47,8 @@ func TestRenderStatusBarShowsReadWriteInReadWrite(t *testing.T) {
 }
 
 func TestRenderStatusBarFiltersReadOnlyInReadWrite(t *testing.T) {
-	ReadOnly = false
-	defer func() { ReadOnly = true }()
+	SetReadOnly(false)
+	defer func() { SetReadOnly(true) }()
 
 	data := StatusBarData{
 		Keys: []HintBinding{
@@ -65,7 +65,7 @@ func TestRenderStatusBarFiltersReadOnlyInReadWrite(t *testing.T) {
 
 func TestRenderStatusBarModeAnyAlwaysShown(t *testing.T) {
 	for _, ro := range []bool{true, false} {
-		ReadOnly = ro
+		SetReadOnly(ro)
 		data := StatusBarData{
 			Keys:  []HintBinding{NewHintBinding([]string{"q"}, "q", "quit")},
 			Width: 80,
@@ -73,5 +73,5 @@ func TestRenderStatusBarModeAnyAlwaysShown(t *testing.T) {
 		bar := RenderStatusBar(data)
 		assert.Contains(t, bar, "quit")
 	}
-	ReadOnly = true
+	SetReadOnly(true)
 }

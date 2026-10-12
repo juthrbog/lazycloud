@@ -89,8 +89,8 @@ func TestPeekBlockReason(t *testing.T) {
 // In ReadOnly mode, l and r must not call ReceiveMessage on a queue whose
 // redrive policy could move peeked messages to the DLQ.
 func TestSQSMessages_ReadOnlyBlocksPeekOnRedriveQueue(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(true)
+	defer func() { ui.SetReadOnly(true) }()
 
 	for _, k := range []rune{'l', 'r'} {
 		view, svc := newTestSQSMessages()
@@ -107,8 +107,8 @@ func TestSQSMessages_ReadOnlyBlocksPeekOnRedriveQueue(t *testing.T) {
 }
 
 func TestSQSMessages_ReadOnlyAllowsPeekWithoutRedrive(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(true)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, svc := newTestSQSMessages()
 	loadAttrs(view, nil)
@@ -130,8 +130,8 @@ func TestSQSMessages_ReadOnlyAllowsPeekWithoutRedrive(t *testing.T) {
 }
 
 func TestSQSMessages_ReadOnlyBlocksPeekUntilSettingsLoad(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(true)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, svc := newTestSQSMessages()
 	_, cmd := view.Update(keyPress('l'))
@@ -150,8 +150,8 @@ func TestSQSMessages_ReadOnlyBlocksPeekUntilSettingsLoad(t *testing.T) {
 }
 
 func TestSQSMessages_ReadWriteAllowsPeekOnRedriveQueue(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, svc := newTestSQSMessages()
 	loadAttrs(view, testRedrive)
@@ -165,8 +165,8 @@ func TestSQSMessages_ReadWriteAllowsPeekOnRedriveQueue(t *testing.T) {
 // After a peek in ReadWrite mode, warn about messages whose next receive
 // moves them to the DLQ.
 func TestSQSMessages_WarnsAtDLQLimit(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestSQSMessages()
 	loadAttrs(view, testRedrive)
@@ -194,8 +194,8 @@ func TestSQSMessages_NoWarningBelowDLQLimit(t *testing.T) {
 // When visibility could not be reset, keep the messages and say how long
 // they stay hidden.
 func TestSQSMessages_ResetFailureKeepsMessagesAndWarns(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, svc := newTestSQSMessages()
 	loadAttrs(view, nil)
@@ -225,8 +225,8 @@ func TestSQSMessages_ReceiveErrorIsAnError(t *testing.T) {
 }
 
 func TestSQSMessages_BannerExplainsPeek(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(true)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestSQSMessages()
 	assert.NotContains(t, view.bannerText(), "VisibilityTimeout=0", "the old banner was false")
@@ -235,6 +235,6 @@ func TestSQSMessages_BannerExplainsPeek(t *testing.T) {
 	loadAttrs(view, testRedrive)
 	assert.Contains(t, view.bannerText(), "blocked in ReadOnly")
 
-	ui.ReadOnly = false
+	ui.SetReadOnly(false)
 	assert.Contains(t, view.bannerText(), "DLQ after 3")
 }

@@ -82,6 +82,12 @@ type S3List struct {
 
 func (s *S3List) ID() string    { return "s3_list" }
 func (s *S3List) Title() string { return "S3 Buckets" }
+
+// CapturingInput implements nav.InputCapturer.
+func (s *S3List) CapturingInput() bool {
+	return s.filter.Active() || (s.creating && s.createInput.Active())
+}
+
 func (s *S3List) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: s.keys.Browse},
@@ -315,11 +321,6 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, s.fetchBucketProperties(bucket)
 		case key.Matches(m, s.keys.NewBucket):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			s.creating = true
 			s.createInput = ui.NewFilterWithPrompt("new bucket", "bucket-name")
 			s.createInput.SetWidth(s.width)
@@ -329,11 +330,6 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case key.Matches(m, s.keys.Delete):
-			if ui.ReadOnly {
-				return s, func() tea.Msg {
-					return msg.ToastError("ReadOnly mode — press W to switch")
-				}
-			}
 			names := s.selectedBucketNames()
 			if len(names) == 0 {
 				return s, nil

@@ -17,6 +17,14 @@ type View interface {
 	Footer() string           // resource count / context info for footer line
 }
 
+// InputCapturer is implemented by views that take text input, for example a
+// filter or a form. While CapturingInput returns true, the app sends every key
+// except ctrl+c to the view, so a typed letter never runs an app-wide key such
+// as q, W, or tab.
+type InputCapturer interface {
+	CapturingInput() bool
+}
+
 // Navigator manages a stack of views with caching.
 type Navigator struct {
 	stack []View

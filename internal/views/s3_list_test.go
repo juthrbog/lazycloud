@@ -34,43 +34,9 @@ func loadBuckets(view *S3List) {
 	}})
 }
 
-func TestS3List_ReadOnlyBlocksCreate(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestS3List()
-	loadBuckets(view)
-
-	_, cmd := view.Update(keyPress('n'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Equal(t, 2, toast.Level) // error
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
-func TestS3List_ReadOnlyBlocksDelete(t *testing.T) {
-	ui.ReadOnly = true
-	defer func() { ui.ReadOnly = true }()
-
-	view, _ := newTestS3List()
-	loadBuckets(view)
-
-	_, cmd := view.Update(keyPress('x'))
-	require.NotNil(t, cmd)
-
-	result := cmd()
-	toast, ok := result.(msg.ToastMsg)
-	require.True(t, ok, "expected ToastMsg, got %T", result)
-	assert.Equal(t, 2, toast.Level)
-	assert.Contains(t, toast.Text, "ReadOnly")
-}
-
 func TestS3List_ReadWriteAllowsCreate(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestS3List()
 	loadBuckets(view)
@@ -121,8 +87,8 @@ func TestS3List_EnterNavigates(t *testing.T) {
 }
 
 func TestS3List_DeleteTriggersConfirm(t *testing.T) {
-	ui.ReadOnly = false
-	defer func() { ui.ReadOnly = true }()
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
 
 	view, _ := newTestS3List()
 	loadBuckets(view)
