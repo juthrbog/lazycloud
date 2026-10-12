@@ -145,7 +145,7 @@ func sqsMessageColumns(tier ui.WidthTier, isFIFO bool) []ui.Column {
 
 // NewSQSMessages creates the SQS message browser view.
 func NewSQSMessages(sqs aws.SQSService, queueURL, queueName string, isFIFO bool) *SQSMessages {
-	t := ui.NewTable(sqsMessageColumns(ui.TierMedium, isFIFO), nil)
+	t := ui.NewTable(sqsMessageColumns(ui.TierMedium, isFIFO))
 	return &SQSMessages{
 		keys:      defaultSQSMessagesKeyMap,
 		sqs:       sqs,
@@ -583,55 +583,36 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 // ─── Selection helpers ──────────────────────────────────────────────────────
 
-func (s *SQSMessages) selectedMessage() *aws.SQSMessage {
-	row := s.table.SelectedRow()
-	if row == nil || len(s.messages) == 0 {
-		return nil
-	}
-	id := row[0]
+// findMessage returns the message with the given ID, or nil.
+func (s *SQSMessages) findMessage(id string) *aws.SQSMessage {
 	for i := range s.messages {
-		if truncateID(s.messages[i].MessageID) == id || s.messages[i].MessageID == id {
+		if s.messages[i].MessageID == id {
 			return &s.messages[i]
 		}
 	}
 	return nil
 }
 
-func (s *SQSMessages) selectedMessageIDs() []string {
-	indices := s.table.SelectedIndices()
-	if len(indices) == 0 {
-		row := s.table.SelectedRow()
-		if row == nil {
-			return nil
-		}
-		m := s.selectedMessage()
-		if m != nil {
-			return []string{m.MessageID}
-		}
-		return nil
-	}
-	ids := make([]string, 0, len(indices))
-	for _, idx := range indices {
-		if idx < len(s.messages) {
-			ids = append(ids, s.messages[idx].MessageID)
-		}
-	}
-	return ids
+// selectedMessage returns the message under the cursor. The message ID is
+// the row key.
+func (s *SQSMessages) selectedMessage() *aws.SQSMessage {
+	return s.findMessage(s.table.CursorKey())
 }
 
+// selectedMessageIDs returns the IDs of the selected messages, or the cursor
+// message ID if none is selected.
+func (s *SQSMessages) selectedMessageIDs() []string {
+	return s.table.TargetKeys()
+}
+
+// selectedReceiptHandles returns the receipt handles of the messages that
+// selectedMessageIDs returns.
 func (s *SQSMessages) selectedReceiptHandles() []string {
-	indices := s.table.SelectedIndices()
-	if len(indices) == 0 {
-		m := s.selectedMessage()
-		if m != nil {
-			return []string{m.ReceiptHandle}
-		}
-		return nil
-	}
-	handles := make([]string, 0, len(indices))
-	for _, idx := range indices {
-		if idx < len(s.messages) {
-			handles = append(handles, s.messages[idx].ReceiptHandle)
+	ids := s.selectedMessageIDs()
+	handles := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if m := s.findMessage(id); m != nil {
+			handles = append(handles, m.ReceiptHandle)
 		}
 	}
 	return handles
@@ -673,8 +654,7 @@ func (s *SQSMessages) deleteSelectedMessages() tea.Cmd {
 // ─── Row building ───────────────────────────────────────────────────────────
 
 func (s *SQSMessages) rebuildRows() {
-	rows := make([]table.Row, 0, len(s.messages))
-	sortKeys := make([]table.Row, 0, len(s.messages))
+	rows := make([]ui.Row, 0, len(s.messages))
 	for _, m := range s.messages {
 		sent := ""
 		sentSortKey := ""
@@ -685,21 +665,23 @@ func (s *SQSMessages) rebuildRows() {
 		receives := fmt.Sprintf("%d", m.ApproximateReceiveCount)
 		bodyPreview := sanitizeBody(m.Body)
 
+		r := ui.Row{Key: m.MessageID}
 		switch s.widthTier {
 		case ui.TierNarrow:
-			rows = append(rows, table.Row{m.MessageID, bodyPreview})
-			sortKeys = append(sortKeys, table.Row{m.MessageID, m.Body})
+			r.Cells = table.Row{m.MessageID, bodyPreview}
+			r.Sort = table.Row{m.MessageID, m.Body}
 		default:
 			if s.isFIFO {
-				rows = append(rows, table.Row{m.MessageID, sent, receives, m.MessageGroupID, bodyPreview})
-				sortKeys = append(sortKeys, table.Row{m.MessageID, sentSortKey, receives, m.MessageGroupID, m.Body})
+				r.Cells = table.Row{m.MessageID, sent, receives, m.MessageGroupID, bodyPreview}
+				r.Sort = table.Row{m.MessageID, sentSortKey, receives, m.MessageGroupID, m.Body}
 			} else {
-				rows = append(rows, table.Row{m.MessageID, sent, receives, bodyPreview})
-				sortKeys = append(sortKeys, table.Row{m.MessageID, sentSortKey, receives, m.Body})
+				r.Cells = table.Row{m.MessageID, sent, receives, bodyPreview}
+				r.Sort = table.Row{m.MessageID, sentSortKey, receives, m.Body}
 			}
 		}
+		rows = append(rows, r)
 	}
-	s.table.SetRowsWithSortKeys(rows, sortKeys)
+	s.table.SetRows(rows)
 }
 
 func truncateID(id string) string {

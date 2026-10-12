@@ -5,6 +5,7 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -18,12 +19,22 @@ func testTable() Table {
 		{Title: "Size", Width: 10},
 		{Title: "Date", Width: 12},
 	}
-	rows := []table.Row{
-		{"charlie", "100", "2024-03-01"},
-		{"alpha", "300", "2024-01-01"},
-		{"bravo", "200", "2024-02-01"},
+	tbl := NewTable(columns)
+	tbl.SetRows(keyed(
+		table.Row{"charlie", "100", "2024-03-01"},
+		table.Row{"alpha", "300", "2024-01-01"},
+		table.Row{"bravo", "200", "2024-02-01"},
+	))
+	return tbl
+}
+
+// keyed builds rows that use their first cell as the key.
+func keyed(cells ...table.Row) []Row {
+	rows := make([]Row, len(cells))
+	for i, c := range cells {
+		rows[i] = Row{Key: c[0], Cells: c}
 	}
-	return NewTable(columns, rows)
+	return rows
 }
 
 func TestSortNext(t *testing.T) {
@@ -89,20 +100,15 @@ func TestSortWithSortKeys(t *testing.T) {
 		{Title: "Name", Width: 20},
 		{Title: "Size", Width: 10},
 	}
-	rows := []table.Row{
-		{"small", "1.5 KB"},
-		{"large", "512 MB"},
-		{"medium", "2.0 MB"},
-	}
-	// Sort keys use zero-padded byte counts for correct numeric ordering
-	sortKeys := []table.Row{
-		{"small", SortKeyBytes(1536)},      // 1.5 KB
-		{"large", SortKeyBytes(536870912)}, // 512 MB
-		{"medium", SortKeyBytes(2097152)},  // 2 MB
+	// Sort values use zero-padded byte counts for correct numeric ordering
+	rows := []Row{
+		{Key: "small", Cells: table.Row{"small", "1.5 KB"}, Sort: table.Row{"small", SortKeyBytes(1536)}},
+		{Key: "large", Cells: table.Row{"large", "512 MB"}, Sort: table.Row{"large", SortKeyBytes(536870912)}},
+		{Key: "medium", Cells: table.Row{"medium", "2.0 MB"}, Sort: table.Row{"medium", SortKeyBytes(2097152)}},
 	}
 
-	tbl := NewTable(columns, rows)
-	tbl.SetRowsWithSortKeys(rows, sortKeys)
+	tbl := NewTable(columns)
+	tbl.SetRows(rows)
 
 	// Sort by Size (column 1) ascending
 	tbl.Sort(1)
@@ -153,20 +159,15 @@ func TestSortHeaderIndicators(t *testing.T) {
 	assert.Equal(t, "Date", cols[2].Title)
 }
 
-func TestSortPreservesFilteredMap(t *testing.T) {
+func TestSortKeepsCursorOnRow(t *testing.T) {
 	tbl := testTable()
+	require.Equal(t, "charlie", tbl.CursorKey())
 
-	// Sort by Name ascending: alpha(1), bravo(2), charlie(0)
+	// Sort by Name ascending: alpha, bravo, charlie. The cursor follows charlie.
 	tbl.SortNext()
-
-	// Verify filteredMap tracks original indices correctly
-	assert.Equal(t, 1, tbl.filteredMap[0]) // alpha was allRows[1]
-	assert.Equal(t, 2, tbl.filteredMap[1]) // bravo was allRows[2]
-	assert.Equal(t, 0, tbl.filteredMap[2]) // charlie was allRows[0]
-
-	// SelectedAllRowIndex should return the original allRows index
-	// (cursor defaults to 0, which should be alpha = allRows[1])
-	assert.Equal(t, 1, tbl.SelectedAllRowIndex())
+	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, tbl.VisibleKeys())
+	assert.Equal(t, "charlie", tbl.CursorKey())
+	assert.Equal(t, 2, tbl.inner.Cursor())
 }
 
 func TestSortWithFilter(t *testing.T) {
@@ -210,10 +211,10 @@ func TestSetColumnsSwapsColumns(t *testing.T) {
 	tbl.SetColumns(newCols)
 
 	assert.Equal(t, 2, len(tbl.flexColumns))
-	assert.Equal(t, -1, tbl.sortCol, "sort should be reset after SetColumns")
+	assert.Equal(t, -1, tbl.sortCol, "an unsorted table stays unsorted")
 }
 
-func TestSetColumnsResetsSortState(t *testing.T) {
+func TestSetColumnsClearsSortWhenColumnIsGone(t *testing.T) {
 	tbl := testTable()
 	tbl.Sort(0) // sort by Name
 	assert.Equal(t, 0, tbl.sortCol)
@@ -224,4 +225,28 @@ func TestSetColumnsResetsSortState(t *testing.T) {
 	})
 
 	assert.Equal(t, -1, tbl.sortCol, "sort column should reset")
+}
+
+// A change of width tier can move the sorted column to another index. The
+// sort follows the column title.
+func TestSetColumnsKeepsSortOnMovedColumn(t *testing.T) {
+	tbl := testTable()
+	tbl.Sort(1)
+	tbl.SortReverse() // Size, descending
+
+	tbl.SetColumns([]Column{
+		{Title: "Name", Width: 20},
+		{Title: "Date", Width: 12},
+		{Title: "Size", Width: 10},
+	})
+	tbl.SetRows(keyed(
+		table.Row{"charlie", "2024-03-01", "100"},
+		table.Row{"alpha", "2024-01-01", "300"},
+		table.Row{"bravo", "2024-02-01", "200"},
+	))
+
+	assert.Equal(t, 2, tbl.sortCol)
+	assert.Equal(t, SortDesc, tbl.sortDir)
+	assert.Equal(t, "Size ▼", tbl.inner.Columns()[2].Title)
+	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, tbl.VisibleKeys())
 }

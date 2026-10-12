@@ -104,6 +104,7 @@ type SQSQueues struct {
 	attrsLoading     bool
 	pendingQueueURLs []string
 	pendingAction    string
+	pendingFocus     string // queue name to focus when the load finishes
 	err              error
 	width            int
 	height           int
@@ -156,7 +157,7 @@ func sqsColumns(tier ui.WidthTier) []ui.Column {
 
 // NewSQSQueues creates the SQS queue list view.
 func NewSQSQueues(sqs aws.SQSService) *SQSQueues {
-	t := ui.NewTable(sqsColumns(ui.TierMedium), nil)
+	t := ui.NewTable(sqsColumns(ui.TierMedium))
 	return &SQSQueues{
 		keys:      defaultSQSQueuesKeyMap,
 		sqs:       sqs,
@@ -404,8 +405,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		s.spinner.Hide()
-		rows, sortKeys := s.buildRows(s.queues)
-		s.table.SetRowsWithSortKeys(rows, sortKeys)
+		s.table.SetRows(s.buildRows(s.queues))
 		return s, nil
 
 	case sqsQueueDeletedMsg:
@@ -466,10 +466,22 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.spinner.Hide()
 		s.queues = m.queues
 		markDLQQueues(s.queues)
-		rows, sortKeys := s.buildRows(s.queues)
-		s.table.SetRowsWithSortKeys(rows, sortKeys)
+		s.table.SetRows(s.buildRows(s.queues))
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d SQS queues", len(s.queues))
+		if s.pendingFocus != "" {
+			name := s.pendingFocus
+			s.pendingFocus = ""
+			return s, s.focusQueue(name)
+		}
 		return s, nil
+
+	case msg.FocusResourceMsg:
+		// DLQ links name a queue in this list.
+		if s.loading || s.attrsLoading {
+			s.pendingFocus = m.ResourceID
+			return s, nil
+		}
+		return s, s.focusQueue(m.ResourceID)
 
 	case sqsQueueDetailMsg:
 		if m.err != nil {
@@ -501,8 +513,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.queues) > 0 {
-				rows, sortKeys := s.buildRows(s.queues)
-				s.table.SetRowsWithSortKeys(rows, sortKeys)
+				s.table.SetRows(s.buildRows(s.queues))
 			}
 		}
 		s.table.SetSize(m.Width, m.Height-3)
@@ -634,41 +645,34 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 // ─── Selection helpers ──────────────────────────────────────────────────────
 
+// selectedQueue returns the queue under the cursor. The queue URL is the
+// row key.
 func (s *SQSQueues) selectedQueue() *aws.Queue {
-	row := s.table.SelectedRow()
-	if row == nil {
-		return nil
-	}
-	name := row[0]
+	url := s.table.CursorKey()
 	for i := range s.queues {
-		if s.queues[i].Name == name {
+		if s.queues[i].URL == url {
 			return &s.queues[i]
 		}
 	}
 	return nil
 }
 
+// selectedQueueURLs returns the URLs of the selected queues, or the cursor
+// queue URL if none is selected.
 func (s *SQSQueues) selectedQueueURLs() []string {
-	indices := s.table.SelectedIndices()
-	if len(indices) == 0 {
-		row := s.table.SelectedRow()
-		if row == nil {
-			return nil
-		}
-		for _, q := range s.queues {
-			if q.Name == row[0] {
-				return []string{q.URL}
-			}
-		}
-		return nil
-	}
-	urls := make([]string, 0, len(indices))
-	for _, idx := range indices {
-		if idx < len(s.queues) {
-			urls = append(urls, s.queues[idx].URL)
+	return s.table.TargetKeys()
+}
+
+// focusQueue moves the cursor to the queue with the given name and shows its
+// details.
+func (s *SQSQueues) focusQueue(name string) tea.Cmd {
+	for _, q := range s.queues {
+		if q.Name == name {
+			s.table.SetCursorByKey(q.URL)
+			return s.fetchQueueDetail(q.URL)
 		}
 	}
-	return urls
+	return nil
 }
 
 func (s *SQSQueues) removeQueue(url string) {
@@ -678,8 +682,7 @@ func (s *SQSQueues) removeQueue(url string) {
 			break
 		}
 	}
-	rows, sortKeys := s.buildRows(s.queues)
-	s.table.SetRowsWithSortKeys(rows, sortKeys)
+	s.table.SetRows(s.buildRows(s.queues))
 }
 
 // ─── Mutations ──────────────────────────────────────────────────────────────
@@ -748,9 +751,8 @@ func markDLQQueues(queues []aws.Queue) {
 
 // ─── Row building ───────────────────────────────────────────────────────────
 
-func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
-	rows := make([]table.Row, 0, len(queues))
-	sortKeys := make([]table.Row, 0, len(queues))
+func (s *SQSQueues) buildRows(queues []aws.Queue) []ui.Row {
+	rows := make([]ui.Row, 0, len(queues))
 	for _, q := range queues {
 		msgCount := ui.CountColor(q.ApproximateMessageCount)
 		inFlight := ui.CountColor(q.ApproximateInFlightCount)
@@ -770,19 +772,21 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) ([]table.Row, []table.Row) {
 			dlq = "Yes"
 		}
 
+		r := ui.Row{Key: q.URL}
 		switch s.widthTier {
 		case ui.TierNarrow:
-			rows = append(rows, table.Row{q.Name, msgCount})
-			sortKeys = append(sortKeys, table.Row{q.Name, rawMsg})
+			r.Cells = table.Row{q.Name, msgCount}
+			r.Sort = table.Row{q.Name, rawMsg}
 		case ui.TierMedium:
-			rows = append(rows, table.Row{q.Name, q.Type, msgCount, inFlight, delayed})
-			sortKeys = append(sortKeys, table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed})
+			r.Cells = table.Row{q.Name, q.Type, msgCount, inFlight, delayed}
+			r.Sort = table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed}
 		default:
-			rows = append(rows, table.Row{q.Name, q.Type, msgCount, inFlight, delayed, dlq, created})
-			sortKeys = append(sortKeys, table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed, dlq, created})
+			r.Cells = table.Row{q.Name, q.Type, msgCount, inFlight, delayed, dlq, created}
+			r.Sort = table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed, dlq, created}
 		}
+		rows = append(rows, r)
 	}
-	return rows, sortKeys
+	return rows
 }
 
 // ─── Detail tabs ────────────────────────────────────────────────────────────

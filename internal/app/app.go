@@ -230,6 +230,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.clearStashedPanel()
 			m.closePanel()
 		}
+		if focusID := msg.Params["focus"]; focusID != "" && m.nav.Current().ID() == msg.ViewID {
+			// A link to another row of the view on top only moves its
+			// cursor. Pushing would put the same view on the stack twice.
+			return m, func() tea.Msg { return appmsg.FocusResourceMsg{ResourceID: focusID} }
+		}
 		view := m.resolveView(msg)
 		if view != nil {
 			eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
@@ -338,7 +343,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.RequestConfirmMsg:
-		m.confirm.Show(msg.Message, msg.Action)
+		m.confirm.Show(msg.Message, msg.Action, msg.Phrase)
 		return m, nil
 
 	case appmsg.RequestActionPickerMsg:

@@ -2,12 +2,15 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // SortDirection controls table column sort order.
@@ -18,27 +21,47 @@ const (
 	SortDesc
 )
 
+// Row is one table row. Key identifies the resource in the row, for example
+// an instance ID or an S3 object key. The cursor and the selection follow
+// the key, so they stay on the same resource when the rows are reloaded,
+// sorted, or filtered.
+type Row struct {
+	Key   string
+	Cells table.Row
+	// Sort holds optional sort values, one per column. The table sorts a
+	// column on the cell text when Sort has no value for it.
+	Sort table.Row
+}
+
+// selectMarker is drawn in front of the first cell of a selected row. It is
+// display only: Row data and SelectedRow never contain it.
+const selectMarker = "✓ "
+
 // Table wraps bubbles/table with sort, filter, and multi-select support.
 type Table struct {
 	inner       table.Model
-	allRows     []table.Row
-	flexColumns []Column // column definitions with flex weights
+	rows        []Row
+	search      []string       // per row: filter text, built on the first filter (see ensureSearch)
+	index       map[string]int // key → index into rows
+	order       []int          // indices into rows, in sort order
+	visible     []int          // indices into rows that pass the filter, in display order
+	display     []table.Row    // cells shown by inner, parallel to visible
+	selected    map[string]bool
+	selCount    int    // selected rows in visible
+	keepCursor  string // cursor key to restore after SetColumns
+	flexColumns []Column
 	sortCol     int
 	sortDir     SortDirection
-	sortKeys    []table.Row // parallel to allRows; nil = use display value
 	filterText  string
-	selected    map[int]bool // indices into allRows
-	filteredMap []int        // maps filtered row index → allRows index
 	width       int
 	height      int
 }
 
-// NewTable creates a Table with the given columns and rows.
-func NewTable(columns []Column, rows []table.Row) Table {
+// NewTable creates an empty Table with the given columns.
+func NewTable(columns []Column) Table {
 	resolved := DistributeWidths(columns, 0)
 	t := table.New(
 		table.WithColumns(resolved),
-		table.WithRows(rows),
 		table.WithFocused(true),
 	)
 
@@ -63,15 +86,13 @@ func NewTable(columns []Column, rows []table.Row) Table {
 	flex := make([]Column, len(columns))
 	copy(flex, columns)
 
-	tbl := Table{
+	return Table{
 		inner:       t,
-		allRows:     rows,
+		index:       make(map[string]int),
+		selected:    make(map[string]bool),
 		flexColumns: flex,
 		sortCol:     -1,
-		selected:    make(map[int]bool),
 	}
-	tbl.buildFilteredMap()
-	return tbl
 }
 
 // SetSize sets the table dimensions and redistributes column widths.
@@ -88,22 +109,46 @@ func (t Table) Columns() []Column {
 	return t.flexColumns
 }
 
-// SetColumns swaps the column set without recreating the table.
-// Clears rows and resets sort state since column indices may have changed.
-// Selections are preserved — callers repopulate rows with the same data.
+// SetColumns swaps the column set without recreating the table, for example
+// when a change in width moves the view to another tier. It clears the rows.
+// The sort stays on the column with the same title, at its new index, and is
+// cleared when the new set has no such column. The selection and the cursor
+// key are kept, because callers repopulate rows with the same data.
 func (t *Table) SetColumns(columns []Column) {
+	sortCol := -1
+	if t.sorted() {
+		sortCol = columnIndex(columns, t.flexColumns[t.sortCol].Title, t.sortCol)
+	}
 	flex := make([]Column, len(columns))
 	copy(flex, columns)
 	t.flexColumns = flex
-	saved := t.selected
-	t.allRows = nil
-	t.sortKeys = nil
+	if k := t.CursorKey(); k != "" {
+		t.keepCursor = k
+	}
+	t.rows, t.search, t.order, t.visible, t.display = nil, nil, nil, nil, nil
+	t.index = make(map[string]int)
+	t.selCount = 0
 	t.inner.SetRows(nil)
+	t.sortCol = sortCol
+	if sortCol < 0 {
+		t.sortDir = SortAsc
+	}
 	t.resolveColumns()
-	t.sortCol = -1
-	t.sortDir = SortAsc
-	t.selected = saved
-	t.buildFilteredMap()
+}
+
+// columnIndex returns the index of the column with the given title, or -1.
+// It prefers index hint, so that columns with the same title (for example
+// two empty titles) keep their position.
+func columnIndex(columns []Column, title string, hint int) int {
+	if hint >= 0 && hint < len(columns) && columns[hint].Title == title {
+		return hint
+	}
+	for i, c := range columns {
+		if c.Title == title {
+			return i
+		}
+	}
+	return -1
 }
 
 // resolveColumns computes fixed-width columns from flex definitions
@@ -121,122 +166,236 @@ func (t *Table) resolveColumns() {
 	t.inner.SetColumns(resolved)
 }
 
-// SetRows replaces the table data and reapplies sort/filter.
-// Selections are preserved for indices that remain valid.
-func (t *Table) SetRows(rows []table.Row) {
-	t.allRows = rows
-	t.sortKeys = nil
-	for idx := range t.selected {
-		if idx >= len(rows) {
-			delete(t.selected, idx)
-		}
+// SetRows replaces the table data and reapplies sort and filter. The cursor
+// stays on the same key when that key is still present. The selection is
+// kept by key: a selected key that is missing does not count, and it is
+// selected again when a later page or reload brings its row back. A row
+// whose key appeared earlier is ignored. When rows is empty, for example
+// while a view reloads, the table remembers the cursor key for the next rows.
+func (t *Table) SetRows(rows []Row) {
+	cursor := t.cursorToKeep()
+	t.rows = make([]Row, 0, len(rows))
+	t.search = nil
+	t.index = make(map[string]int, len(rows))
+	t.addRows(rows)
+	t.sortOrder()
+	t.refresh(cursor)
+	if len(t.rows) == 0 {
+		t.keepCursor = cursor
 	}
-	t.applyFilterAndSort()
 }
 
-// SetRowsWithSortKeys replaces the table data with parallel sort keys.
-// Sort keys must be the same length as rows; each sort key row provides
-// string values that sort correctly for each column.
-// Selections are preserved for indices that remain valid.
-func (t *Table) SetRowsWithSortKeys(rows []table.Row, sortKeys []table.Row) {
-	t.allRows = rows
-	t.sortKeys = sortKeys
-	// Prune selections beyond new row count, but keep valid ones
-	for idx := range t.selected {
-		if idx >= len(rows) {
-			delete(t.selected, idx)
-		}
+// AppendRows adds rows after the current ones, for example the next page of
+// a paginated list. It sorts only the new rows and merges them into the
+// existing order. A row whose key is already present is ignored.
+func (t *Table) AppendRows(rows []Row) {
+	cursor := t.cursorToKeep()
+	start := len(t.rows)
+	t.addRows(rows)
+	added := make([]int, 0, len(t.rows)-start)
+	for i := start; i < len(t.rows); i++ {
+		added = append(added, i)
 	}
-	t.applyFilterAndSort()
+	if t.sorted() {
+		sort.SliceStable(added, func(a, b int) bool { return t.less(added[a], added[b]) })
+		t.order = t.mergeOrder(t.order, added)
+	} else {
+		t.order = append(t.order, added...)
+	}
+	t.refresh(cursor)
 }
 
-// SelectedRow returns the currently highlighted row.
+func (t *Table) addRows(rows []Row) {
+	for _, r := range rows {
+		if _, dup := t.index[r.Key]; dup {
+			continue
+		}
+		t.index[r.Key] = len(t.rows)
+		t.rows = append(t.rows, r)
+	}
+}
+
+// ensureSearch builds the filter text for the rows that do not have it yet.
+// A table that is never filtered never builds it.
+func (t *Table) ensureSearch() {
+	for i := len(t.search); i < len(t.rows); i++ {
+		t.search = append(t.search, searchText(t.rows[i].Cells))
+	}
+}
+
+// cursorToKeep returns the key the cursor must stay on after new rows arrive.
+func (t *Table) cursorToKeep() string {
+	k := t.CursorKey()
+	if k == "" {
+		k = t.keepCursor
+	}
+	t.keepCursor = ""
+	return k
+}
+
+// searchText returns the text the filter matches for a row: the cells in
+// lowercase, without ANSI codes, joined with NUL so that a query never
+// matches across two cells.
+func searchText(cells table.Row) string {
+	n := len(cells)
+	for _, c := range cells {
+		n += len(c)
+	}
+	var b strings.Builder
+	b.Grow(n)
+	for i, c := range cells {
+		if i > 0 {
+			b.WriteByte(0)
+		}
+		if strings.IndexByte(c, ansi.ESC) >= 0 {
+			c = ansi.Strip(c)
+		}
+		writeLower(&b, c)
+	}
+	return b.String()
+}
+
+// writeLower writes s in lowercase. ASCII text needs no allocation.
+func writeLower(b *strings.Builder, s string) {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= utf8.RuneSelf {
+			b.WriteString(strings.ToLower(s[i:]))
+			return
+		}
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b.WriteByte(c)
+	}
+}
+
+// SelectedRow returns the cells of the row under the cursor, without the
+// selection marker. It returns nil when no row is visible.
 func (t Table) SelectedRow() table.Row {
-	return t.inner.SelectedRow()
-}
-
-// SelectedIndex returns the cursor position in the filtered view.
-func (t Table) SelectedIndex() int {
-	return t.inner.Cursor()
-}
-
-// SetCursor sets the cursor to the given row index.
-func (t *Table) SetCursor(n int) {
-	t.inner.SetCursor(n)
-}
-
-// SelectedAllRowIndex returns the allRows index for the current cursor position.
-// Returns -1 if no valid mapping exists.
-func (t Table) SelectedAllRowIndex() int {
-	idx := t.inner.Cursor()
-	if idx < 0 || idx >= len(t.filteredMap) {
-		return -1
+	if i, ok := t.cursorRow(); ok {
+		return t.rows[i].Cells
 	}
-	return t.filteredMap[idx]
+	return nil
 }
 
-// ToggleSelect toggles selection on the current row and re-renders markers.
+// CursorKey returns the key of the row under the cursor, or "" when no row
+// is visible.
+func (t Table) CursorKey() string {
+	if i, ok := t.cursorRow(); ok {
+		return t.rows[i].Key
+	}
+	return ""
+}
+
+// cursorRow returns the index into rows of the row under the cursor.
+func (t Table) cursorRow() (int, bool) {
+	n := t.inner.Cursor()
+	if n < 0 || n >= len(t.visible) {
+		return 0, false
+	}
+	return t.visible[n], true
+}
+
+// SetCursorByKey moves the cursor to the row with the given key. It returns
+// false, and leaves the cursor where it is, when no visible row has the key.
+func (t *Table) SetCursorByKey(key string) bool {
+	i, ok := t.index[key]
+	if !ok {
+		return false
+	}
+	for n, v := range t.visible {
+		if v == i {
+			t.inner.SetCursor(n)
+			return true
+		}
+	}
+	return false
+}
+
+// ToggleSelect toggles the selection of the row under the cursor.
 func (t *Table) ToggleSelect() {
-	idx := t.SelectedAllRowIndex()
-	if idx < 0 {
+	n := t.inner.Cursor()
+	if n < 0 || n >= len(t.visible) {
 		return
 	}
-	if t.selected[idx] {
-		delete(t.selected, idx)
+	key := t.rows[t.visible[n]].Key
+	if t.selected[key] {
+		delete(t.selected, key)
+		t.selCount--
 	} else {
-		t.selected[idx] = true
+		t.selected[key] = true
+		t.selCount++
 	}
-	t.applyFilterAndSort()
+	// Only the marker of this row changes.
+	t.display[n] = t.displayRow(t.visible[n])
+	t.inner.SetRows(t.display)
 }
 
-// SelectAll selects all currently visible (filtered) rows.
+// SelectAll selects all visible rows.
 func (t *Table) SelectAll() {
-	for _, allIdx := range t.filteredMap {
-		t.selected[allIdx] = true
+	for _, i := range t.visible {
+		t.selected[t.rows[i].Key] = true
 	}
-	t.applyFilterAndSort()
+	t.redraw()
 }
 
-// DeselectAll clears all selections.
+// DeselectAll clears the selection, also for selected keys whose rows are
+// not loaded.
 func (t *Table) DeselectAll() {
-	t.selected = make(map[int]bool)
-	t.applyFilterAndSort()
+	clear(t.selected)
+	t.redraw()
 }
 
-// ToggleSelectAll selects all if none are selected, otherwise deselects all.
+// ToggleSelectAll selects all visible rows if none is selected, otherwise
+// deselects all.
 func (t *Table) ToggleSelectAll() {
-	if len(t.selected) > 0 {
+	if t.selCount > 0 {
 		t.DeselectAll()
 	} else {
 		t.SelectAll()
 	}
 }
 
-// SelectionCount returns the number of selected rows.
+// SelectionCount returns the number of selected rows. The filter deselects
+// the rows it hides, so every counted row is visible.
 func (t Table) SelectionCount() int {
-	return len(t.selected)
+	return t.selCount
 }
 
-// SelectedIndices returns the allRows indices of all selected rows.
-func (t Table) SelectedIndices() []int {
-	indices := make([]int, 0, len(t.selected))
-	for idx := range t.selected {
-		indices = append(indices, idx)
+// SelectedKeys returns the keys of the selected rows, in display order.
+func (t Table) SelectedKeys() []string {
+	if t.selCount == 0 {
+		return nil
 	}
-	sort.Ints(indices)
-	return indices
+	keys := make([]string, 0, t.selCount)
+	for _, i := range t.visible {
+		if k := t.rows[i].Key; t.selected[k] {
+			keys = append(keys, k)
+		}
+	}
+	return keys
 }
 
-// FilteredIndices returns the allRows indices of all currently visible (filtered) rows.
-func (t Table) FilteredIndices() []int {
-	out := make([]int, len(t.filteredMap))
-	copy(out, t.filteredMap)
-	return out
+// TargetKeys returns the keys an action applies to: the selected rows, or
+// the row under the cursor when no row is selected.
+func (t Table) TargetKeys() []string {
+	if keys := t.SelectedKeys(); len(keys) > 0 {
+		return keys
+	}
+	if k := t.CursorKey(); k != "" {
+		return []string{k}
+	}
+	return nil
 }
 
-// IsSelected returns whether the given allRows index is selected.
-func (t Table) IsSelected(allRowIdx int) bool {
-	return t.selected[allRowIdx]
+// VisibleKeys returns the keys of all visible rows, in display order.
+func (t Table) VisibleKeys() []string {
+	keys := make([]string, len(t.visible))
+	for n, i := range t.visible {
+		keys[n] = t.rows[i].Key
+	}
+	return keys
 }
 
 // Sort sorts the table by the given column index.
@@ -251,8 +410,7 @@ func (t *Table) Sort(col int) {
 		t.sortCol = col
 		t.sortDir = SortAsc
 	}
-	t.updateColumnHeaders()
-	t.applyFilterAndSort()
+	t.resort()
 }
 
 // SortColumnNames returns the base column titles and the currently sorted column index.
@@ -268,8 +426,7 @@ func (t Table) SortColumnNames() ([]string, int) {
 func (t *Table) ClearSort() {
 	t.sortCol = -1
 	t.sortDir = SortAsc
-	t.updateColumnHeaders()
-	t.applyFilterAndSort()
+	t.resort()
 }
 
 // SortNext advances to the next sort column (ascending), or clears sort after the last column.
@@ -281,8 +438,7 @@ func (t *Table) SortNext() {
 		t.sortCol = next
 		t.sortDir = SortAsc
 	}
-	t.updateColumnHeaders()
-	t.applyFilterAndSort()
+	t.resort()
 }
 
 // SortReverse reverses the current sort direction. No-op if no column is sorted.
@@ -295,19 +451,23 @@ func (t *Table) SortReverse() {
 	} else {
 		t.sortDir = SortAsc
 	}
-	t.updateColumnHeaders()
-	t.applyFilterAndSort()
+	t.resort()
 }
 
-// Filter applies a text filter across all columns.
+// Filter shows only the rows that contain text in any cell, ignoring case
+// and ANSI codes. Selected rows that the filter hides are deselected.
 func (t *Table) Filter(text string) {
+	if text == t.filterText {
+		return
+	}
+	cursor := t.CursorKey()
 	t.filterText = text
-	t.applyFilterAndSort()
+	t.refresh(cursor)
 }
 
 // RowCount returns (filtered count, total count).
 func (t Table) RowCount() (int, int) {
-	return len(t.inner.Rows()), len(t.allRows)
+	return len(t.visible), len(t.rows)
 }
 
 // Update handles table navigation messages.
@@ -322,99 +482,136 @@ func (t Table) View() string {
 	return t.inner.View()
 }
 
-// updateColumnHeaders rebuilds column titles with sort indicators.
-func (t *Table) updateColumnHeaders() {
+// resort applies a new sort column or direction.
+func (t *Table) resort() {
+	cursor := t.CursorKey()
 	t.resolveColumns()
+	t.sortOrder()
+	t.refresh(cursor)
 }
 
-func (t *Table) applyFilterAndSort() {
-	t.filteredMap = nil
-	rows := t.allRows
+func (t *Table) sorted() bool {
+	return t.sortCol >= 0 && t.sortCol < len(t.flexColumns)
+}
 
-	// Filter
-	if t.filterText != "" {
-		lower := strings.ToLower(t.filterText)
-		var filtered []table.Row
-		for i, row := range rows {
-			for _, cell := range row {
-				if strings.Contains(strings.ToLower(cell), lower) {
-					filtered = append(filtered, row)
-					t.filteredMap = append(t.filteredMap, i)
-					break
-				}
-			}
-		}
-		rows = filtered
-	} else {
-		t.buildFilteredMap()
+func (t *Table) sortValue(i int) string {
+	r := t.rows[i]
+	if t.sortCol < len(r.Sort) {
+		return r.Sort[t.sortCol]
 	}
-
-	// Sort — reorder both rows and filteredMap in tandem
-	if t.sortCol >= 0 && t.sortCol < len(t.flexColumns) {
-		col := t.sortCol
-		dir := t.sortDir
-		indices := make([]int, len(rows))
-		for i := range indices {
-			indices[i] = i
-		}
-		sort.SliceStable(indices, func(i, j int) bool {
-			ii, jj := indices[i], indices[j]
-			origI := t.filteredMap[ii]
-			origJ := t.filteredMap[jj]
-			vi, vj := rows[ii][col], rows[jj][col]
-			if t.sortKeys != nil {
-				if origI < len(t.sortKeys) && col < len(t.sortKeys[origI]) {
-					vi = t.sortKeys[origI][col]
-				}
-				if origJ < len(t.sortKeys) && col < len(t.sortKeys[origJ]) {
-					vj = t.sortKeys[origJ][col]
-				}
-			}
-			if dir == SortAsc {
-				return vi < vj
-			}
-			return vi > vj
-		})
-		sortedRows := make([]table.Row, len(rows))
-		sortedMap := make([]int, len(rows))
-		for i, idx := range indices {
-			sortedRows[i] = rows[idx]
-			sortedMap[i] = t.filteredMap[idx]
-		}
-		rows = sortedRows
-		t.filteredMap = sortedMap
+	if t.sortCol < len(r.Cells) {
+		return r.Cells[t.sortCol]
 	}
+	return ""
+}
 
-	// Apply selection markers to display rows
-	if len(t.selected) > 0 {
-		marked := make([]table.Row, len(rows))
-		for i, row := range rows {
-			allIdx := t.filteredMap[i]
-			if t.selected[allIdx] {
-				// Clone the row and prepend checkmark to first cell
-				newRow := make(table.Row, len(row))
-				copy(newRow, row)
-				newRow[0] = "✓ " + newRow[0]
-				marked[i] = newRow
-			} else {
-				marked[i] = row
-			}
-		}
-		rows = marked
+func (t *Table) less(i, j int) bool {
+	vi, vj := t.sortValue(i), t.sortValue(j)
+	if t.sortDir == SortDesc {
+		return vi > vj
 	}
+	return vi < vj
+}
 
-	t.inner.SetRows(rows)
-	// inner.SetRows(nil) clamps cursor to -1; restore it when data arrives.
-	if t.inner.Cursor() < 0 && len(rows) > 0 {
-		t.inner.SetCursor(0)
+// sortOrder computes the order of all rows. Rows with equal values keep
+// the order in which they were added.
+func (t *Table) sortOrder() {
+	t.order = make([]int, len(t.rows))
+	for i := range t.order {
+		t.order[i] = i
+	}
+	if t.sorted() {
+		sort.SliceStable(t.order, func(a, b int) bool { return t.less(t.order[a], t.order[b]) })
 	}
 }
 
-func (t *Table) buildFilteredMap() {
-	t.filteredMap = make([]int, len(t.allRows))
-	for i := range t.allRows {
-		t.filteredMap[i] = i
+// mergeOrder merges two index lists that are each in sort order. On equal
+// values the index from a comes first, which keeps the merge stable.
+func (t *Table) mergeOrder(a, b []int) []int {
+	out := make([]int, 0, len(a)+len(b))
+	i, j := 0, 0
+	for i < len(a) && j < len(b) {
+		if t.less(b[j], a[i]) {
+			out = append(out, b[j])
+			j++
+		} else {
+			out = append(out, a[i])
+			i++
+		}
 	}
+	out = append(out, a[i:]...)
+	return append(out, b[j:]...)
+}
+
+// refresh applies the filter in one pass over the sort order, redraws the
+// rows, and puts the cursor back on cursorKey when it is still visible.
+// Otherwise the cursor keeps its position.
+func (t *Table) refresh(cursorKey string) {
+	pos := t.inner.Cursor()
+	query := strings.ToLower(t.filterText)
+	if query != "" {
+		t.ensureSearch()
+	}
+	visible := make([]int, 0, len(t.order))
+	for _, i := range t.order {
+		if query == "" || strings.Contains(t.search[i], query) {
+			visible = append(visible, i)
+		}
+	}
+	t.visible = visible
+	t.dropHiddenSelection()
+	t.redraw()
+	if len(t.visible) == 0 {
+		return
+	}
+	if cursorKey != "" && t.SetCursorByKey(cursorKey) {
+		return
+	}
+	t.inner.SetCursor(min(max(pos, 0), len(t.visible)-1))
+}
+
+// dropHiddenSelection deselects the rows that the filter hides, so that every
+// selected row is visible and an action never applies to a row the user
+// cannot see. A selected key whose row is missing stays selected, because a
+// later page of a reload can bring the row back.
+func (t *Table) dropHiddenSelection() {
+	if len(t.selected) == 0 || len(t.visible) == len(t.rows) {
+		return
+	}
+	shown := make([]bool, len(t.rows))
+	for _, i := range t.visible {
+		shown[i] = true
+	}
+	for k := range t.selected {
+		if i, ok := t.index[k]; ok && !shown[i] {
+			delete(t.selected, k)
+		}
+	}
+}
+
+// redraw rebuilds the displayed cells and the selection count from visible.
+func (t *Table) redraw() {
+	t.display = make([]table.Row, len(t.visible))
+	t.selCount = 0
+	for n, i := range t.visible {
+		if t.selected[t.rows[i].Key] {
+			t.selCount++
+		}
+		t.display[n] = t.displayRow(i)
+	}
+	t.inner.SetRows(t.display)
+}
+
+// displayRow returns the cells to show for a row, with the selection marker
+// in front of the first cell when the row is selected.
+func (t *Table) displayRow(i int) table.Row {
+	r := t.rows[i]
+	if !t.selected[r.Key] || len(r.Cells) == 0 {
+		return r.Cells
+	}
+	marked := slices.Clone(r.Cells)
+	marked[0] = selectMarker + marked[0]
+	return marked
 }
 
 // SortKeyBytes returns a zero-padded string suitable for numeric byte sorting.

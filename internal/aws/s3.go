@@ -398,50 +398,35 @@ func (svc *S3ServiceImpl) DeleteObjectVersions(ctx context.Context, bucket strin
 	return nil
 }
 
-// listAllVersions returns all object versions and delete markers in the bucket, paginating automatically.
-func (svc *S3ServiceImpl) listAllVersions(ctx context.Context, bucket string) ([]ObjectVersion, error) {
+// firstVersionPage returns the first page (up to 1,000 entries) of object
+// versions and delete markers in the bucket.
+func (svc *S3ServiceImpl) firstVersionPage(ctx context.Context, bucket string) ([]ObjectVersion, error) {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return nil, err
 	}
-
-	var all []ObjectVersion
-	var keyMarker, versionMarker *string
-
-	for {
-		output, err := s3c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-			Bucket:          aws.String(bucket),
-			KeyMarker:       keyMarker,
-			VersionIdMarker: versionMarker,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		for _, v := range output.Versions {
-			ov := ObjectVersion{
-				Key:       aws.ToString(v.Key),
-				VersionID: aws.ToString(v.VersionId),
-			}
-			all = append(all, ov)
-		}
-		for _, dm := range output.DeleteMarkers {
-			ov := ObjectVersion{
-				Key:            aws.ToString(dm.Key),
-				VersionID:      aws.ToString(dm.VersionId),
-				IsDeleteMarker: true,
-			}
-			all = append(all, ov)
-		}
-
-		if !aws.ToBool(output.IsTruncated) {
-			break
-		}
-		keyMarker = output.NextKeyMarker
-		versionMarker = output.NextVersionIdMarker
+	output, err := s3c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	return all, nil
+	page := make([]ObjectVersion, 0, len(output.Versions)+len(output.DeleteMarkers))
+	for _, v := range output.Versions {
+		page = append(page, ObjectVersion{
+			Key:       aws.ToString(v.Key),
+			VersionID: aws.ToString(v.VersionId),
+		})
+	}
+	for _, dm := range output.DeleteMarkers {
+		page = append(page, ObjectVersion{
+			Key:            aws.ToString(dm.Key),
+			VersionID:      aws.ToString(dm.VersionId),
+			IsDeleteMarker: true,
+		})
+	}
+	return page, nil
 }
 
 // DeleteBucket deletes an S3 bucket. The bucket must be empty.
@@ -456,18 +441,21 @@ func (svc *S3ServiceImpl) DeleteBucket(ctx context.Context, bucket string) error
 	return err
 }
 
-// EmptyAndDeleteBucket deletes all object versions and delete markers, then deletes the bucket.
+// EmptyAndDeleteBucket permanently deletes all object versions and delete
+// markers, then deletes the bucket. It works for versioned and unversioned
+// buckets. It lists and deletes one page at a time, so a large bucket does
+// not have to fit in memory. A deleted page is gone from the listing, so each
+// round lists from the start.
 func (svc *S3ServiceImpl) EmptyAndDeleteBucket(ctx context.Context, bucket string) error {
-	// Delete all object versions and delete markers (handles versioned and non-versioned buckets)
 	for {
-		versions, err := svc.listAllVersions(ctx, bucket)
+		page, err := svc.firstVersionPage(ctx, bucket)
 		if err != nil {
 			return fmt.Errorf("listing versions: %w", err)
 		}
-		if len(versions) == 0 {
+		if len(page) == 0 {
 			break
 		}
-		if err := svc.DeleteObjectVersions(ctx, bucket, versions); err != nil {
+		if err := svc.DeleteObjectVersions(ctx, bucket, page); err != nil {
 			return fmt.Errorf("deleting versions: %w", err)
 		}
 	}

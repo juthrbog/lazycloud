@@ -62,8 +62,8 @@ func TestS3Versions_ViewAfterSortShowsCursorVersion(t *testing.T) {
 		{Key: "file.txt", VersionID: "zzzzzzzzzzzz"},
 	}})
 	view.table.Sort(0)
-	view.table.Sort(0) // second press sorts descending
-	view.table.SetCursor(0)
+	view.table.Sort(0)                              // second press sorts descending
+	view.Update(tea.KeyPressMsg{Code: tea.KeyHome}) // top row of the sorted table
 	require.Equal(t, "zzzzzzzzzzzz", view.table.SelectedRow()[0])
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})

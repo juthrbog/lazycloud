@@ -66,6 +66,9 @@ func ToastError(text string) ToastMsg   { return ToastMsg{Text: text, Level: 2} 
 type RequestConfirmMsg struct {
 	Message string
 	Action  string
+	// Phrase is the text the user must type to confirm, for example a
+	// bucket name. An empty Phrase means "confirm".
+	Phrase string
 }
 
 // RequestActionPickerMsg asks the app to show an action picker.

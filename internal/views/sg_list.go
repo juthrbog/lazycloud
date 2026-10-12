@@ -94,7 +94,7 @@ func NewSGList(ec2 aws.EC2Service) *SGList {
 	return &SGList{
 		keys:      defaultSGListKeyMap,
 		ec2:       ec2,
-		table:     ui.NewTable(sgColumns(ui.TierMedium), nil),
+		table:     ui.NewTable(sgColumns(ui.TierMedium)),
 		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner("Loading security groups..."),
 		loading:   true,
@@ -204,9 +204,7 @@ func (s *SGList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.filter.Activate()
 			return s, nil
 		case key.Matches(m, s.keys.CopyID):
-			selected := s.table.SelectedRow()
-			if selected != nil {
-				id := selected[0]
+			if id := s.table.CursorKey(); id != "" {
 				return s, tea.Batch(
 					tea.SetClipboard(id),
 					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
@@ -218,11 +216,7 @@ func (s *SGList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinner.Show("Loading security groups...")
 			return s, tea.Batch(s.spinner.Tick(), s.fetchSecurityGroups())
 		case key.Matches(m, s.keys.Details, s.keys.Describe):
-			selected := s.table.SelectedRow()
-			if selected == nil {
-				return s, nil
-			}
-			sg := s.findSG(selected[0])
+			sg := s.findSG(s.table.CursorKey())
 			if sg == nil {
 				return s, nil
 			}
@@ -251,13 +245,7 @@ func (s *SGList) findSG(id string) *aws.SecurityGroup {
 }
 
 func (s *SGList) focusAndOpenDetail(id string) tea.Cmd {
-	// Select the matching row in the table.
-	for i, g := range s.groups {
-		if g.ID == id {
-			s.table.SetCursor(i)
-			break
-		}
-	}
+	s.table.SetCursorByKey(id)
 	sg := s.findSG(id)
 	if sg == nil {
 		return nil
@@ -287,17 +275,17 @@ func (s *SGList) openDetailCmd(sg *aws.SecurityGroup) tea.Cmd {
 	}
 }
 
-func buildSGRows(groups []aws.SecurityGroup, tier ui.WidthTier) []table.Row {
-	rows := make([]table.Row, 0, len(groups))
+func buildSGRows(groups []aws.SecurityGroup, tier ui.WidthTier) []ui.Row {
+	rows := make([]ui.Row, 0, len(groups))
 	narrow := tier == ui.TierNarrow
 	for _, sg := range groups {
 		inCount := fmt.Sprintf("%d", len(sg.InboundRules))
 		outCount := fmt.Sprintf("%d", len(sg.OutboundRules))
+		cells := table.Row{sg.ID, sg.Name, sg.VpcID, sg.Description, inCount, outCount}
 		if narrow {
-			rows = append(rows, table.Row{sg.ID, sg.Name, sg.VpcID, inCount, outCount})
-		} else {
-			rows = append(rows, table.Row{sg.ID, sg.Name, sg.VpcID, sg.Description, inCount, outCount})
+			cells = table.Row{sg.ID, sg.Name, sg.VpcID, inCount, outCount}
 		}
+		rows = append(rows, ui.Row{Key: sg.ID, Cells: cells})
 	}
 	return rows
 }

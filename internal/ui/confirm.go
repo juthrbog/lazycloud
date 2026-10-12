@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // ConfirmResultMsg is emitted when the user responds to a confirmation dialog.
@@ -13,14 +15,19 @@ type ConfirmResultMsg struct {
 	Action    string
 }
 
-// Confirm is a confirmation dialog. In normal mode, the user must type
-// "confirm" and press enter. In quick mode, a single y/n keypress suffices.
+// defaultPhrase is the text the user types when a request names no phrase.
+const defaultPhrase = "confirm"
+
+// Confirm is a confirmation dialog. In normal mode, the user must type a
+// phrase ("confirm" unless the request names one) and press enter. In quick
+// mode, a single y/n keypress suffices.
 type Confirm struct {
 	message string
 	action  string
+	phrase  string
 	input   textinput.Model
 	visible bool
-	quick   bool   // true = y/n mode, false = type "confirm" mode
+	quick   bool   // true = y/n mode, false = type-the-phrase mode
 	err     string // shown when user types wrong text
 }
 
@@ -32,13 +39,22 @@ func NewConfirm() Confirm {
 	return Confirm{input: ti}
 }
 
-// Show displays the type-to-confirm dialog with the given message and action ID.
-func (c *Confirm) Show(message, action string) {
+// Show displays the type-to-confirm dialog with the given message and action
+// ID. The user must type phrase, or "confirm" when phrase is empty.
+func (c *Confirm) Show(message, action, phrase string) {
+	if phrase == "" {
+		phrase = defaultPhrase
+	}
 	c.message = message
 	c.action = action
+	c.phrase = phrase
 	c.err = ""
 	c.visible = true
 	c.quick = false
+	c.input.Placeholder = fmt.Sprintf("type '%s' to proceed", phrase)
+	// With no width, the text input draws only the first letter of the
+	// placeholder.
+	c.input.SetWidth(lipgloss.Width(c.input.Placeholder))
 	c.input.SetValue("")
 	c.input.Focus()
 }
@@ -93,7 +109,7 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 
 		switch msg.String() {
 		case "enter":
-			if strings.EqualFold(strings.TrimSpace(c.input.Value()), "confirm") {
+			if strings.EqualFold(strings.TrimSpace(c.input.Value()), c.phrase) {
 				c.visible = false
 				c.input.Blur()
 				action := c.action
@@ -101,7 +117,7 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 					return ConfirmResultMsg{Confirmed: true, Action: action}
 				}
 			}
-			c.err = "Type 'confirm' to proceed"
+			c.err = fmt.Sprintf("Type '%s' to proceed", c.phrase)
 			return c, nil
 		case "esc":
 			c.visible = false
@@ -140,7 +156,7 @@ func (c Confirm) View() string {
 		if c.err != "" {
 			content += s.Error.Render(c.err) + "\n"
 		}
-		content += "\n" + s.Muted.Render("type 'confirm' + enter to proceed  esc cancel")
+		content += "\n" + s.Muted.Render(fmt.Sprintf("type '%s' + enter to proceed  esc cancel", c.phrase))
 	}
 
 	box := s.DialogErrorBorder

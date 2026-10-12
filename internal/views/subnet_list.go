@@ -126,7 +126,7 @@ func NewSubnetList(ec2 aws.EC2Service, vpcID string) *SubnetList {
 		keys:      defaultSubnetListKeyMap,
 		ec2:       ec2,
 		vpcID:     vpcID,
-		table:     ui.NewTable(subnetColumns(ui.TierMedium), nil),
+		table:     ui.NewTable(subnetColumns(ui.TierMedium)),
 		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner("Loading subnets..."),
 		loading:   true,
@@ -195,7 +195,11 @@ func (s *SubnetList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil // page from a superseded load
 		}
 		s.subnets = append(s.subnets, m.subnets...)
-		s.table.SetRows(buildSubnetRows(s.subnets, s.widthTier))
+		if m.pageNum == 1 {
+			s.table.SetRows(buildSubnetRows(m.subnets, s.widthTier)) // replaces the rows of the last load
+		} else {
+			s.table.AppendRows(buildSubnetRows(m.subnets, s.widthTier))
+		}
 		if m.hasMorePages {
 			return s, s.fetchPage(m.token, m.pageNum+1)
 		}
@@ -262,9 +266,7 @@ func (s *SubnetList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.filter.Activate()
 			return s, nil
 		case key.Matches(m, s.keys.CopyID):
-			selected := s.table.SelectedRow()
-			if selected != nil {
-				id := selected[0]
+			if id := s.table.CursorKey(); id != "" {
 				return s, tea.Batch(
 					tea.SetClipboard(id),
 					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
@@ -276,11 +278,7 @@ func (s *SubnetList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.spinner.Show("Loading subnets...")
 			return s, s.startLoad()
 		case key.Matches(m, s.keys.Details, s.keys.Describe):
-			selected := s.table.SelectedRow()
-			if selected == nil {
-				return s, nil
-			}
-			subnet := s.findSubnet(selected[0])
+			subnet := s.findSubnet(s.table.CursorKey())
 			if subnet == nil {
 				return s, nil
 			}
@@ -309,12 +307,7 @@ func (s *SubnetList) findSubnet(id string) *aws.Subnet {
 }
 
 func (s *SubnetList) focusAndOpenDetail(id string) tea.Cmd {
-	for i, subnet := range s.subnets {
-		if subnet.ID == id {
-			s.table.SetCursor(i)
-			break
-		}
-	}
+	s.table.SetCursorByKey(id)
 	subnet := s.findSubnet(id)
 	if subnet == nil {
 		return nil
@@ -350,17 +343,18 @@ func (s *SubnetList) openDetailCmd(subnet *aws.Subnet) tea.Cmd {
 	}
 }
 
-func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []table.Row {
-	rows := make([]table.Row, 0, len(subnets))
+func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []ui.Row {
+	rows := make([]ui.Row, 0, len(subnets))
 	for _, s := range subnets {
 		state := ui.StateColor(s.State)
+		var cells table.Row
 		switch tier {
 		case ui.TierNarrow:
-			rows = append(rows, table.Row{s.ID, s.Name, s.AvailabilityZone, s.CIDRBlock, state})
+			cells = table.Row{s.ID, s.Name, s.AvailabilityZone, s.CIDRBlock, state}
 		case ui.TierMedium:
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				s.ID, s.Name, s.AvailabilityZone, s.CIDRBlock, state,
-			})
+			}
 		default:
 			pub := "Private"
 			if s.MapPublicIPOnLaunch {
@@ -370,11 +364,12 @@ func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []table.Row {
 			if s.DefaultForAZ {
 				def = "Yes"
 			}
-			rows = append(rows, table.Row{
+			cells = table.Row{
 				s.ID, s.Name, s.VpcID, s.AvailabilityZone, s.CIDRBlock,
 				fmt.Sprintf("%d", s.AvailableIPCount), state, pub, def,
-			})
+			}
 		}
+		rows = append(rows, ui.Row{Key: s.ID, Cells: cells})
 	}
 	return rows
 }

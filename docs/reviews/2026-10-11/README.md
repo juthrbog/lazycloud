@@ -46,7 +46,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and in #200.
 - [ ] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199.
 - [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
-- [ ] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M18, P2.
+- [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
 - [ ] Phase 4, input capture and central ReadOnly guard (A3): H2, M27.
 - [ ] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3.
 - [ ] Phase 6, CI and release: H10, H11, H12, I1 to I9.
@@ -67,7 +67,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - Problem: To delete a folder, the view first lists all keys under the folder. For a large folder, this takes seconds. The result message `s3DeleteResolvedMsg` holds the keys but not the bucket. The app sends each unknown message to the view on top of the stack. If the user opens bucket B before the list finishes, the view for B receives the keys and calls `DeleteObjects` on bucket B. No prompt shows for B. `DeleteObjects` also succeeds for keys that do not exist, so the user sees no sign of the problem. Buckets for staging and production often share a key layout.
   - Fix: put the bucket and prefix in the message, and drop a message that does not match. The general fix is A1. Also test ReadOnly again before the delete starts (A3).
 
-- [ ] C3. Table selection follows row position, not the resource. Evidence: reproduced.
+- [x] C3. Table selection follows row position, not the resource. Evidence: reproduced. Fixed in #213. Rows have a key, and the cursor and the selection follow it. The S3 object delete prompt lists the names.
   - Where: `internal/ui/table.go:30` and `:126-151`. Callers: `s3_objects.go:800-858`, `s3_list.go`, `ec2_list.go`.
   - Problem: `ui.Table` stores selections as indexes into its rows and keeps them across `SetRows`. Each insert or reorder moves the selection to a different resource. The delete prompt shows only a count, so the user cannot see the error. Three cases:
     - S3 objects: `buildTable` puts folders first. A later page that brings a new folder moves every object down by one row. Delete then acts on the wrong objects.
@@ -75,7 +75,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
     - EC2: the refresh after an SSM session keeps the old indexes.
   - Fix: key the selection and the cursor by resource ID inside `ui.Table` (A2). Show the names in delete prompts.
 
-- [ ] C4. Bulk bucket delete includes buckets that the filter hides. Evidence: reproduced.
+- [x] C4. Bulk bucket delete includes buckets that the filter hides. Evidence: reproduced. Fixed in #213. The filter deselects the rows it hides. The prompt lists the buckets and says that all versions are deleted permanently. The user types the bucket name, or `delete N buckets`. `EmptyAndDeleteBucket` deletes one page of versions at a time. The prompt does not give the number of versions, because that needs a full listing first.
   - Where: `internal/views/s3_list.go:393-409`. The prompt text is at `:345`.
   - Problem: Select `alpha-prod`. Filter to "test" and select `test-1`. Press `x`. The prompt says "Delete 2 buckets?" with no names. After the user types `confirm`, `EmptyAndDeleteBucket("alpha-prod")` runs. That call permanently deletes every object version and every delete marker. The prompt says only "This will delete all objects first". The function also loads all versions into memory before it deletes them. `s3_objects.go:790` already limits deletes to visible rows, but `s3_list` does not.
   - Fix: act only on visible selections. List the bucket names in the prompt. For a bucket delete, make the user type the bucket name, and say that N versions will be permanently deleted. Delete page by page.
@@ -172,11 +172,11 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - `TerminateInstances` can partly succeed. On error, the view keeps the "shutting-down" state and does not refresh (`ec2_list.go:265-273`).
   - Fix: return a result per item, show "Stopped 3/4" with the failed names, and refresh only the changed items.
 
-- [ ] M8. The selection marker is written into cell 0. Evidence: reproduced. `internal/ui/table.go:397` prefixes `"✓ "` to the first cell of each selected row. Each `row[0]` lookup then breaks on a selected row: EC2 details and SSM, S3 Browse and Properties, SQS details, peek, and send, the messages view, and the `y` copy-ID key in the security group, VPC, and subnet views, which copies `"✓ sg-…"`. Fix: draw the marker outside the cell data (A2).
+- [x] M8. The selection marker is written into cell 0. Evidence: reproduced. Fixed in #213: the marker is display only, and views read the row key. `internal/ui/table.go:397` prefixes `"✓ "` to the first cell of each selected row. Each `row[0]` lookup then breaks on a selected row: EC2 details and SSM, S3 Browse and Properties, SQS details, peek, and send, the messages view, and the `y` copy-ID key in the security group, VPC, and subnet views, which copies `"✓ sg-…"`. Fix: draw the marker outside the cell data (A2).
 
 - [ ] M9. SQS Send Message uses the cursor queue, but Purge and Delete use the selection. Evidence: reproduced. Where: `internal/views/sqs_queues.go:243`.
 
-- [ ] M10. Cross-resource focus lands on the wrong row. Evidence: reproduced.
+- [ ] M10. Cross-resource focus lands on the wrong row. Evidence: reproduced. The first two points are fixed in #213: focus uses `SetCursorByKey`, `sqs_queues` handles `FocusResourceMsg`, and a link to the view on top does not push it again. The AMI point is open.
   - `SetCursor(i)` uses the unsorted index. When the list is sorted, the panel shows `sg-a` while the cursor is on `sg-c`. In EC2, a following `m` acts on the cursor row.
   - `sqs_queues` emits focus links to itself, but it has no `FocusResourceMsg` handler. A link also pushes a second copy of the view on the stack.
   - AMI focus does nothing for AMIs that the account does not own. Most instances use such AMIs.
@@ -198,7 +198,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] M16. Chroma resets break the cursor and selection highlight. Evidence: reproduced. Chroma ends each token with `\x1b[0m`, which also removes the background. Only the first token and the padding get the highlight. The same resets break the dimming of the unfocused panel (`app.go:1113`). This is the same class of bug as #162. Fix: rewrite `\x1b[0m` to `\x1b[39;22;23;24m` in highlighted output.
 
-- [ ] M17. The table filter matches ANSI escape bytes. Evidence: reproduced. Where: `internal/ui/table.go:340`. The queries "2", "38", "39", and ";" match every row with a colored state. Fix: match on lowercase text with the escapes removed. Compute it once per `SetRows`. This also removes 23 MB of allocation per keystroke.
+- [x] M17. The table filter matches ANSI escape bytes. Evidence: reproduced. Fixed in #213. Where: `internal/ui/table.go:340`. The queries "2", "38", "39", and ";" match every row with a colored state. Fix: match on lowercase text with the escapes removed. Compute it once per `SetRows`. This also removes 23 MB of allocation per keystroke.
 
 - [ ] M18. Form dirty tracking is wrong in both directions. Evidence: reproduced. Where: `internal/ui/form.go:190` and `:210-229`. huh stores a field value only when the focus moves forward. An untouched form with a default value reports dirty, so the user gets a false discard prompt. If the user types in field B, presses `shift+tab` to field A, and presses Esc, the form closes without a prompt, and the input is lost. Fix: keep references to the `huh.Field` objects and compare each `GetValue()` with the start value.
 
@@ -244,6 +244,10 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [ ] L20. `.gitignore` lists `demo/`, but `demo/s3.tape` is tracked.
 - [x] L21. Fixed in #199. `internal/aws/sqs.go:200` uses the deprecated `ReceiveMessageInput.AttributeNames`. The call already sets `MessageSystemAttributeNames`. This is the one golangci-lint issue.
 - [x] L22. `go.mod` marks `charm.land/log/v2` as indirect, but `internal/eventlog` imports it. Run `go mod tidy`. Also, 26 files are not gofmt-clean. The `go mod tidy` part is fixed in #199. The gofmt part is fixed in #200.
+- [x] L23. Opening a details panel clears the table sort. Evidence: reproduced in LocalStack. Fixed in #213. A panel makes the list narrower. When the narrower width tier has a different number of columns, the view calls `Table.SetColumns`, which set the sort to none. A DLQ link closes and opens the panel again, so the sorted-list part of M10 never applied to SQS. Now the sort stays on the column with the same title, at its new index.
+- [x] L24. The confirm prompt shows only the first letter of its placeholder (`> t`). Evidence: reproduced in LocalStack. Fixed in #213. The text input had no width, and bubbles v2 then draws one character of the placeholder. Now the input is as wide as the placeholder.
+- [ ] L25. Count columns sort as text. Evidence: reproduced in LocalStack. The SQS queue list sorts Messages as 0, 10, 16, 6, 8. The sort values of Messages, In-Flight, and Delayed (`sqs_queues.go:761`) and of Receives (`sqs_messages.go:665`) are `fmt.Sprintf("%d")`. Fix: pad them with zeros, as `ui.SortKeyBytes` does for sizes.
+- [ ] L26. The seeder sends the SQS messages again on each run, so the message counts double. Evidence: reproduced in LocalStack. `docs/DEVELOPMENT.md` says that the seeder is idempotent. Fix: send the seed messages only to a queue that the run creates, or only when the queue is empty.
 
 ## Performance
 
@@ -266,7 +270,7 @@ These numbers come from benchmarks on a Ryzen 7840HS. The benchmark file is `rep
 | Home animation frame, 200×50 | 14.3 ms, 104,000 allocations |
 
 - [ ] P1. The content view runs chroma syntax highlighting on every cursor move. `renderContent` (`contentview.go:571`) runs from every key case (`:433-462`) and from `SetSize` and `SetLinks`. Chroma takes 84% of the time. Opening a tab highlights the content three times. Fix: highlight once and cache the lines, keyed by content, format, and theme. Apply the cursor and selection with `viewport.StyleLineFunc`. Wrap the lines once with `ansi.Wrap` and turn off SoftWrap.
-- [ ] P2. The table sorts all rows again on each filter keystroke, selection toggle, and page load (`table.go:330-411`). `Filter.Update` also sends `FilterChangedMsg` for arrow and cursor keys (`filter.go:660`). Fix: cache the sorted order. Filter in one pass over it. On a toggle, change only the marker. On an append, sort the new page and merge it.
+- [x] P2. Fixed in #213. At 100,000 rows, a filter keystroke takes 12 ms (was 113 ms), a toggle 1 ms (was 105 ms), and a paged load with `AppendRows` 0.66 s in total. See `internal/ui/table_bench_test.go`. The table sorts all rows again on each filter keystroke, selection toggle, and page load (`table.go:330-411`). `Filter.Update` also sends `FilterChangedMsg` for arrow and cursor keys (`filter.go:660`). Fix: cache the sorted order. Filter in one pass over it. On a toggle, change only the marker. On an append, sort the new page and merge it.
 - [ ] P3. The home animation uses about 28% of one core at 20 frames per second, also when the user is idle (`animation.go:290-308`). It builds a new style and renders it for every cell. The motion happens in `View()`, so the speed depends on how many messages arrive. Fix: precompute the escape codes for each color pair. Move the motion into `Update`. Give each tick chain a generation (L3). Pause on `tea.BlurMsg`.
 - [ ] P4. `GetBucketLocation` runs before each S3 call (M4).
 
@@ -352,7 +356,7 @@ Three gaps cause most of the bugs above:
 3. ReadOnly depends on per-view tests at key press, and global keys run before the view.
 
 - [x] A1. Addressed messages. Done in #201, with view identity in place of a session generation (each session builds a new navigator). Wrap command results in `msg.Routed{ViewID, Gen, Msg}` with a helper such as `nav.Tag(viewID, gen, cmd)`. Keep a session generation on the model, and increase it on each profile or region switch. Drop results from an old generation. Deliver other results to the cached view, also when it is not on top. Open panels and overlays only when the source view is current. Add a load generation per view for refresh. Fixes C2, H3, H4, H5, M12, and M13.
-- [ ] A2. Table keyed by resource ID. Add `SetRowsKeyed`, `SelectedKeys`, `SetCursorByKey`, and `AppendRows`. Draw the marker outside the cell data. Allow only visible selections. Cache the sorted order and the search text. Make the table KeyMap configurable. Fixes C3, C4, M8, M10, M17, and P2.
+- [x] A2. Table keyed by resource ID. Done in #213 with `ui.Row`, `SetRows`, `AppendRows`, `CursorKey`, `SetCursorByKey`, `SelectedKeys`, and `TargetKeys`. The configurable table KeyMap is not done. It belongs with the input work in A3. Add `SetRowsKeyed`, `SelectedKeys`, `SetCursorByKey`, and `AppendRows`. Draw the marker outside the cell data. Allow only visible selections. Cache the sorted order and the search text. Make the table KeyMap configurable. Fixes C3, C4, M8, M10, M17, and P2.
 - [ ] A3. Input capture and a central ReadOnly guard. Add an `InputCapturer` interface that replaces the `FormView` special case. Test ReadOnly again when an action runs. Consider ReadOnly decorators for the AWS services. Fixes H2 and M27.
 - [ ] A4. AWS services bundle. Add `aws.Services` and one `switchSession(profile, region)` function (#195). Build all services from one client and handle the error. Increase the session generation. Clear the panel, the stash, the history, and `err` in one `resetNav()`, which also calls `home.Init()`. Fixes H6, M11, and L3.
 - [ ] A5. Data-driven routes. Use `map[viewID]struct{Factory func(*aws.Services, params) nav.View; Root string}`. This replaces `resolveView`, `topLevelViewID`, and the sync test. Fixes L5.

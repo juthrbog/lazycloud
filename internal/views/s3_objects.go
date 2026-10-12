@@ -125,7 +125,7 @@ type S3Objects struct {
 	prefix               string
 	objects              []aws.S3Object
 	prefixes             []string
-	entries              []s3TableEntry
+	entries              map[string]s3TableEntry // by full path, the table row key
 	table                ui.Table
 	filter               ui.Filter
 	spinner              ui.Spinner
@@ -193,7 +193,7 @@ func s3ObjectColumns(tier ui.WidthTier) []ui.Column {
 
 // NewS3Objects creates the S3 object browser view.
 func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
-	t := ui.NewTable(s3ObjectColumns(ui.TierMedium), nil)
+	t := ui.NewTable(s3ObjectColumns(ui.TierMedium))
 	return &S3Objects{
 		keys:      defaultS3ObjectsKeyMap,
 		s3:        s3,
@@ -414,6 +414,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		}
 		eventlog.Infof(eventlog.CatAWS, "Deleted %d objects in s3://%s/%s", m.count, s.bucket, s.prefix)
+		s.table.DeselectAll()
 		s.objects = nil
 		s.prefixes = nil
 		s.entries = nil
@@ -473,11 +474,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		// Append new data (prefixes only come on first page typically, but handle any)
 		s.objects = append(s.objects, m.objects...)
 		s.prefixes = append(s.prefixes, m.prefixes...)
-		prevCount := len(s.entries)
-		s.buildTable()
-		// On first data arrival, initialize cursor to 0 so navigation is possible.
-		if prevCount == 0 && len(s.entries) > 0 && s.table.SelectedIndex() < 0 {
-			s.table.SetCursor(0)
+		if m.pageNum == 1 || len(m.prefixes) > 0 {
+			// Folders stay in front of the objects, so a page with new
+			// folders rebuilds all rows.
+			s.rebuildRows()
+		} else {
+			s.table.AppendRows(s.addEntries(nil, m.objects))
 		}
 
 		if m.hasMorePages {
@@ -545,7 +547,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if len(cols) != len(s.table.Columns()) {
 			s.table.SetColumns(cols)
 			if len(s.objects) > 0 || len(s.prefixes) > 0 {
-				s.buildTable()
+				s.rebuildRows()
 			}
 		}
 		s.table.SetSize(m.Width, m.Height-3)
@@ -694,7 +696,15 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if objects > 0 {
 				parts = append(parts, fmt.Sprintf("%d object(s)", objects))
 			}
-			message := "Delete " + strings.Join(parts, " and ") + "?"
+			names := make([]string, len(entries))
+			for i, e := range entries {
+				names[i] = strings.TrimPrefix(e.fullPath, s.prefix)
+			}
+			message := "Delete " + strings.Join(parts, " and ") + "?\n" + promptNameList(names)
+			if folders > 0 {
+				message += "A folder is deleted with every object in it."
+			}
+			message = strings.TrimSuffix(message, "\n")
 			return s, func() tea.Msg {
 				return msg.RequestConfirmMsg{
 					Message: message,
@@ -804,78 +814,72 @@ func (s *S3Objects) View() tea.View {
 	return tea.NewView(content)
 }
 
-// collectDeleteEntries gathers entries (objects and folders) for deletion.
-// If items are selected, only deletes selected items that are currently visible.
-// If nothing is selected, deletes the item under the cursor.
+// collectDeleteEntries gathers entries (objects and folders) for deletion:
+// the selected items, or the item under the cursor if none is selected. The
+// filter deselects the items it hides, so a delete never includes an item
+// the user cannot see.
 func (s *S3Objects) collectDeleteEntries() []s3TableEntry {
 	var entries []s3TableEntry
-
-	// Build a set of currently visible allRows indices
-	visibleSet := make(map[int]bool)
-	for _, allIdx := range s.table.FilteredIndices() {
-		visibleSet[allIdx] = true
-	}
-
-	if s.table.SelectionCount() > 0 {
-		for _, allIdx := range s.table.SelectedIndices() {
-			if visibleSet[allIdx] && allIdx < len(s.entries) {
-				entries = append(entries, s.entries[allIdx])
-			}
-		}
-	} else {
-		entry := s.selectedEntry()
-		if entry != nil {
-			entries = append(entries, *entry)
+	for _, k := range s.table.TargetKeys() {
+		if e, ok := s.entries[k]; ok {
+			entries = append(entries, e)
 		}
 	}
 	return entries
 }
 
 func (s *S3Objects) selectedEntry() *s3TableEntry {
-	allIdx := s.table.SelectedAllRowIndex()
-	if allIdx < 0 || allIdx >= len(s.entries) {
+	e, ok := s.entries[s.table.CursorKey()]
+	if !ok {
 		return nil
 	}
-	return &s.entries[allIdx]
+	return &e
 }
 
-func (s *S3Objects) buildTable() {
+// rebuildRows replaces all rows with the loaded folders, then the objects.
+func (s *S3Objects) rebuildRows() {
 	s.entries = nil
-	var rows []table.Row
-	var sortKeys []table.Row
+	s.table.SetRows(s.addEntries(s.prefixes, s.objects))
+}
+
+// addEntries records folders and objects as entries and returns their rows.
+// The full path is the row key.
+func (s *S3Objects) addEntries(prefixes []string, objects []aws.S3Object) []ui.Row {
+	if s.entries == nil {
+		s.entries = make(map[string]s3TableEntry, len(prefixes)+len(objects))
+	}
+	rows := make([]ui.Row, 0, len(prefixes)+len(objects))
 	narrow := s.widthTier == ui.TierNarrow
 
-	for _, prefix := range s.prefixes {
+	for _, prefix := range prefixes {
 		name := prefix[len(s.prefix):]
-		s.entries = append(s.entries, s3TableEntry{isFolder: true, fullPath: prefix})
-		if narrow {
-			rows = append(rows, table.Row{"📁", name, "-"})
-			sortKeys = append(sortKeys, table.Row{"0", name, ui.SortKeyBytes(0)})
-		} else {
-			rows = append(rows, table.Row{"📁", name, "-", "", ""})
-			sortKeys = append(sortKeys, table.Row{"0", name, ui.SortKeyBytes(0), "", ""})
+		s.entries[prefix] = s3TableEntry{isFolder: true, fullPath: prefix}
+		r := ui.Row{
+			Key:   prefix,
+			Cells: table.Row{"📁", name, "-", "", ""},
+			Sort:  table.Row{"0", name, ui.SortKeyBytes(0), "", ""},
 		}
+		if narrow {
+			r.Cells, r.Sort = r.Cells[:3], r.Sort[:3]
+		}
+		rows = append(rows, r)
 	}
 
-	for _, obj := range s.objects {
+	for _, obj := range objects {
 		name := obj.Key[len(s.prefix):]
-		s.entries = append(s.entries, s3TableEntry{isFolder: false, fullPath: obj.Key})
-		if narrow {
-			rows = append(rows, table.Row{"📄", name, aws.FormatBytes(obj.Size)})
-			sortKeys = append(sortKeys, table.Row{"1", name, ui.SortKeyBytes(obj.Size)})
-		} else {
-			rows = append(rows, table.Row{
-				"📄", name, aws.FormatBytes(obj.Size),
-				obj.LastModified.Format("2006-01-02 15:04:05"), obj.StorageClass,
-			})
-			sortKeys = append(sortKeys, table.Row{
-				"1", name, ui.SortKeyBytes(obj.Size),
-				obj.LastModified.Format("2006-01-02 15:04:05"), obj.StorageClass,
-			})
+		s.entries[obj.Key] = s3TableEntry{isFolder: false, fullPath: obj.Key}
+		modified := obj.LastModified.Format("2006-01-02 15:04:05")
+		r := ui.Row{
+			Key:   obj.Key,
+			Cells: table.Row{"📄", name, aws.FormatBytes(obj.Size), modified, obj.StorageClass},
+			Sort:  table.Row{"1", name, ui.SortKeyBytes(obj.Size), modified, obj.StorageClass},
 		}
+		if narrow {
+			r.Cells, r.Sort = r.Cells[:3], r.Sort[:3]
+		}
+		rows = append(rows, r)
 	}
-
-	s.table.SetRowsWithSortKeys(rows, sortKeys)
+	return rows
 }
 
 func (s *S3Objects) fetchMetadataAndNavigate(key string) tea.Cmd {
