@@ -20,6 +20,8 @@ Lists all SQS queues with attributes fetched in parallel after listing.
 
 DLQ detection works by cross-referencing `RedrivePolicy.DeadLetterTargetArn` across all queues, not just checking `RedriveAllowPolicy` (which is optional).
 
+The count columns sort as numbers. When LazyCloud cannot read the settings of a queue, for example because access is denied, the queue shows `?` in the count columns and `unknown` as its type. A toast names these queues with the AWS error code, and the event log has the full error.
+
 ### Queue Detail (side panel)
 
 Pressing `enter` or `d` fetches queue attributes and DLQ source queues. Displays 6 tabs:
@@ -86,9 +88,11 @@ Messages are deduplicated by MessageID across load-more calls. Subsequent peeks 
 
 ## Mutations (ReadWrite mode)
 
+The actions in the `m` menu of the queue list apply to the selected queues, or to the queue under the cursor when no queue is selected.
+
 ### Send Message
 
-Accessed via `m` → "Send Message" on the queue list. Opens a form with fields adapted per queue type:
+Accessed via `m` → "Send Message" on the queue list. The menu offers it only when the action applies to one queue: one selected queue, or the cursor queue. Opens a form with fields adapted per queue type:
 
 - **Standard queues**: Message body (required), delay seconds (optional, 0-900)
 - **FIFO queues**: Message body (required), message group ID (required, max 128 chars), deduplication ID (required or optional based on ContentBasedDeduplication setting)
@@ -97,11 +101,28 @@ Per-message delay is not available for FIFO queues (SQS API limitation).
 
 ### Purge Queue
 
-Removes all messages. Triggers a targeted attribute refresh for the purged queue only (not a full list reload). Note: SQS enforces a 60-second cooldown between purge operations.
+Removes all messages. Triggers a targeted attribute refresh for the purged queues only (not a full list reload). Note: SQS enforces a 60-second cooldown between purge operations.
 
 ### Delete Queue
 
 Deletes the queue and all its messages. Requires confirmation.
+
+### Actions on Several Queues
+
+Purge and delete try each queue, also after one fails. Only the queues that changed are refreshed or removed. The toast says how many succeeded and names the failed queues with their AWS error codes, for example "Deleted 2 of 3 queue(s). Failed: orders (AccessDenied)".
+
+### Delete Messages
+
+`x` in the message view deletes the selected messages, or the message under the cursor. The rows stay until SQS answers. Then only the deleted messages leave the list. A message that SQS did not delete stays, and the toast names it with the error code.
+
+SQS deletes a message with the receipt handle of a receive. A peek is a receive, and the handle of a message changes each time that a consumer receives it:
+
+- On a FIFO queue, SQS rejects an old handle with `ReceiptHandleIsInvalid`. The message stays in the list.
+- On a standard queue, SQS accepts the delete of an old handle, but the message stays in the queue. SQS gives no way to find out. For this reason, the confirm prompt says so, and the toast says "SQS accepted the delete of N message(s)". To delete with fresh handles, press `r` to peek again first.
+
+### Redrive
+
+`m` in the message view starts a redrive, which moves the messages of a dead-letter queue back to their source queues. It is available when another queue sends its failed messages to this queue, as `ListDeadLetterSourceQueues` reports. A `RedriveAllowPolicy` is not necessary.
 
 ## LocalStack Notes
 
