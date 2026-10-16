@@ -338,8 +338,11 @@ func (svc *EC2ServiceImpl) ListInstances(ctx context.Context) ([]Instance, error
 func (svc *EC2ServiceImpl) ListInstancesPage(ctx context.Context, token *string) (*InstancePage, error) {
 	ec2c := svc.client.EC2Client()
 
+	// MaxResults makes EC2 return pages, so a large account loads
+	// progressively instead of in one long call.
 	output, err := ec2c.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
-		NextToken: token,
+		NextToken:  token,
+		MaxResults: aws.Int32(1000),
 	})
 	if err != nil {
 		return nil, err
@@ -480,40 +483,58 @@ type AMI struct {
 	CreationDate string
 }
 
-// ListOwnedAMIs returns all AMIs owned by the current account.
+// ListOwnedAMIs returns all AMIs owned by the current account, over as many
+// pages as there are.
 func (svc *EC2ServiceImpl) ListOwnedAMIs(ctx context.Context) ([]AMI, error) {
 	ec2c := svc.client.EC2Client()
-	output, err := ec2c.DescribeImages(ctx, &ec2.DescribeImagesInput{
-		Owners: []string{"self"},
+	var amis []AMI
+	p := ec2.NewDescribeImagesPaginator(ec2c, &ec2.DescribeImagesInput{
+		Owners:     []string{"self"},
+		MaxResults: aws.Int32(1000),
 	})
-	if err != nil {
-		return nil, err
-	}
-	amis := make([]AMI, 0, len(output.Images))
-	for _, img := range output.Images {
-		amis = append(amis, mapAMI(img))
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, img := range page.Images {
+			amis = append(amis, mapAMI(img))
+		}
 	}
 	return amis, nil
 }
 
-// SearchAMIs searches public AMIs by name (max 100 results).
+const (
+	// maxSearchResults is the number of AMIs that a public search returns.
+	maxSearchResults = 100
+	// maxSearchPages limits a public search. A page of a filtered EC2
+	// listing can hold few or no matches while more pages follow. Without
+	// a limit, a rare name reads page after page of public images.
+	maxSearchPages = 20
+)
+
+// SearchAMIs searches public AMIs by name. It reads pages until it has
+// maxSearchResults matches, no page is left, or it read maxSearchPages.
 func (svc *EC2ServiceImpl) SearchAMIs(ctx context.Context, query string) ([]AMI, error) {
 	ec2c := svc.client.EC2Client()
-	output, err := ec2c.DescribeImages(ctx, &ec2.DescribeImagesInput{
+	var amis []AMI
+	p := ec2.NewDescribeImagesPaginator(ec2c, &ec2.DescribeImagesInput{
 		Filters: []ec2types.Filter{
 			{Name: aws.String("name"), Values: []string{"*" + query + "*"}},
 			{Name: aws.String("state"), Values: []string{"available"}},
 		},
-		MaxResults: aws.Int32(100),
+		MaxResults: aws.Int32(1000),
 	})
-	if err != nil {
-		return nil, err
+	for pages := 0; p.HasMorePages() && pages < maxSearchPages && len(amis) < maxSearchResults; pages++ {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, img := range page.Images {
+			amis = append(amis, mapAMI(img))
+		}
 	}
-	amis := make([]AMI, 0, len(output.Images))
-	for _, img := range output.Images {
-		amis = append(amis, mapAMI(img))
-	}
-	return amis, nil
+	return amis[:min(len(amis), maxSearchResults)], nil
 }
 
 // RefreshAMIs re-fetches a specific set of AMIs by ID.
