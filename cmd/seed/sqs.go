@@ -92,30 +92,73 @@ func (s *sqsSeeder) Seed(ctx context.Context) error {
 
 	// Seed messages.
 	fmt.Printf("  SQS messages...")
+	skipped := 0
 	for _, q := range s.config.Queues {
 		if q.SeedMessages == 0 {
 			continue
 		}
-		url := queueURLs[q.Name]
-		for i := range q.SeedMessages {
-			body := fmt.Sprintf(`{"order_id": "ORD-%04d", "timestamp": "2026-04-06T10:%02d:00Z", "amount": %d.%02d}`,
-				i+1, i%60, (i+1)*10, (i*7)%100)
-			input := &sqs.SendMessageInput{
-				QueueUrl:    aws.String(url),
-				MessageBody: aws.String(body),
-			}
-			if q.FIFO {
-				input.MessageGroupId = aws.String("default")
-				input.MessageDeduplicationId = aws.String("msg-" + strconv.Itoa(i))
-			}
-			if _, err := sqsc.SendMessage(ctx, input); err != nil {
-				return fmt.Errorf("sending message to %s: %w", q.Name, err)
-			}
+		sent, err := seedMessages(ctx, sqsc, q, queueURLs[q.Name])
+		if err != nil {
+			return err
+		}
+		if !sent {
+			skipped++
 		}
 	}
-	fmt.Println(" done")
+	if skipped > 0 {
+		fmt.Printf(" done (%d queue(s) already had messages)\n", skipped)
+	} else {
+		fmt.Println(" done")
+	}
 
 	return nil
+}
+
+// sqsMessageAPI is the part of the SQS client that seedMessages uses.
+type sqsMessageAPI interface {
+	GetQueueAttributes(context.Context, *sqs.GetQueueAttributesInput, ...func(*sqs.Options)) (*sqs.GetQueueAttributesOutput, error)
+	SendMessage(context.Context, *sqs.SendMessageInput, ...func(*sqs.Options)) (*sqs.SendMessageOutput, error)
+}
+
+// seedMessages sends the seed messages of q to the queue at url, but only
+// when the queue holds no messages: none visible, in flight, or delayed.
+// A second run of the seed tool then does not double the counts, and a run
+// after a purge sends the messages again. It reports whether it sent them.
+func seedMessages(ctx context.Context, api sqsMessageAPI, q queueDef, url string) (bool, error) {
+	counts := []sqstypes.QueueAttributeName{
+		sqstypes.QueueAttributeNameApproximateNumberOfMessages,
+		sqstypes.QueueAttributeNameApproximateNumberOfMessagesNotVisible,
+		sqstypes.QueueAttributeNameApproximateNumberOfMessagesDelayed,
+	}
+	out, err := api.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+		QueueUrl:       aws.String(url),
+		AttributeNames: counts,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the message counts of %s: %w", q.Name, err)
+	}
+	for _, name := range counts {
+		if n, _ := strconv.Atoi(out.Attributes[string(name)]); n > 0 {
+			return false, nil
+		}
+	}
+
+	for i := range q.SeedMessages {
+		body := fmt.Sprintf(`{"order_id": "ORD-%04d", "timestamp": "2026-04-06T10:%02d:00Z", "amount": %d.%02d}`,
+			i+1, i%60, (i+1)*10, (i*7)%100)
+		input := &sqs.SendMessageInput{
+			QueueUrl:    aws.String(url),
+			MessageBody: aws.String(body),
+		}
+		if q.FIFO {
+			input.MessageGroupId = aws.String("default")
+			input.MessageDeduplicationId = aws.String("msg-" + strconv.Itoa(i))
+		}
+		if _, err := api.SendMessage(ctx, input); err != nil {
+			return false, fmt.Errorf("sending message to %s: %w", q.Name, err)
+		}
+	}
+	return true, nil
 }
 
 func (s *sqsSeeder) ensureQueue(ctx context.Context, sqsc *sqs.Client, q queueDef) (string, error) {

@@ -1,16 +1,23 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // wipeState resets all LocalStack state via the internal reset endpoint.
-func wipeState(endpoint string) error {
+func wipeState(ctx context.Context, endpoint string) error {
 	fmt.Printf("Wiping LocalStack state...")
 
-	resp, err := http.Post(endpoint+"/_localstack/state/reset", "", nil)
+	resetURL := strings.TrimRight(endpoint, "/") + "/_localstack/state/reset"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, resetURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("connecting to LocalStack: %w", err)
 	}

@@ -54,8 +54,9 @@ task localstack:wipe && task localstack:seed         # fresh reseed
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--size` | `small` | Tier: `small`, `medium`, `large`, `enterprise` |
-| `--service` | all | Comma-separated filter: `s3`, `ec2` |
-| `--endpoint` | `http://localhost:4566` | LocalStack endpoint |
+| `--service` | all | Comma-separated filter: `s3`, `ec2`, `sqs` |
+| `--endpoint` | `http://localhost:4566` | LocalStack endpoint. The host must be `localhost`, a loopback address, `localstack`, or a `localhost.localstack.cloud` name, unless you pass `--allow-remote` |
+| `--allow-remote` | `false` | Accept an endpoint host that is not local, for LocalStack on another machine |
 | `--region` | `us-east-1` | AWS region |
 | `--wipe` | `false` | Wipe all LocalStack state and exit (does not seed) |
 
@@ -74,7 +75,8 @@ Exact counts are defined in `cmd/seed/tiers.toml`.
 
 ### How It Works
 
-- **Idempotent** — safe to run multiple times. Lists existing resources first, only creates what's missing. PutObject overwrites are harmless.
+- **Idempotent**: safe to run multiple times. Lists existing resources first, only creates what's missing. PutObject overwrites are harmless. The SQS seed messages go only to a queue that holds no messages, so a second run does not double the counts. After a purge, a run sends them again.
+- **LocalStack only**: the seed program creates resources such as security groups that are open to the internet. Before it does anything, it checks the endpoint host (see `--endpoint`) and asks `/_localstack/health` for a LocalStack health report. An empty endpoint, a real AWS endpoint, or a server that is not LocalStack stops it with an error.
 - **Parallel** — services seed concurrently (S3 and EC2 run in separate goroutines).
 - **Base + extras** — named resources (from `tiers.toml` `[base]` section) are always created. Tiers add generated resources on top (`data-bucket-001`, `worker-003`, `gen-sg-001`, etc.).
 - **Object content** — base bucket objects have realistic content (JSON configs, YAML, scripts, logs). Extra bucket objects are simple generated text files.
