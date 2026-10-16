@@ -119,7 +119,7 @@ func TestCopyInputTakesModeKeyAndGuardBlocksCopy(t *testing.T) {
 	assert.False(t, m.capturingInput())
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3CopyCompleteMsg"))
 	assert.Contains(t, screen(m), aws.ErrReadOnly.Error())
-	s3m.AssertNotCalled(t, "CopyObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	s3m.AssertNotCalled(t, "CopyObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // T3: a confirmed prompt runs its action through the guarded service. If the

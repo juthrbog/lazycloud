@@ -3,8 +3,11 @@ package views
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -73,6 +76,14 @@ type s3MoveCompleteMsg struct {
 	err    error
 }
 
+// s3Transfer is a copy or move that waits for the user to confirm an
+// overwrite.
+type s3Transfer struct {
+	mode   string // "copy" or "move"
+	srcKey string
+	dstKey string
+}
+
 // s3TableEntry tracks whether a table row is a folder or object.
 type s3TableEntry struct {
 	isFolder bool
@@ -132,6 +143,7 @@ type S3Objects struct {
 	copyInput            ui.Filter // reuse Filter as a text input for copy/move dest
 	copyMode             string    // "copy" or "move", empty when inactive
 	copySrcKey           string    // source key for copy/move
+	pendingOverwrite     *s3Transfer
 	loading              bool
 	loadGen              int // generation of the current full load; see startLoad
 	pageNum              int
@@ -349,34 +361,90 @@ func (s *S3Objects) downloadObject(key string) tea.Cmd {
 	destPath := aws.DefaultDownloadPath(key)
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Downloading s3://%s/%s → %s", bucket, key, destPath)
-		err := svc.DownloadObject(context.Background(), bucket, key, destPath)
-		return s3DownloadCompleteMsg{key: key, path: destPath, err: err}
+		// The service picks a free name when destPath exists, so the path
+		// it returns is the one to show.
+		path, err := svc.DownloadObject(context.Background(), bucket, key, destPath)
+		return s3DownloadCompleteMsg{key: key, path: path, err: err}
 	}
 }
 
-func (s *S3Objects) copyObject(srcKey, dstKey string) tea.Cmd {
+func (s *S3Objects) copyObject(srcKey, dstKey string, overwrite bool) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Copying s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
-		err := svc.CopyObject(context.Background(), bucket, srcKey, bucket, dstKey)
+		err := svc.CopyObject(context.Background(), bucket, srcKey, bucket, dstKey, overwrite)
 		return s3CopyCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
 	}
 }
 
-func (s *S3Objects) moveObject(srcKey, dstKey string) tea.Cmd {
+func (s *S3Objects) moveObject(srcKey, dstKey string, overwrite bool) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Moving s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
-		err := svc.MoveObject(context.Background(), bucket, srcKey, bucket, dstKey)
+		err := svc.MoveObject(context.Background(), bucket, srcKey, bucket, dstKey, overwrite)
 		return s3MoveCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
+	}
+}
+
+// transfer starts a copy or a move.
+func (s *S3Objects) transfer(mode, srcKey, dstKey string, overwrite bool) tea.Cmd {
+	if mode == "move" {
+		return s.moveObject(srcKey, dstKey, overwrite)
+	}
+	return s.copyObject(srcKey, dstKey, overwrite)
+}
+
+// copyDestination returns the destination key for a copy or move of srcKey
+// to what the user typed. Nothing typed gives "<source>_copy". A destination
+// that ends with "/" is a folder: the object keeps its name in it, so it
+// does not become an object named "folder/", which the list never shows.
+func copyDestination(srcKey, typed string) string {
+	typed = strings.TrimSpace(typed)
+	switch {
+	case typed == "":
+		return srcKey + "_copy"
+	case strings.HasSuffix(typed, "/"):
+		return typed + path.Base(srcKey)
+	}
+	return typed
+}
+
+// homeRelative writes a path under the home directory as "~/...". A
+// download toast then stays short, and the "(1)" of a renamed file shows.
+func homeRelative(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	rel, err := filepath.Rel(home, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return p
+	}
+	return filepath.Join("~", rel)
+}
+
+// askOverwrite asks before a copy or move replaces an object that exists.
+func (s *S3Objects) askOverwrite(mode, srcKey, dstKey string) tea.Cmd {
+	s.pendingOverwrite = &s3Transfer{mode: mode, srcKey: srcKey, dstKey: dstKey}
+	message := fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, dstKey, path.Base(srcKey))
+	return func() tea.Msg {
+		return msg.RequestConfirmMsg{Message: message, Action: "s3_overwrite"}
 	}
 }
 
 func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.ConfirmResultMsg:
+		if m.Action == "s3_overwrite" {
+			t := s.pendingOverwrite
+			s.pendingOverwrite = nil
+			if m.Confirmed && t != nil {
+				return s, s.transfer(t.mode, t.srcKey, t.dstKey, true)
+			}
+			return s, nil
+		}
 		if m.Confirmed && m.Action == "delete_objects" && len(s.pendingDeleteEntries) > 0 {
 			entries := s.pendingDeleteEntries
 			s.pendingDeleteEntries = nil
@@ -414,12 +482,22 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, s.deleteObjects(m.keys)
 
 	case s3DeleteCompleteMsg:
-		if m.err != nil {
+		// A *DeleteObjectsError means that S3 deleted the other keys, so the
+		// list must load again. Any other error means that nothing ran.
+		var delErr *aws.DeleteObjectsError
+		if m.err != nil && !errors.As(m.err, &delErr) {
 			eventlog.Errorf(eventlog.CatAWS, "Failed to delete objects in s3://%s/%s: %v", s.bucket, s.prefix, m.err)
 			s.err = m.err
 			return s, nil
 		}
-		eventlog.Infof(eventlog.CatAWS, "Deleted %d objects in s3://%s/%s", m.count, s.bucket, s.prefix)
+		var failures []itemFailure
+		if delErr != nil {
+			for _, f := range delErr.Failed {
+				eventlog.Errorf(eventlog.CatAWS, "Delete of s3://%s/%s failed: %s %s", s.bucket, f.Key, f.Code, f.Message)
+				failures = append(failures, itemFailure{name: strings.TrimPrefix(f.Key, s.prefix), err: errors.New(f.Code)})
+			}
+		}
+		eventlog.Infof(eventlog.CatAWS, "Deleted %d objects in s3://%s/%s", m.count-len(failures), s.bucket, s.prefix)
 		s.table.DeselectAll()
 		s.objects = nil
 		s.prefixes = nil
@@ -428,9 +506,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.loading = true
 		s.spinner.Show("Refreshing...")
 		s.table.SetRows(nil)
-		count := m.count
+		text, ok := resultText("Deleted", m.count, "object(s)", failures)
 		return s, tea.Batch(s.startLoad(), func() tea.Msg {
-			return msg.ToastSuccess(fmt.Sprintf("Deleted %d object(s)", count))
+			if ok {
+				return msg.ToastSuccess(text)
+			}
+			return msg.ToastError(text)
 		})
 
 	case s3DownloadCompleteMsg:
@@ -440,11 +521,15 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		}
 		eventlog.Infof(eventlog.CatAWS, "Downloaded → %s", m.path)
+		shown := homeRelative(m.path)
 		return s, func() tea.Msg {
-			return msg.ToastSuccess(fmt.Sprintf("Downloaded → %s", m.path))
+			return msg.ToastSuccess(fmt.Sprintf("Downloaded → %s", shown))
 		}
 
 	case s3CopyCompleteMsg:
+		if errors.Is(m.err, aws.ErrDestinationExists) {
+			return s, s.askOverwrite("copy", m.srcKey, m.dstKey)
+		}
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "Copy failed: %v", m.err)
 			s.err = m.err
@@ -453,10 +538,13 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		eventlog.Infof(eventlog.CatAWS, "Copied %s → %s", m.srcKey, m.dstKey)
 		dstKey := m.dstKey
 		return s, tea.Batch(s.refreshListing(), func() tea.Msg {
-			return msg.ToastSuccess("Copied → " + path.Base(dstKey))
+			return msg.ToastSuccess("Copied → " + dstKey)
 		})
 
 	case s3MoveCompleteMsg:
+		if errors.Is(m.err, aws.ErrDestinationExists) {
+			return s, s.askOverwrite("move", m.srcKey, m.dstKey)
+		}
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "Move failed: %v", m.err)
 			s.err = m.err
@@ -465,7 +553,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		eventlog.Infof(eventlog.CatAWS, "Moved %s → %s", m.srcKey, m.dstKey)
 		dstKey := m.dstKey
 		return s, tea.Batch(s.refreshListing(), func() tea.Msg {
-			return msg.ToastSuccess("Moved → " + path.Base(dstKey))
+			return msg.ToastSuccess("Moved → " + dstKey)
 		})
 
 	case s3PageLoadedMsg:
@@ -578,19 +666,20 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if s.copyInput.Active() {
 			switch m.String() {
 			case "enter":
-				dest := s.copyInput.Value()
-				if dest == "" {
-					dest = s.copySrcKey + "_copy"
-				}
 				src := s.copySrcKey
 				mode := s.copyMode
+				dest := copyDestination(src, s.copyInput.Value())
 				s.copyInput.Deactivate()
 				s.copyMode = ""
 				s.copySrcKey = ""
-				if mode == "move" {
-					return s, s.moveObject(src, dest)
+				if dest == src {
+					return s, func() tea.Msg {
+						return msg.ToastError("The destination is the source object")
+					}
 				}
-				return s, s.copyObject(src, dest)
+				// No overwrite: an existing destination comes back as
+				// ErrDestinationExists, and the user decides.
+				return s, s.transfer(mode, src, dest, false)
 			case "esc":
 				s.copyInput.Deactivate()
 				s.copyMode = ""
@@ -674,7 +763,14 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case key.Matches(m, s.keys.Delete, s.keys.DeleteAll):
+			// x deletes the selection or the cursor item. X deletes every
+			// item that the list shows. The filter hides rows, and hidden
+			// rows are never part of a delete.
+			all := key.Matches(m, s.keys.DeleteAll)
 			entries := s.collectDeleteEntries()
+			if all {
+				entries = s.visibleEntries()
+			}
 			if len(entries) == 0 {
 				return s, func() tea.Msg {
 					return msg.ToastError("No items to delete (select with space first)")
@@ -702,6 +798,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				names[i] = strings.TrimPrefix(e.fullPath, s.prefix)
 			}
 			message := "Delete " + strings.Join(parts, " and ") + "?\n" + promptNameList(names)
+			phrase := "" // "confirm"
+			if all {
+				message = fmt.Sprintf("Delete all %d item(s) in s3://%s/%s?\n", len(entries), s.bucket, s.prefix) +
+					promptNameList(names)
+				phrase = fmt.Sprintf("delete %d items", len(entries))
+			}
 			if folders > 0 {
 				message += "A folder is deleted with every object in it."
 			}
@@ -710,6 +812,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				return msg.RequestConfirmMsg{
 					Message: message,
 					Action:  "delete_objects",
+					Phrase:  phrase,
 				}
 			}
 		case key.Matches(m, s.keys.Download):
@@ -812,6 +915,17 @@ func (s *S3Objects) View() tea.View {
 func (s *S3Objects) collectDeleteEntries() []s3TableEntry {
 	var entries []s3TableEntry
 	for _, k := range s.table.TargetKeys() {
+		if e, ok := s.entries[k]; ok {
+			entries = append(entries, e)
+		}
+	}
+	return entries
+}
+
+// visibleEntries returns every entry that the list shows, in display order.
+func (s *S3Objects) visibleEntries() []s3TableEntry {
+	var entries []s3TableEntry
+	for _, k := range s.table.VisibleKeys() {
 		if e, ok := s.entries[k]; ok {
 			entries = append(entries, e)
 		}
