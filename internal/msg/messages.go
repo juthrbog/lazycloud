@@ -69,6 +69,9 @@ type RequestConfirmMsg struct {
 	// Phrase is the text the user must type to confirm, for example a
 	// bucket name. An empty Phrase means "confirm".
 	Phrase string
+	// Quick asks with a y/n prompt instead of a typed phrase. Use it for
+	// an action that does not destroy data, such as starting an instance.
+	Quick bool
 }
 
 // RequestActionPickerMsg asks the app to show an action picker.

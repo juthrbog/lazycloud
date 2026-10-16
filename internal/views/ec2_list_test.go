@@ -141,7 +141,8 @@ func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
 	assert.Equal(t, "ec2_terminate", confirm.Action)
 }
 
-func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
+// M24: Start ran without a prompt. It now asks with a y/n prompt first.
+func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 	view, mockSvc := newTestEC2List()
 	loadInstances(view, []aws.Instance{testStoppedInstance})
 	view.pendingInstanceIDs = []string{"i-stopped"}
@@ -149,6 +150,15 @@ func TestEC2List_StartExecutesWithOptimisticUpdate(t *testing.T) {
 	mockSvc.On("StartInstances", mock.Anything, []string{"i-stopped"}).Return(nil)
 
 	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Start"})
+	require.NotNil(t, cmd)
+	confirm, ok := cmd().(msg.RequestConfirmMsg)
+	require.True(t, ok, "Start asks first")
+	assert.True(t, confirm.Quick, "a y/n prompt, because a start destroys nothing")
+	assert.Equal(t, "ec2_start", confirm.Action)
+	assert.Equal(t, "stopped", view.findInstance("i-stopped").State, "nothing changes before the answer")
+	mockSvc.AssertNotCalled(t, "StartInstances", mock.Anything, mock.Anything)
+
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"})
 	require.NotNil(t, cmd)
 
 	// Verify optimistic state update happened immediately
