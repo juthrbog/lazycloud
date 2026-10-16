@@ -18,10 +18,22 @@ func main() {
 	endpoint := flag.String("endpoint", "http://localhost:4566", "LocalStack endpoint URL")
 	region := flag.String("region", "us-east-1", "AWS region")
 	wipe := flag.Bool("wipe", false, "wipe all LocalStack state and exit")
+	allowRemote := flag.Bool("allow-remote", false, "accept an endpoint host that is not local, for LocalStack on another machine")
 	flag.Parse()
 
+	// The seed tool must never reach a real AWS account. See guard.go.
+	ctx := context.Background()
+	if err := checkEndpoint(*endpoint, *allowRemote); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if err := checkLocalStack(ctx, *endpoint); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	if *wipe {
-		if err := wipeState(*endpoint); err != nil {
+		if err := wipeState(ctx, *endpoint); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -52,7 +64,6 @@ func main() {
 
 	fmt.Printf("Seeding LocalStack at %s (%s tier)...\n", *endpoint, *size)
 
-	ctx := context.Background()
 	if err := runSeeders(ctx, seeders); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
