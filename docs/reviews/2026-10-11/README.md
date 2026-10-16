@@ -311,7 +311,7 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 - [ ] I7. Release gaps: no Windows build (it compiles, but SSM needs a guard). No Homebrew tap (#41). `go install` prints the version "dev", so add a `debug.ReadBuildInfo()` fallback and document `go install`. The changelog filters (`^docs:` and others) match nothing, because commits do not use these prefixes. Use `changelog: use: github` with groups. No SBOM, no cosign signature, no provenance, no `-trimpath`, no `mod_timestamp`. The README demo GIF is commented out.
 - [x] I8. Add `.github/dependabot.yml`. Done in #202. It updates Go modules (with `aws` and `charm` groups) and actions (one group) every week, and the LocalStack image every month. Version updates for Go modules and actions wait 7 days after a release (`cooldown`). Security updates do not wait.
 
-- [x] I9. 16 of 17 direct dependencies are out of date. Only `huh` is current. Fixed in #210 with the Go updates that Dependabot proposed on 2026-10-12. Some newer releases in the table, for example bubbletea v2.1.0, are less than 7 days old. Dependabot proposes them when the cooldown ends.
+- [x] I9. 16 of 17 direct dependencies are out of date. Only `huh` is current. Fixed in #210 with the Go updates that Dependabot proposed on 2026-10-12. Some newer releases in the table, for example bubbletea v2.1.0, are less than 7 days old. Dependabot proposes them when the cooldown ends. bubbletea v2.1.0 and the later updates came in #220.
 
   | Module | Current | Latest |
   |---|---|---|
