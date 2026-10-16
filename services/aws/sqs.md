@@ -124,8 +124,12 @@ SQS deletes a message with the receipt handle of a receive. A peek is a receive,
 
 `m` in the message view starts a redrive, which moves the messages of a dead-letter queue back to their source queues. It is available when another queue sends its failed messages to this queue, as `ListDeadLetterSourceQueues` reports. A `RedriveAllowPolicy` is not necessary.
 
+A redrive moves every message of the queue, so it asks first with a y/n prompt. Press `y` to start it. `n`, `enter`, or `esc` cancels.
+
 ## LocalStack Notes
 
 The seed program creates queues with the default visibility timeout of 30 seconds, so local queues behave like real ones. Older versions of the seed program set the queue default to 0. If your LocalStack data comes from such a version, wipe it and seed again.
+
+A redrive of the seeded `order-processing-dlq` fails in LocalStack with the reason `AttributeError`, and no message moves. The seed program sends those messages straight to the DLQ, so SQS has no source queue for them. A message that reaches a DLQ through a redrive policy goes back to its source queue without a problem. To test a redrive locally, create a queue with a redrive policy and a `maxReceiveCount` of 1, send messages to it, and receive them until SQS moves them to the DLQ.
 
 Do not set `VisibilityTimeout` to 0 in `ReceiveMessageInput` and expect it to work. The AWS SDK for Go omits fields that have the value 0, so the queue default applies. LazyCloud resets the visibility with `ChangeMessageVisibilityBatch`, where the SDK always sends the value.

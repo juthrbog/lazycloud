@@ -60,7 +60,7 @@ Press `m` on an instance to open an action picker showing only the valid operati
 | stopped | Start |
 | pending, stopping, etc. | No actions available |
 
-- **Start** executes immediately (safe, reversible)
+- **Start** asks first with a y/n prompt. Press `y` to start the instances. `n`, `enter`, or `esc` cancels. A start destroys nothing, but a running instance costs money.
 - **Stop**, **Reboot**, and **Terminate** require typing "confirm" before proceeding
 - All operations are gated behind ReadWrite mode — press `W` to switch from ReadOnly
 
@@ -137,14 +137,16 @@ Lists AMIs owned by the current account by default. Public AMIs can be searched 
 |-----|--------|
 | `enter` / `d` | View AMI details as JSON |
 | `y` | Copy AMI ID to clipboard |
-| `?` | Search public AMIs by name |
+| `p` | Search public AMIs by name |
 | `/` | Filter current list |
 | `s` / `S` | Sort / reverse sort |
 | `r` | Refresh (returns to owned AMIs) |
 
+The owned list shows every AMI of the account, over as many pages as there are.
+
 ### Public AMI Search
 
-Press `?` to open an inline search prompt. Type a name fragment (e.g. `amazon-linux`, `ubuntu`) and press `enter` to query the AWS API. Results are capped at 100. Press `r` to return to the owned AMI list.
+Press `p` to open an inline search prompt. Type a name fragment (e.g. `amazon-linux`, `ubuntu`) and press `enter` to query the AWS API. Results are capped at 100. A page of a filtered EC2 listing can hold few matches while more pages follow, so the search reads up to 20 pages of 1,000 images to find them. Press `r` to return to the owned AMI list.
 
 ## Service Layer
 
@@ -165,4 +167,4 @@ type EC2Service interface {
 }
 ```
 
-Pagination is handled automatically in `ListInstances` and `ListSecurityGroups`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). `ListOwnedAMIs` uses `DescribeImages` with `Owners: ["self"]`. `SearchAMIs` filters by name with a 100-result cap. `ListSecurityGroups` and `GetSecurityGroup` use `DescribeSecurityGroups` with automatic pagination. A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.
+Pagination is handled automatically in `ListInstances` and `ListSecurityGroups`. Each mutation method wraps the corresponding EC2 SDK call (`StartInstances`, `StopInstances`, `RebootInstances`, `TerminateInstances`). The instance list loads in pages of 1,000 instances. `ListOwnedAMIs` uses `DescribeImages` with `Owners: ["self"]` and reads every page. `SearchAMIs` filters by name and reads pages until it has 100 results or read 20 pages. `ListSecurityGroups` and `GetSecurityGroup` use `DescribeSecurityGroups` with automatic pagination. A shared `MockEC2Service` in `internal/aws/awstest/` enables testing views without AWS credentials.

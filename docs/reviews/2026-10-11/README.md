@@ -50,7 +50,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done in #214, with T3, T5, D3, D4, and D14.
 - [x] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3. Done in #215, with L5 and D8.
 - [ ] Phase 6, CI and release: H10, H11, H12, I1 to I9. I1, I3, I4, and I6 are done in #216. I5 (more linters) and I7 (release gaps) are open.
-- [ ] Phase 7, the remaining medium findings.
+- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done on branch `fix/s3-safety`.
 - [ ] Phase 8, generic resource list (A10).
 - [ ] Phase 9, product roadmap. See [`market-research.md`](market-research.md).
 
@@ -149,9 +149,9 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 ## Medium
 
-- [ ] M1. `DeleteObjects` ignores per-key errors. Evidence: reproduced with an httptest server. `internal/aws/s3.go:345-354` uses `Quiet: true`, so the response holds only the failures, and the code never reads `out.Errors`. Keys that were denied or locked are reported as "Deleted N object(s)". Fix: read `out.Errors` as `DeleteObjectVersions` already does, and join them with `errors.Join`.
+- [x] M1. Fixed on branch `fix/s3-safety`. `DeleteObjects` returns a `*DeleteObjectsError` that lists each key that S3 did not delete, with its error code. A batch call that fails does not stop the other batches. The view loads the list again, because S3 deleted the other keys, and the toast names the failed keys. `DeleteObjects` ignores per-key errors. Evidence: reproduced with an httptest server. `internal/aws/s3.go:345-354` uses `Quiet: true`, so the response holds only the failures, and the code never reads `out.Errors`. Keys that were denied or locked are reported as "Deleted N object(s)". Fix: read `out.Errors` as `DeleteObjectVersions` already does, and join them with `errors.Join`.
 
-- [ ] M2. S3 copy and move have five problems. Evidence: reproduced for (a). Where: `internal/aws/s3.go:519-543`, `internal/views/s3_objects.go:550-565`.
+- [x] M2. Fixed on branch `fix/s3-safety`, all five parts. (a) `copySource` percent-encodes every byte outside the unreserved set. (b) `CopyObject` looks for the destination with `HeadObject` and also sends `IfNoneMatch: "*"`. When the destination exists, the view asks before it replaces it, and the user types "confirm". (c) A destination that ends with `/` keeps the object name in that folder. (d) An object over 5 GB is copied with `UploadPartCopy`, and a failed part aborts the upload. (e) The copy sends the storage class of the source. Before the fix, LocalStack showed (a) `NoSuchKey`, (b) a silent overwrite, (c) an object named `archive/`, and (e) STANDARD. S3 copy and move have five problems. Evidence: reproduced for (a). Where: `internal/aws/s3.go:519-543`, `internal/views/s3_objects.go:550-565`.
   - (a) `CopySource` is not URL-encoded. Keys with `%`, `?`, `#`, or `+` fail or copy the wrong object.
   - (b) An existing destination is overwritten without a warning. Use `CopyObjectInput.IfNoneMatch: "*"`.
   - (c) A folder destination such as `archive/` creates an object named `archive/`. `ListObjectsPage` skips `key == prefix` (`s3.go:193`), so the moved data disappears from the UI.
@@ -212,11 +212,11 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] M23. Terminal escape sequences in AWS data reach the terminal. Evidence: plausible. SQS message bodies, S3 keys, and tags keep their control characters. The ultraviolet renderer keeps unknown escape sequences in cell content, for example OSC 52, which writes to the clipboard. Fix: remove control characters from all AWS strings before display.
 
-- [ ] M24. Redrive and EC2 Start have no prompt. Evidence: traced. Move overwrites the destination without a prompt (M2). `X` ("delete all") does the same as `x`.
+- [x] M24. Fixed on branch `fix/s3-safety`. EC2 Start and Redrive ask with a y/n prompt (`RequestConfirmMsg.Quick`). `X` deletes every item that the list shows, and the user types `delete N items`. The move overwrite is fixed with M2(b). Redrive and EC2 Start have no prompt. Evidence: traced. Move overwrites the destination without a prompt (M2). `X` ("delete all") does the same as `x`.
 
-- [ ] M25. Download overwrites files without a warning. Evidence: traced. `DownloadObject` writes to `~/Downloads/<basename>`, so `a/x.pdf` and `b/x.pdf` collide. It leaves a partial file on error, uses mode 0644, and has no progress and no cancel. Path traversal is not possible, because the code uses `filepath.Base`.
+- [ ] M25. Partly fixed on branch `fix/s3-safety`. A download never replaces a file. It writes to `name (1).ext`, `name (2).ext`, and so on with `O_EXCL` and mode 0600. It removes a partial file after an error, and the toast shows the written path. Progress and cancel are open. They belong with M3. Download overwrites files without a warning. Evidence: traced. `DownloadObject` writes to `~/Downloads/<basename>`, so `a/x.pdf` and `b/x.pdf` collide. It leaves a partial file on error, uses mode 0644, and has no progress and no cancel. Path traversal is not possible, because the code uses `filepath.Base`.
 
-- [ ] M26. Pagination is incomplete for versions and AMIs. Evidence: traced. `ListObjectVersions` (`s3.go:562`) reads one page with `Prefix=key`, so results stop at 1,000 and include sibling keys. Use `NewListObjectVersionsPaginator`. `SearchAMIs` sets no `Owners`, so it scans all public images, and it reads one filtered page of 100. Such a page can come back almost empty while `NextToken` is set (plausible). `ListOwnedAMIs` is not paginated. `ListInstancesPage` sets no `MaxResults`.
+- [x] M26. Fixed on branch `fix/s3-safety`. `ListObjectVersions` reads pages until a page holds a sibling key. `ListOwnedAMIs` reads every page. `SearchAMIs` reads pages until it has 100 results or read 20 pages. `ListInstancesPage` sets `MaxResults` to 1,000. In LocalStack, an object with 1,005 versions shows 1,005 versions. The base build shows 1,000. Pagination is incomplete for versions and AMIs. Evidence: traced. `ListObjectVersions` (`s3.go:562`) reads one page with `Prefix=key`, so results stop at 1,000 and include sibling keys. Use `NewListObjectVersionsPaginator`. `SearchAMIs` sets no `Owners`, so it scans all public images, and it reads one filtered page of 100. Such a page can come back almost empty while `NextToken` is set (plausible). `ListOwnedAMIs` is not paginated. `ListInstancesPage` sets no `MaxResults`.
 
 - [x] M27. ReadOnly is not enforced in one place. Evidence: traced. Fixed in #214. The app blocks every `ModeReadWrite` key of the view on top, and the 10 key-press checks of `ui.ReadOnly` in the views are gone. `aws.GuardS3`, `aws.GuardEC2`, and `aws.GuardSQS` refuse the 22 mutating methods when the action runs. `ui.ReadOnly` is now an atomic value behind `ui.IsReadOnly()` and `ui.SetReadOnly()`, because the guards read it from command goroutines. ReadOnly depends on 11 hand-written `if ui.ReadOnly` tests at key press. No prompt or picker callback tests ReadOnly again. `ui.ApplyModeAll` changes copies of the bindings (`keys.go:49`), so disabled bindings still match. Fix: A3.
 
@@ -248,6 +248,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] L24. The confirm prompt shows only the first letter of its placeholder (`> t`). Evidence: reproduced in LocalStack. Fixed in #213. The text input had no width, and bubbles v2 then draws one character of the placeholder. Now the input is as wide as the placeholder.
 - [x] L25. Fixed in #218 with `ui.SortKeyInt`. Count columns sort as text. Evidence: reproduced in LocalStack. The SQS queue list sorts Messages as 0, 10, 16, 6, 8. The sort values of Messages, In-Flight, and Delayed (`sqs_queues.go:761`) and of Receives (`sqs_messages.go:665`) are `fmt.Sprintf("%d")`. Fix: pad them with zeros, as `ui.SortKeyBytes` does for sizes.
 - [x] L26. Fixed in #221: the seeder sends the messages only to an empty queue. The seeder sends the SQS messages again on each run, so the message counts double. Evidence: reproduced in LocalStack. `docs/DEVELOPMENT.md` says that the seeder is idempotent. Fix: send the seed messages only to a queue that the run creates, or only when the queue is empty.
+- [ ] L27. A long toast runs past the right edge of the screen. Evidence: reproduced in LocalStack. `ToastManager.View` (`internal/ui/toast.go:129`) gets the screen width but does not use it, so the end of a long S3 key or download path is cut off. The S3 download toast now writes the home directory as `~`, which is enough for the usual path. Fix: wrap or shorten the toast text to the width.
 
 ## Performance
 
@@ -344,6 +345,7 @@ Every S3 mutation handler has 0% coverage: `deleteObjects`, `resolveDeleteKeys`,
 - [ ] D12. `UI_COMPONENTS.md` and `THEMING.md` have small errors: glyphs (`▀` and `▄`, fallback icons), the hint separator, toast timeouts, and log colors.
 - [ ] D13. `BUBBLETEA.md` is the original bootstrap spec, not a tutorial. It shows an old tree without SQS, a seed script that was never built, and a type named `EC2ListView`. Delete it. `CHARM.md` is a general layout reference for v2.0.x. Move it to `docs/reference/` with an "as of" note.
 - [x] D14. Fixed in #214: `ui.DefaultTableKeyMap()` binds a half page to `ctrl+d` and `ctrl+u` only. The docs list `d` and `u` as half-page keys. The bubbles table binds them, but they collide with Describe and Presign.
+- [x] D15. Fixed on branch `fix/s3-safety`: `services/aws/ec2.md` says that `?` opens the public AMI search. The key is `p`. The page also said that EC2 Start runs without a prompt.
 
 ## Architecture
 
