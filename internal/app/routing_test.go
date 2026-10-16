@@ -187,6 +187,9 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	// failure by a text that is unique to this run, not by position.
 	failure := fmt.Sprintf("UnauthorizedOperation %d", time.Now().UnixNano())
 	e.On("StopInstances", mock.Anything, []string{"i-abc"}).Return(errors.New(failure))
+	// After a failed action, the view refreshes the instances (M7).
+	e.On("RefreshInstances", mock.Anything, []string{"i-abc"}).
+		Return([]aws.Instance{{ID: "i-abc", State: "running"}}, nil)
 
 	m := newTestModel(140, 40)
 	m.svc.EC2 = e

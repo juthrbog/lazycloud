@@ -44,7 +44,7 @@ At `f107757`, `go build`, `go vet`, and `go test -race ./...` pass. A run of 30 
 Work through the phases in order. Phase 0 contains small fixes that do not depend on each other. Phases 2 to 5 are refactors. Each one fixes a group of bugs at the root.
 
 - [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and in #200.
-- [ ] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199.
+- [x] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199. M5 and M22 are done in #218, with M7, M9, and L25.
 - [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
 - [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
 - [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done in #214, with T3, T5, D3, D4, and D14.
@@ -162,11 +162,11 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] M4. The bucket region lookup is slow and incomplete. Evidence: traced in SDK source. Where: `internal/aws/s3.go:72-104`. `GetBucketLocation` runs before every operation without a cache, which doubles the calls per page. The legacy value `"EU"` is not mapped to `eu-west-1`. The SDK docs say that cross-account calls fail outside the home region of the bucket, and that the API is "no longer a best practice". An unpaginated `ListBuckets` fails for accounts with a bucket quota over 10,000. Fix: use paginated `ListBuckets` (`MaxBuckets`, `ContinuationToken`), which returns `BucketRegion`, or `HeadBucketOutput.BucketRegion`. Cache the result.
 
-- [ ] M5. SQS delete with an old receipt handle reports success. Evidence: SDK docs. Where: `internal/views/sqs_messages.go:552-583`. On a standard queue, `DeleteMessage` with an old handle succeeds, but the message can stay in the queue. FIFO queues return `ReceiptHandleIsInvalid`. The view removes the rows before the call and does not restore them on failure. It also drops the details of failed entries.
+- [x] M5. Fixed in #218, as far as SQS allows. `DeleteMessageBatch` returns a `*BatchDeleteError` with each failed handle and its code, also when one call of 10 fails. The rows stay until the result arrives, and only the deleted messages leave the list. On a standard queue, SQS gives no way to detect an old handle, so the prompt says so and the toast says "SQS accepted the delete". SQS delete with an old receipt handle reports success. Evidence: SDK docs. Where: `internal/views/sqs_messages.go:552-583`. On a standard queue, `DeleteMessage` with an old handle succeeds, but the message can stay in the queue. FIFO queues return `ReceiptHandleIsInvalid`. The view removes the rows before the call and does not restore them on failure. It also drops the details of failed entries.
 
 - [ ] M6. The seed tool has no guard against real AWS. Evidence: traced. Where: `cmd/seed/main.go:18` and `:37`, `internal/aws/client.go:32`. With `-endpoint=""`, for example from an unset variable, the tool uses the normal credential chain and `AWS_PROFILE`. It then creates real VPCs, security groups open to 0.0.0.0/0 on ports 80 and 443, buckets, and queues. The `-wipe` request (`http.Post`) has no timeout. Fix: require an endpoint host of `localhost`, `127.0.0.1`, or `localstack`, or an `--allow-remote` flag. Call `/_localstack/health` first.
 
-- [ ] M7. Views report partial failures wrongly. Evidence: reproduced for SQS.
+- [x] M7. Views report partial failures wrongly. Evidence: reproduced for SQS. Fixed in #218. Queue purge and delete and bucket delete try each item and report "Deleted 2 of 3 queue(s). Failed: name (code)". Only the changed queues are refreshed or removed, and the bucket list loads again. A failed EC2 action refreshes its instances instead of keeping the guessed state.
   - `deleteQueues` returns only `urls[0]` (`sqs_queues.go:684`), so the other deleted queues stay in the list. It stops at the first error and does not say which queues succeeded. Purge acts the same way.
   - `deleteBuckets` keeps only the last error and replaces the whole table with an error screen.
   - `TerminateInstances` can partly succeed. On error, the view keeps the "shutting-down" state and does not refresh (`ec2_list.go:265-273`).
@@ -174,7 +174,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [x] M8. The selection marker is written into cell 0. Evidence: reproduced. Fixed in #213: the marker is display only, and views read the row key. `internal/ui/table.go:397` prefixes `"✓ "` to the first cell of each selected row. Each `row[0]` lookup then breaks on a selected row: EC2 details and SSM, S3 Browse and Properties, SQS details, peek, and send, the messages view, and the `y` copy-ID key in the security group, VPC, and subnet views, which copies `"✓ sg-…"`. Fix: draw the marker outside the cell data (A2).
 
-- [ ] M9. SQS Send Message uses the cursor queue, but Purge and Delete use the selection. Evidence: reproduced. Where: `internal/views/sqs_queues.go:243`.
+- [x] M9. SQS Send Message uses the cursor queue, but Purge and Delete use the selection. Fixed in #218: Send uses the same target, and the menu offers it only for one queue. Evidence: reproduced. Where: `internal/views/sqs_queues.go:243`.
 
 - [ ] M10. Cross-resource focus lands on the wrong row. Evidence: reproduced. The first two points are fixed in #213: focus uses `SetCursorByKey`, `sqs_queues` handles `FocusResourceMsg`, and a link to the view on top does not push it again. The AMI point is open.
   - `SetCursor(i)` uses the unsorted index. When the list is sorted, the panel shows `sg-a` while the cursor is on `sg-c`. In EC2, a following `m` acts on the cursor row.
@@ -208,7 +208,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] M21. AWS errors show as raw SDK strings. Evidence: traced. No code uses `smithy.APIError`. Expired SSO sessions and AccessDenied errors show the full SDK text. Fix: map common error codes to hints, for example "run `aws sso login --profile X`".
 
-- [ ] M22. SQS queue attribute errors are swallowed, and DLQ detection is wrong. Evidence: traced and nilerr. `FetchAllQueueAttributes` (`internal/aws/sqs.go:174`) drops `GetQueueAttributes` errors, so a denied or throttled queue shows 0 messages. The messages view decides "is a DLQ" from `RedriveAllowPolicy != nil` (`sqs_messages.go:182`), so most DLQs cannot start a redrive. Fix: return the error per queue. Use `ListDeadLetterSourceQueues`.
+- [x] M22. SQS queue attribute errors are swallowed, and DLQ detection is wrong. Fixed in #218. `Queue.Err` keeps the error of each queue. The list shows `?` counts and a toast names the queues. The messages view uses `ListDeadLetterSourceQueues`. Evidence: traced and nilerr. `FetchAllQueueAttributes` (`internal/aws/sqs.go:174`) drops `GetQueueAttributes` errors, so a denied or throttled queue shows 0 messages. The messages view decides "is a DLQ" from `RedriveAllowPolicy != nil` (`sqs_messages.go:182`), so most DLQs cannot start a redrive. Fix: return the error per queue. Use `ListDeadLetterSourceQueues`.
 
 - [ ] M23. Terminal escape sequences in AWS data reach the terminal. Evidence: plausible. SQS message bodies, S3 keys, and tags keep their control characters. The ultraviolet renderer keeps unknown escape sequences in cell content, for example OSC 52, which writes to the clipboard. Fix: remove control characters from all AWS strings before display.
 
@@ -246,7 +246,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] L22. `go.mod` marks `charm.land/log/v2` as indirect, but `internal/eventlog` imports it. Run `go mod tidy`. Also, 26 files are not gofmt-clean. The `go mod tidy` part is fixed in #199. The gofmt part is fixed in #200.
 - [x] L23. Opening a details panel clears the table sort. Evidence: reproduced in LocalStack. Fixed in #213. A panel makes the list narrower. When the narrower width tier has a different number of columns, the view calls `Table.SetColumns`, which set the sort to none. A DLQ link closes and opens the panel again, so the sorted-list part of M10 never applied to SQS. Now the sort stays on the column with the same title, at its new index.
 - [x] L24. The confirm prompt shows only the first letter of its placeholder (`> t`). Evidence: reproduced in LocalStack. Fixed in #213. The text input had no width, and bubbles v2 then draws one character of the placeholder. Now the input is as wide as the placeholder.
-- [ ] L25. Count columns sort as text. Evidence: reproduced in LocalStack. The SQS queue list sorts Messages as 0, 10, 16, 6, 8. The sort values of Messages, In-Flight, and Delayed (`sqs_queues.go:761`) and of Receives (`sqs_messages.go:665`) are `fmt.Sprintf("%d")`. Fix: pad them with zeros, as `ui.SortKeyBytes` does for sizes.
+- [x] L25. Fixed in #218 with `ui.SortKeyInt`. Count columns sort as text. Evidence: reproduced in LocalStack. The SQS queue list sorts Messages as 0, 10, 16, 6, 8. The sort values of Messages, In-Flight, and Delayed (`sqs_queues.go:761`) and of Receives (`sqs_messages.go:665`) are `fmt.Sprintf("%d")`. Fix: pad them with zeros, as `ui.SortKeyBytes` does for sizes.
 - [ ] L26. The seeder sends the SQS messages again on each run, so the message counts double. Evidence: reproduced in LocalStack. `docs/DEVELOPMENT.md` says that the seeder is idempotent. Fix: send the seed messages only to a queue that the run creates, or only when the queue is empty.
 
 ## Performance

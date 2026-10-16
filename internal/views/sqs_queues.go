@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -44,14 +45,18 @@ type sqsQueueRefreshedMsg struct {
 	err   error
 }
 
+// sqsQueuePurgedMsg reports a purge of several queues. Each queue is tried,
+// also after an earlier one fails.
 type sqsQueuePurgedMsg struct {
-	urls []string
-	err  error
+	done   []string // URLs of the purged queues
+	failed []itemFailure
 }
 
+// sqsQueueDeletedMsg reports a delete of several queues. Each queue is
+// tried, also after an earlier one fails.
 type sqsQueueDeletedMsg struct {
-	url string
-	err error
+	done   []string // URLs of the deleted queues
+	failed []itemFailure
 }
 
 type sqsMessageSentMsg struct {
@@ -268,7 +273,15 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			urls := s.pendingQueueURLs
 			switch m.Value {
 			case "Send Message":
-				q := s.selectedQueue()
+				// Send acts on the same queue as Purge and Delete: the
+				// selection, or the cursor queue. The menu offers it only
+				// for one queue.
+				if len(urls) != 1 {
+					return s, func() tea.Msg {
+						return msg.ToastError("Select one queue to send a message")
+					}
+				}
+				q := s.findQueue(urls[0])
 				if q == nil {
 					return s, nil
 				}
@@ -379,18 +392,19 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case sqsQueuePurgedMsg:
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "Purge failed: %v", m.err)
-			return s, func() tea.Msg {
-				return msg.ToastError("Purge failed: " + m.err.Error())
-			}
+		for _, f := range m.failed {
+			eventlog.Errorf(eventlog.CatAWS, "Purge of %s failed: %v", f.name, f.err)
 		}
-		eventlog.Infof(eventlog.CatAWS, "Purged %d queue(s)", len(m.urls))
-		// Re-fetch attributes for just the purged queues.
+		eventlog.Infof(eventlog.CatAWS, "Purged %d queue(s)", len(m.done))
+		text, ok := resultText("Purged", len(m.done)+len(m.failed), "queue(s)", m.failed)
 		cmds := []tea.Cmd{func() tea.Msg {
-			return msg.ToastSuccess("Queue purged (60s cooldown before next purge)")
+			if ok {
+				return msg.ToastSuccess(text + " (60s cooldown before the next purge)")
+			}
+			return msg.ToastError(text)
 		}}
-		for _, url := range m.urls {
+		// Re-fetch attributes for just the purged queues.
+		for _, url := range m.done {
 			cmds = append(cmds, s.refreshQueue(url))
 		}
 		return s, tea.Batch(cmds...)
@@ -415,17 +429,21 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case sqsQueueDeletedMsg:
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "Queue delete failed: %v", m.err)
-			return s, func() tea.Msg {
-				return msg.ToastError("Delete failed: " + m.err.Error())
-			}
+		for _, f := range m.failed {
+			eventlog.Errorf(eventlog.CatAWS, "Delete of queue %s failed: %v", f.name, f.err)
 		}
-		eventlog.Infof(eventlog.CatAWS, "Deleted queue: %s", m.url)
-		// Remove deleted queue from local state and refresh
-		s.removeQueue(m.url)
+		for _, url := range m.done {
+			eventlog.Infof(eventlog.CatAWS, "Deleted queue: %s", url)
+		}
+		// Remove only the deleted queues. The failed ones stay in the list.
+		s.removeQueues(m.done)
+		s.table.DeselectAll()
+		text, ok := resultText("Deleted", len(m.done)+len(m.failed), "queue(s)", m.failed)
 		return s, func() tea.Msg {
-			return msg.ToastSuccess("Queue deleted")
+			if ok {
+				return msg.ToastSuccess(text)
+			}
+			return msg.ToastError(text)
 		}
 
 	case sqsMessageSentMsg:
@@ -474,12 +492,24 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		markDLQQueues(s.queues)
 		s.table.SetRows(s.buildRows(s.queues))
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d SQS queues", len(s.queues))
+		var cmds []tea.Cmd
+		var unread []itemFailure
+		for _, q := range s.queues {
+			if q.Err != nil {
+				eventlog.Errorf(eventlog.CatAWS, "Could not read queue %s: %v", q.Name, q.Err)
+				unread = append(unread, itemFailure{name: q.Name, err: q.Err})
+			}
+		}
+		if len(unread) > 0 {
+			text := fmt.Sprintf("Could not read %d queue(s): %s. Their counts show ?.", len(unread), failureText(unread))
+			cmds = append(cmds, func() tea.Msg { return msg.ToastError(text) })
+		}
 		if s.pendingFocus != "" {
 			name := s.pendingFocus
 			s.pendingFocus = ""
-			return s, s.focusQueue(name)
+			cmds = append(cmds, s.focusQueue(name))
 		}
-		return s, nil
+		return s, tea.Batch(cmds...)
 
 	case msg.FocusResourceMsg:
 		// DLQ links name a queue in this list.
@@ -613,10 +643,11 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			s.pendingQueueURLs = urls
 			title := "Manage Queue"
+			actions := []string{"Send Message", "Purge Queue", "Delete Queue"}
 			if len(urls) > 1 {
 				title = fmt.Sprintf("Manage %d Queues", len(urls))
+				actions = []string{"Purge Queue", "Delete Queue"}
 			}
-			actions := []string{"Send Message", "Purge Queue", "Delete Queue"}
 			return s, func() tea.Msg {
 				return msg.RequestActionPickerMsg{
 					Title:   title,
@@ -649,7 +680,11 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 // selectedQueue returns the queue under the cursor. The queue URL is the
 // row key.
 func (s *SQSQueues) selectedQueue() *aws.Queue {
-	url := s.table.CursorKey()
+	return s.findQueue(s.table.CursorKey())
+}
+
+// findQueue returns the queue with the given URL, or nil.
+func (s *SQSQueues) findQueue(url string) *aws.Queue {
 	for i := range s.queues {
 		if s.queues[i].URL == url {
 			return &s.queues[i]
@@ -676,41 +711,63 @@ func (s *SQSQueues) focusQueue(name string) tea.Cmd {
 	return nil
 }
 
-func (s *SQSQueues) removeQueue(url string) {
-	for i, q := range s.queues {
-		if q.URL == url {
-			s.queues = append(s.queues[:i], s.queues[i+1:]...)
-			break
-		}
+// removeQueues removes the queues with the given URLs from the list.
+func (s *SQSQueues) removeQueues(urls []string) {
+	if len(urls) == 0 {
+		return
 	}
+	s.queues = slices.DeleteFunc(s.queues, func(q aws.Queue) bool {
+		return slices.Contains(urls, q.URL)
+	})
 	s.table.SetRows(s.buildRows(s.queues))
 }
 
 // ─── Mutations ──────────────────────────────────────────────────────────────
 
+// queueNames returns the name of each queue URL, as the list shows it. The
+// commands get this copy, because they must not read the view state.
+func (s *SQSQueues) queueNames(urls []string) map[string]string {
+	names := make(map[string]string, len(urls))
+	for _, url := range urls {
+		names[url] = aws.QueueNameFromURL(url)
+		if q := s.findQueue(url); q != nil && q.Name != "" {
+			names[url] = q.Name
+		}
+	}
+	return names
+}
+
 func (s *SQSQueues) purgeQueues(urls []string) tea.Cmd {
 	svc := s.sqs
+	names := s.queueNames(urls)
 	return func() tea.Msg {
+		var res sqsQueuePurgedMsg
 		for _, url := range urls {
 			eventlog.Infof(eventlog.CatAWS, "Purging queue: %s", url)
 			if err := svc.PurgeQueue(context.Background(), url); err != nil {
-				return sqsQueuePurgedMsg{urls: urls, err: err}
+				res.failed = append(res.failed, itemFailure{name: names[url], err: err})
+				continue
 			}
+			res.done = append(res.done, url)
 		}
-		return sqsQueuePurgedMsg{urls: urls}
+		return res
 	}
 }
 
 func (s *SQSQueues) deleteQueues(urls []string) tea.Cmd {
 	svc := s.sqs
+	names := s.queueNames(urls)
 	return func() tea.Msg {
+		var res sqsQueueDeletedMsg
 		for _, url := range urls {
 			eventlog.Infof(eventlog.CatAWS, "Deleting queue: %s", url)
 			if err := svc.DeleteQueue(context.Background(), url); err != nil {
-				return sqsQueueDeletedMsg{url: url, err: err}
+				res.failed = append(res.failed, itemFailure{name: names[url], err: err})
+				continue
 			}
+			res.done = append(res.done, url)
 		}
-		return sqsQueueDeletedMsg{url: urls[0]}
+		return res
 	}
 }
 
@@ -759,9 +816,17 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) []ui.Row {
 		inFlight := ui.CountColor(q.ApproximateInFlightCount)
 		delayed := ui.CountColor(q.ApproximateDelayedCount)
 
-		rawMsg := fmt.Sprintf("%d", q.ApproximateMessageCount)
-		rawFlight := fmt.Sprintf("%d", q.ApproximateInFlightCount)
-		rawDelayed := fmt.Sprintf("%d", q.ApproximateDelayedCount)
+		rawMsg := ui.SortKeyInt(int64(q.ApproximateMessageCount))
+		rawFlight := ui.SortKeyInt(int64(q.ApproximateInFlightCount))
+		rawDelayed := ui.SortKeyInt(int64(q.ApproximateDelayedCount))
+
+		qType := q.Type
+		if q.Err != nil {
+			// The queue could not be read, so its counts are unknown, not 0.
+			msgCount, inFlight, delayed = "?", "?", "?"
+			rawMsg, rawFlight, rawDelayed = "", "", ""
+			qType = "unknown"
+		}
 
 		created := ""
 		if !q.CreatedTimestamp.IsZero() {
@@ -779,11 +844,11 @@ func (s *SQSQueues) buildRows(queues []aws.Queue) []ui.Row {
 			r.Cells = table.Row{q.Name, msgCount}
 			r.Sort = table.Row{q.Name, rawMsg}
 		case ui.TierMedium:
-			r.Cells = table.Row{q.Name, q.Type, msgCount, inFlight, delayed}
-			r.Sort = table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed}
+			r.Cells = table.Row{q.Name, qType, msgCount, inFlight, delayed}
+			r.Sort = table.Row{q.Name, qType, rawMsg, rawFlight, rawDelayed}
 		default:
-			r.Cells = table.Row{q.Name, q.Type, msgCount, inFlight, delayed, dlq, created}
-			r.Sort = table.Row{q.Name, q.Type, rawMsg, rawFlight, rawDelayed, dlq, created}
+			r.Cells = table.Row{q.Name, qType, msgCount, inFlight, delayed, dlq, created}
+			r.Sort = table.Row{q.Name, qType, rawMsg, rawFlight, rawDelayed, dlq, created}
 		}
 		rows = append(rows, r)
 	}

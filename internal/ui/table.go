@@ -632,5 +632,12 @@ func (t *Table) displayRow(i int) table.Row {
 
 // SortKeyBytes returns a zero-padded string suitable for numeric byte sorting.
 func SortKeyBytes(size int64) string {
-	return fmt.Sprintf("%020d", size)
+	return SortKeyInt(size)
+}
+
+// SortKeyInt returns n as a zero-padded string, so that counts sort as
+// numbers: "10" sorts after "9". Use it as the Sort value of a count column.
+// n must not be negative.
+func SortKeyInt(n int64) string {
+	return fmt.Sprintf("%020d", n)
 }

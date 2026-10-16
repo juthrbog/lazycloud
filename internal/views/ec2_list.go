@@ -44,8 +44,9 @@ type ec2InstancesRefreshedMsg struct {
 type ec2DelayedRefreshMsg struct{}
 
 type ec2InstanceMutatedMsg struct {
-	action     string // "started", "stopped", "rebooted", "terminated"
-	instanceID string
+	action     string   // "started", "stopped", "rebooted", "terminated"
+	ids        []string // the instances of the action
+	instanceID string   // the IDs joined, for the log and the toast
 	err        error
 }
 
@@ -286,12 +287,17 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case ec2InstanceMutatedMsg:
 		e.table.DeselectAll()
 		if m.err != nil {
-			e.spinner.Hide()
-			e.err = m.err
 			eventlog.Errorf(eventlog.CatAWS, "Instance %s failed for %s: %v", m.action, m.instanceID, m.err)
-			return e, func() tea.Msg {
-				return msg.ToastError(m.action + " failed: " + m.err.Error())
-			}
+			// An action on several instances can partly succeed. For example,
+			// a terminate stops at a protected instance in one zone and goes
+			// on in another. Refresh the instances, so that the list shows
+			// their real state and not the state that the view guessed.
+			text := fmt.Sprintf("%s failed: %s. The list shows the current state of %d instance(s).",
+				actionName(m.action), aws.ErrorCode(m.err), len(m.ids))
+			e.spinner.Show(fmt.Sprintf("Refreshing %d instances...", len(m.ids)))
+			return e, tea.Batch(e.spinner.Tick(), e.refreshInstances(m.ids), func() tea.Msg {
+				return msg.ToastError(text)
+			})
 		}
 		eventlog.Infof(eventlog.CatAWS, "Instance %s completed: %s", m.action, m.instanceID)
 		// Delay refresh to give AWS time to register the state transition.
@@ -646,6 +652,22 @@ func (e *EC2List) setInstanceState(id, state string) {
 	e.table.SetRows(e.buildRows(e.instances))
 }
 
+// actionName returns the name of the action for a past-tense action of
+// ec2InstanceMutatedMsg, for example "Terminate" for "terminated".
+func actionName(done string) string {
+	switch done {
+	case "started":
+		return "Start"
+	case "stopped":
+		return "Stop"
+	case "rebooted":
+		return "Reboot"
+	case "terminated":
+		return "Terminate"
+	}
+	return done
+}
+
 // transitionalState returns the EC2 transitional state for a given action.
 func transitionalState(action string) string {
 	switch action {
@@ -678,7 +700,7 @@ func (e *EC2List) startInstances(ids []string) tea.Cmd {
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Starting %d instances", len(ids))
 		err := svc.StartInstances(context.Background(), ids)
-		return ec2InstanceMutatedMsg{action: "started", instanceID: strings.Join(ids, ", "), err: err}
+		return ec2InstanceMutatedMsg{action: "started", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
@@ -687,7 +709,7 @@ func (e *EC2List) stopInstances(ids []string) tea.Cmd {
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Stopping %d instances", len(ids))
 		err := svc.StopInstances(context.Background(), ids)
-		return ec2InstanceMutatedMsg{action: "stopped", instanceID: strings.Join(ids, ", "), err: err}
+		return ec2InstanceMutatedMsg{action: "stopped", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
@@ -696,7 +718,7 @@ func (e *EC2List) rebootInstances(ids []string) tea.Cmd {
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Rebooting %d instances", len(ids))
 		err := svc.RebootInstances(context.Background(), ids)
-		return ec2InstanceMutatedMsg{action: "rebooted", instanceID: strings.Join(ids, ", "), err: err}
+		return ec2InstanceMutatedMsg{action: "rebooted", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
@@ -705,7 +727,7 @@ func (e *EC2List) terminateInstances(ids []string) tea.Cmd {
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Terminating %d instances", len(ids))
 		err := svc.TerminateInstances(context.Background(), ids)
-		return ec2InstanceMutatedMsg{action: "terminated", instanceID: strings.Join(ids, ", "), err: err}
+		return ec2InstanceMutatedMsg{action: "terminated", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 

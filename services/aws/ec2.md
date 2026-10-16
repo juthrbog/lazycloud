@@ -64,7 +64,7 @@ Press `m` on an instance to open an action picker showing only the valid operati
 - **Stop**, **Reboot**, and **Terminate** require typing "confirm" before proceeding
 - All operations are gated behind ReadWrite mode — press `W` to switch from ReadOnly
 
-After any operation, the instance list auto-refreshes to show the updated state.
+After any operation, the instance list auto-refreshes to show the updated state. An operation on several instances can partly succeed. For example, a terminate stops at a protected instance in one Availability Zone but goes on in another. When an operation fails, the toast shows the AWS error code, and the list refreshes the instances of the operation, so it shows their real state.
 
 ## SSM Session
 

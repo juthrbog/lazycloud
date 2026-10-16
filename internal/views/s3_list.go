@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
@@ -20,9 +19,11 @@ type s3BucketsLoadedMsg struct {
 	buckets []aws.Bucket
 }
 
+// s3BucketDeletedMsg reports a delete of several buckets. Each bucket is
+// tried, also after an earlier one fails.
 type s3BucketDeletedMsg struct {
-	bucket string
-	err    error
+	done   []string // names of the deleted buckets
+	failed []itemFailure
 }
 
 type s3BucketCreatedMsg struct {
@@ -167,16 +168,19 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case s3BucketDeletedMsg:
 		s.table.DeselectAll()
-		if m.err != nil {
-			s.err = m.err
-			return s, nil
+		for _, b := range m.done {
+			eventlog.Infof(eventlog.CatAWS, "Deleted bucket: %s", b)
 		}
-		eventlog.Infof(eventlog.CatAWS, "Deleted bucket: %s", m.bucket)
+		text, ok := resultText("Deleted", len(m.done)+len(m.failed), "bucket(s)", m.failed)
+		// Reload also after a failure: the list must show which buckets are
+		// left. A failed bucket can be partly emptied.
 		s.loading = true
 		s.spinner.Show("Loading S3 buckets...")
-		bucket := m.bucket
 		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg {
-			return msg.ToastSuccess("Bucket deleted: " + bucket)
+			if ok {
+				return msg.ToastSuccess(text)
+			}
+			return msg.ToastError(text)
 		})
 
 	case s3BucketCreatedMsg:
@@ -402,15 +406,17 @@ func deleteBucketsPrompt(names []string) (message, phrase string) {
 func (s *S3List) deleteBuckets(buckets []string) tea.Cmd {
 	svc := s.s3
 	return func() tea.Msg {
-		var lastErr error
+		var res s3BucketDeletedMsg
 		for _, bucket := range buckets {
 			eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
 			if err := svc.EmptyAndDeleteBucket(context.Background(), bucket); err != nil {
-				lastErr = err
 				eventlog.Errorf(eventlog.CatAWS, "Failed to delete bucket %s: %v", bucket, err)
+				res.failed = append(res.failed, itemFailure{name: bucket, err: err})
+				continue
 			}
+			res.done = append(res.done, bucket)
 		}
-		return s3BucketDeletedMsg{bucket: strings.Join(buckets, ", "), err: lastErr}
+		return res
 	}
 }
 
