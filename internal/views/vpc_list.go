@@ -89,14 +89,14 @@ func vpcColumns(tier ui.WidthTier) []ui.Column {
 			{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
 			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "CIDR Block", Width: 18},
-			{Title: "State", Width: 16},
+			{Title: "State", Width: 16, Style: ui.StateColor},
 		}
 	}
 	return []ui.Column{
 		{Title: "VPC ID", Width: 21, Weight: 1, MaxWidth: 35},
 		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 		{Title: "CIDR Block", Width: 18},
-		{Title: "State", Width: 16},
+		{Title: "State", Width: 16, Style: ui.StateColor},
 		{Title: "Default", Width: 8},
 		{Title: "Tenancy", Width: 12},
 	}
@@ -328,7 +328,7 @@ func buildVPCRows(vpcs []aws.VPC, tier ui.WidthTier) []ui.Row {
 	rows := make([]ui.Row, 0, len(vpcs))
 	narrow := tier == ui.TierNarrow
 	for _, vpc := range vpcs {
-		state := ui.StateColor(vpc.State)
+		state := vpc.State
 		var cells table.Row
 		if narrow {
 			cells = table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state}
@@ -421,7 +421,7 @@ func (v *VPCList) View() tea.View {
 	if v.loading && len(v.vpcs) == 0 {
 		content = "\n  " + v.spinner.View()
 	} else if v.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+v.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(v.err.Error()))
 	} else {
 		content = v.table.View()
 		if v.filter.Active() {

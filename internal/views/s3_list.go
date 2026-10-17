@@ -447,7 +447,7 @@ func (s *S3List) View() tea.View {
 	if s.loading {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
 	} else {
 		content = s.table.View()
 		if s.filter.Active() {

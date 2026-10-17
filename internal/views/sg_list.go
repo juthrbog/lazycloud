@@ -408,7 +408,7 @@ func (s *SGList) View() tea.View {
 	if s.loading && len(s.groups) == 0 {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
 	} else {
 		content = s.table.View()
 		if s.filter.Active() {

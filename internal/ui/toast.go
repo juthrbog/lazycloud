@@ -66,7 +66,7 @@ func (tm *ToastManager) Add(text string, level ToastLevel, duration time.Duratio
 	tm.nextID++
 
 	tm.toasts = append(tm.toasts, Toast{
-		Text:      text,
+		Text:      Sanitize(text),
 		Level:     level,
 		CreatedAt: time.Now(),
 		Duration:  duration,

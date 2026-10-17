@@ -256,7 +256,7 @@ func (s *S3Versions) rebuildRows() {
 }
 
 func (s *S3Versions) Footer() string {
-	return fmt.Sprintf("%d versions  s3://%s/%s", len(s.versions), s.bucket, s.key)
+	return fmt.Sprintf("%d versions  s3://%s/%s", len(s.versions), s.bucket, ui.Sanitize(s.key))
 }
 
 func (s *S3Versions) View() tea.View {
@@ -264,7 +264,7 @@ func (s *S3Versions) View() tea.View {
 	if s.loading {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
 	} else {
 		content = s.table.View()
 	}

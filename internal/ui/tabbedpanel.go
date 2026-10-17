@@ -43,7 +43,7 @@ func NewTabbedPanel(title string, tabs []TabInput) TabbedPanel {
 			format = FormatAuto
 		}
 		entries[i] = tabEntry{
-			title:   t.Title,
+			title:   Sanitize(t.Title),
 			content: t.Content,
 			format:  format,
 			links:   t.Links,
@@ -52,7 +52,7 @@ func NewTabbedPanel(title string, tabs []TabInput) TabbedPanel {
 
 	tp := TabbedPanel{
 		tabs:  entries,
-		title: title,
+		title: Sanitize(title),
 	}
 
 	// Eagerly create the first tab's viewer

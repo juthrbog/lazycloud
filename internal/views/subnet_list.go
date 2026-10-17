@@ -99,7 +99,7 @@ func subnetColumns(tier ui.WidthTier) []ui.Column {
 			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
 			{Title: "AZ", Width: 14},
 			{Title: "CIDR Block", Width: 18},
-			{Title: "State", Width: 16},
+			{Title: "State", Width: 16, Style: ui.StateColor},
 		}
 	}
 	if tier == ui.TierMedium {
@@ -108,7 +108,7 @@ func subnetColumns(tier ui.WidthTier) []ui.Column {
 			{Title: "Name", Width: 15, Weight: 2, MaxWidth: 60},
 			{Title: "AZ", Width: 13},
 			{Title: "CIDR Block", Width: 15},
-			{Title: "State", Width: 10},
+			{Title: "State", Width: 10, Style: ui.StateColor},
 		}
 	}
 	return []ui.Column{
@@ -118,7 +118,7 @@ func subnetColumns(tier ui.WidthTier) []ui.Column {
 		{Title: "AZ", Width: 14},
 		{Title: "CIDR Block", Width: 18},
 		{Title: "Avail IPs", Width: 10},
-		{Title: "State", Width: 16},
+		{Title: "State", Width: 16, Style: ui.StateColor},
 		{Title: "Public", Width: 8},
 		{Title: "Default", Width: 8},
 	}
@@ -351,7 +351,7 @@ func (s *SubnetList) openDetailCmd(subnet *aws.Subnet) tea.Cmd {
 func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []ui.Row {
 	rows := make([]ui.Row, 0, len(subnets))
 	for _, s := range subnets {
-		state := ui.StateColor(s.State)
+		state := s.State
 		var cells table.Row
 		switch tier {
 		case ui.TierNarrow:
@@ -455,7 +455,7 @@ func (s *SubnetList) View() tea.View {
 	if s.loading && len(s.subnets) == 0 {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
 	} else {
 		content = s.table.View()
 		if s.filter.Active() {

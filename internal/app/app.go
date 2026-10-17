@@ -1248,7 +1248,9 @@ func (m Model) View() tea.View {
 		body = comp.Render()
 	}
 
-	v := tea.NewView(body)
+	// Views show AWS text through ui.Sanitize. This second guard removes what
+	// the renderer would pass on to the terminal, if a view missed it.
+	v := tea.NewView(ui.StripUnsafe(body))
 	v.AltScreen = true
 	return v
 }

@@ -128,7 +128,7 @@ func ec2Columns(tier ui.WidthTier) []ui.Column {
 		return []ui.Column{
 			{Title: "Instance ID", Width: 21, Weight: 1, MaxWidth: 35},
 			{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
-			{Title: "State", Width: 16},
+			{Title: "State", Width: 16, Style: ui.StateColor},
 			{Title: "Type", Width: 14},
 		}
 	}
@@ -136,7 +136,7 @@ func ec2Columns(tier ui.WidthTier) []ui.Column {
 		return []ui.Column{
 			{Title: "Instance ID", Width: 19, Weight: 1, MaxWidth: 35},
 			{Title: "Name", Width: 15, Weight: 2, MaxWidth: 60},
-			{Title: "State", Width: 10},
+			{Title: "State", Width: 10, Style: ui.StateColor},
 			{Title: "Type", Width: 10},
 			{Title: "Private IP", Width: 15},
 		}
@@ -144,7 +144,7 @@ func ec2Columns(tier ui.WidthTier) []ui.Column {
 	return []ui.Column{
 		{Title: "Instance ID", Width: 21, Weight: 1, MaxWidth: 35},
 		{Title: "Name", Width: 24, Weight: 2, MaxWidth: 60},
-		{Title: "State", Width: 16},
+		{Title: "State", Width: 16, Style: ui.StateColor},
 		{Title: "Type", Width: 14},
 		{Title: "Private IP", Width: 16},
 		{Title: "Public IP", Width: 16},
@@ -750,14 +750,14 @@ func (e *EC2List) buildRows(instances []aws.Instance) []ui.Row {
 		switch e.widthTier {
 		case ui.TierNarrow:
 			cells = table.Row{
-				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
+				inst.ID, inst.Name, inst.State, inst.Type,
 			}
 			sortKeys = table.Row{
 				inst.ID, inst.Name, inst.State, inst.Type,
 			}
 		case ui.TierMedium:
 			cells = table.Row{
-				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
+				inst.ID, inst.Name, inst.State, inst.Type,
 				inst.PrivateIP,
 			}
 			sortKeys = table.Row{
@@ -766,7 +766,7 @@ func (e *EC2List) buildRows(instances []aws.Instance) []ui.Row {
 			}
 		default:
 			cells = table.Row{
-				inst.ID, inst.Name, ui.StateColor(inst.State), inst.Type,
+				inst.ID, inst.Name, inst.State, inst.Type,
 				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
 			}
 			sortKeys = table.Row{
@@ -872,7 +872,7 @@ func (e *EC2List) View() tea.View {
 		// Initial load — spinner only
 		content = "\n  " + e.spinner.View()
 	} else if e.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+e.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(e.err.Error()))
 	} else {
 		content = e.table.View()
 		if e.filter.Active() {

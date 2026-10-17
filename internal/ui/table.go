@@ -42,6 +42,7 @@ const selectMarker = "✓ "
 type Table struct {
 	inner       table.Model
 	rows        []Row
+	cells       []table.Row    // per row: the cells to show, made safe and styled once (see showCells)
 	search      []string       // per row: filter text, built on the first filter (see ensureSearch)
 	index       map[string]int // key → index into rows
 	order       []int          // indices into rows, in sort order
@@ -141,7 +142,7 @@ func (t *Table) SetColumns(columns []Column) {
 	if k := t.CursorKey(); k != "" {
 		t.keepCursor = k
 	}
-	t.rows, t.search, t.order, t.visible, t.display = nil, nil, nil, nil, nil
+	t.rows, t.cells, t.search, t.order, t.visible, t.display = nil, nil, nil, nil, nil, nil
 	t.index = make(map[string]int)
 	t.selCount = 0
 	t.inner.SetRows(nil)
@@ -191,6 +192,7 @@ func (t *Table) resolveColumns() {
 func (t *Table) SetRows(rows []Row) {
 	cursor := t.cursorToKeep()
 	t.rows = make([]Row, 0, len(rows))
+	t.cells = make([]table.Row, 0, len(rows))
 	t.search = nil
 	t.index = make(map[string]int, len(rows))
 	t.addRows(rows)
@@ -228,7 +230,33 @@ func (t *Table) addRows(rows []Row) {
 		}
 		t.index[r.Key] = len(t.rows)
 		t.rows = append(t.rows, r)
+		t.cells = append(t.cells, t.showCells(r.Cells))
 	}
+}
+
+// showCells returns the cells to show for a row. Each cell is made safe with
+// Sanitize, then styled by its column. The table does this once per row,
+// when the row is added, because a redraw can show many thousands of rows.
+// It returns cells itself when nothing changes. The cells of the Row keep
+// the original text, for SelectedRow and the filter.
+func (t *Table) showCells(cells table.Row) table.Row {
+	shown := cells
+	copied := false
+	for c, v := range cells {
+		out := Sanitize(v)
+		if c < len(t.flexColumns) && t.flexColumns[c].Style != nil {
+			out = t.flexColumns[c].Style(out)
+		}
+		if out == v {
+			continue
+		}
+		if !copied {
+			shown = slices.Clone(cells)
+			copied = true
+		}
+		shown[c] = out
+	}
+	return shown
 }
 
 // ensureSearch builds the filter text for the rows that do not have it yet.
@@ -618,14 +646,14 @@ func (t *Table) redraw() {
 	t.inner.SetRows(t.display)
 }
 
-// displayRow returns the cells to show for a row, with the selection marker
-// in front of the first cell when the row is selected.
+// displayRow returns the cells to show for a row (see showCells), with the
+// selection marker in front of the first cell when the row is selected.
 func (t *Table) displayRow(i int) table.Row {
-	r := t.rows[i]
-	if !t.selected[r.Key] || len(r.Cells) == 0 {
-		return r.Cells
+	cells := t.cells[i]
+	if !t.selected[t.rows[i].Key] || len(cells) == 0 {
+		return cells
 	}
-	marked := slices.Clone(r.Cells)
+	marked := slices.Clone(cells)
 	marked[0] = selectMarker + marked[0]
 	return marked
 }

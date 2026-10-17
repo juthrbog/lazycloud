@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"fmt"
 	"image/color"
+	"strconv"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -48,13 +48,14 @@ func FgRender(c color.Color, s string) string {
 	return ansi.Style{}.ForegroundColor(c).String() + s + "\x1b[39m"
 }
 
-// CountColor returns a styled count string — warning-colored when non-zero, plain when zero.
-func CountColor(count int) string {
-	s := fmt.Sprintf("%d", count)
-	if count == 0 {
-		return s
+// CountColor colors a count with the warning color when it is not 0. It
+// takes the cell text, so that it can be the Style of a count column. Text
+// that is not a number, for example "?", stays plain.
+func CountColor(count string) string {
+	if n, err := strconv.Atoi(count); err != nil || n == 0 {
+		return count
 	}
-	return FgRender(ActiveTheme.Warning, s)
+	return FgRender(ActiveTheme.Warning, count)
 }
 
 // StateColor returns a styled state string with the appropriate color and icon.

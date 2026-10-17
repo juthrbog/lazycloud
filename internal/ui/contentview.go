@@ -62,7 +62,8 @@ type ContentView struct {
 	keys        ContentViewKeyMap
 	viewport    viewport.Model
 	title       string
-	raw         string        // original unhighlighted content
+	raw         string        // original unhighlighted content, for yank and the editor
+	text        string        // raw made safe with SanitizeLines, for display
 	rawLines    []string      // raw split into lines
 	format      ContentFormat // resolved format
 	lineNumbers bool
@@ -83,8 +84,9 @@ func NewContentView(title, content string, format ContentFormat) ContentView {
 	cv := ContentView{
 		keys:        DefaultContentViewKeyMap(),
 		viewport:    vp,
-		title:       title,
+		title:       Sanitize(title),
 		raw:         content,
+		text:        SanitizeLines(content),
 		rawLines:    strings.Split(content, "\n"),
 		lineNumbers: true,
 	}
@@ -140,8 +142,9 @@ func (cv ContentView) HasLinkAtCursor() bool {
 
 // SetContent replaces the content.
 func (cv *ContentView) SetContent(title, content string, format ContentFormat) {
-	cv.title = title
+	cv.title = Sanitize(title)
 	cv.raw = content
+	cv.text = SanitizeLines(content)
 	cv.rawLines = strings.Split(content, "\n")
 	cv.cursor = 0
 	cv.visualMode = false
@@ -404,7 +407,9 @@ func (cv *ContentView) renderContent() {
 	}
 
 	// Highlight each line individually so we can apply cursor/selection styling
-	highlighted := syntaxHighlight(cv.raw, string(cv.format))
+	// Highlight the safe text: AWS content can hold terminal control
+	// sequences, and chroma keeps them.
+	highlighted := syntaxHighlight(cv.text, string(cv.format))
 	hLines := strings.Split(highlighted, "\n")
 
 	t := ActiveTheme
