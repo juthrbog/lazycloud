@@ -59,6 +59,23 @@ Rules for view code:
 - When the width tier changes the column set, call `SetColumns`, then `SetRows` with the cells in the new column order. The sort stays on the column with the same title. Give each column a unique title, or keep a shared title, such as an empty icon column, at the same index in every tier.
 - The filter deselects the rows that it hides, so an action never applies to a row that the user cannot see.
 - A selected key whose row is not loaded stays selected, so a reload keeps the selection. After an action removes resources, call `DeselectAll()`.
+- Put plain text in `Cells`. The table shows each cell through `ui.Sanitize` (see the next section). To color a cell, set `Style` on its column, for example `{Title: "State", Width: 16, Style: ui.StateColor}`. The table calls `Style` with the safe text.
+
+### AWS Text on the Screen
+
+AWS text can hold terminal control characters, for example an S3 key, an object preview, a tag, an SQS message body, or an error message. A terminal acts on these characters. It can move the cursor, show text in reverse, or answer a query with input to the app. The Bubble Tea renderer passes some sequences on to the terminal unchanged: the string sequences DCS, SOS, PM, and APC, and the C1 control characters.
+
+For this reason, LazyCloud shows AWS text only after `ui.Sanitize` or `ui.SanitizeLines`. `ui.Sanitize` is for text on one line. It shows each control character as a visible symbol, for example ESC as `␛` and a line feed as `␊`. It shows a C1 control character, and a byte that is not valid UTF-8, as `�`. `ui.SanitizeLines` keeps line feeds and tabs, for text with more than one line.
+
+The shared components do this for the text that they get. These components are the table, the content view and the detail panels, toasts, confirm prompts, pickers, the header, and the event log. Call `ui.Sanitize` in view code only for AWS text that the view renders itself, for example:
+
+- A footer, such as `s3://bucket/prefix`.
+- An error line, such as `"Error: " + ui.Sanitize(err.Error())`.
+- A name in a confirm message with more than one line. The confirm prompt keeps the line feeds of the message, so a line feed in an S3 key can add a line to the prompt. `ui.Sanitize` on the name shows it as `␊`.
+
+Keep the original text for API calls, the clipboard, and the editor. Sanitize only what goes to the screen.
+
+As a second guard, the app passes each screen through `ui.StripUnsafe`. It removes the string sequences and the C1 control characters, if a view shows AWS text without `ui.Sanitize`.
 
 ### Progressive Loading
 

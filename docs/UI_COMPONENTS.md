@@ -168,6 +168,7 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 
 - Always use `Icon()` method to respect the `UseNerdFonts` flag
 - State icons pair with `StateColor()` for consistent color + icon
+- In a table, put the plain state in the cell and set `Style: ui.StateColor` on the state column. The table colors the cell after it makes the text safe.
 
 ---
 
