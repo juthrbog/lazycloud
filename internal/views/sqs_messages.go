@@ -280,6 +280,17 @@ func (s *SQSMessages) peekWarnings(m sqsMessagesLoadedMsg) []tea.Cmd {
 	return cmds
 }
 
+// startRedrive moves the messages of this DLQ back to their source queues.
+func (s *SQSMessages) startRedrive() tea.Cmd {
+	arn := s.queueARN
+	svc := s.sqs
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
+		handle, err := svc.StartMessageMoveTask(context.Background(), arn, "")
+		return sqsRedriveStartedMsg{taskHandle: handle, err: err}
+	}
+}
+
 func (s *SQSMessages) pollRedrive() tea.Cmd {
 	svc := s.sqs
 	arn := s.queueARN
@@ -309,12 +320,11 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 						return msg.ToastError("Queue ARN not available")
 					}
 				}
-				arn := s.queueARN
-				svc := s.sqs
+				// A redrive moves every message of the DLQ, so it asks.
+				// The messages are moved, not lost, so y/n is enough.
+				text := fmt.Sprintf("Move all messages of %s back to their source queues?", s.queueName)
 				return s, func() tea.Msg {
-					eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
-					handle, err := svc.StartMessageMoveTask(context.Background(), arn, "")
-					return sqsRedriveStartedMsg{taskHandle: handle, err: err}
+					return msg.RequestConfirmMsg{Message: text, Action: "sqs_redrive", Quick: true}
 				}
 			}
 		}
@@ -324,8 +334,11 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.Confirmed {
 			return s, nil
 		}
-		if m.Action == "sqs_delete_messages" {
+		switch m.Action {
+		case "sqs_delete_messages":
 			return s, s.deleteSelectedMessages()
+		case "sqs_redrive":
+			return s, s.startRedrive()
 		}
 		return s, nil
 

@@ -48,9 +48,9 @@ func (m *MockS3Service) ListAllKeys(ctx context.Context, bucket, prefix string) 
 	return args.Get(0).([]string), args.Error(1)
 }
 
-func (m *MockS3Service) DownloadObject(ctx context.Context, bucket, key, destPath string) error {
+func (m *MockS3Service) DownloadObject(ctx context.Context, bucket, key, destPath string) (string, error) {
 	args := m.Called(ctx, bucket, key, destPath)
-	return args.Error(0)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockS3Service) ListObjectVersions(ctx context.Context, bucket, key string) ([]aws.ObjectVersion, error) {
@@ -94,13 +94,13 @@ func (m *MockS3Service) EmptyAndDeleteBucket(ctx context.Context, bucket string)
 	return args.Error(0)
 }
 
-func (m *MockS3Service) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
-	args := m.Called(ctx, srcBucket, srcKey, dstBucket, dstKey)
+func (m *MockS3Service) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, overwrite bool) error {
+	args := m.Called(ctx, srcBucket, srcKey, dstBucket, dstKey, overwrite)
 	return args.Error(0)
 }
 
-func (m *MockS3Service) MoveObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
-	args := m.Called(ctx, srcBucket, srcKey, dstBucket, dstKey)
+func (m *MockS3Service) MoveObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, overwrite bool) error {
+	args := m.Called(ctx, srcBucket, srcKey, dstBucket, dstKey, overwrite)
 	return args.Error(0)
 }
 

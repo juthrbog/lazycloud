@@ -238,3 +238,30 @@ func TestSQSMessages_BannerExplainsPeek(t *testing.T) {
 	ui.SetReadOnly(false)
 	assert.Contains(t, view.bannerText(), "DLQ after 3")
 }
+
+// M24: Start Redrive ran without a prompt. It now asks with a y/n prompt.
+func TestSQSMessages_RedriveAsksFirst(t *testing.T) {
+	ui.SetReadOnly(false)
+	defer func() { ui.SetReadOnly(true) }()
+	view, m := newTestSQSMessages()
+	loadAttrs(view, nil)
+	m.On("StartMessageMoveTask", mock.Anything, "arn:aws:sqs:us-east-1:123:orders", "").Return("h1", nil)
+
+	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Start Redrive"})
+	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
+	require.True(t, ok)
+	assert.Equal(t, "sqs_redrive", req.Action)
+	assert.True(t, req.Quick, "the messages are moved, not lost")
+	assert.Equal(t, "Move all messages of orders back to their source queues?", req.Message)
+	m.AssertNotCalled(t, "StartMessageMoveTask", mock.Anything, mock.Anything, mock.Anything)
+
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "sqs_redrive"})
+	assert.Nil(t, cmd)
+	m.AssertNotCalled(t, "StartMessageMoveTask", mock.Anything, mock.Anything, mock.Anything)
+
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_redrive"})
+	started, ok := firstOfType[sqsRedriveStartedMsg](collectMsgs(cmd))
+	require.True(t, ok)
+	assert.Equal(t, "h1", started.taskHandle)
+	m.AssertNumberOfCalls(t, "StartMessageMoveTask", 1)
+}

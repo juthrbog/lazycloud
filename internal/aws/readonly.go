@@ -69,18 +69,18 @@ func (g guardedS3) EmptyAndDeleteBucket(ctx context.Context, bucket string) erro
 	return g.S3Service.EmptyAndDeleteBucket(ctx, bucket)
 }
 
-func (g guardedS3) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
+func (g guardedS3) CopyObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, overwrite bool) error {
 	if g.readOnly() {
 		return readOnlyErr("CopyObject")
 	}
-	return g.S3Service.CopyObject(ctx, srcBucket, srcKey, dstBucket, dstKey)
+	return g.S3Service.CopyObject(ctx, srcBucket, srcKey, dstBucket, dstKey, overwrite)
 }
 
-func (g guardedS3) MoveObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string) error {
+func (g guardedS3) MoveObject(ctx context.Context, srcBucket, srcKey, dstBucket, dstKey string, overwrite bool) error {
 	if g.readOnly() {
 		return readOnlyErr("MoveObject")
 	}
-	return g.S3Service.MoveObject(ctx, srcBucket, srcKey, dstBucket, dstKey)
+	return g.S3Service.MoveObject(ctx, srcBucket, srcKey, dstBucket, dstKey, overwrite)
 }
 
 func (g guardedS3) CreateBucket(ctx context.Context, name, region string) error {

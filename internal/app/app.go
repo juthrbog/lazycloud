@@ -350,6 +350,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.RequestConfirmMsg:
+		if msg.Quick {
+			m.confirm.ShowQuick(msg.Message, msg.Action)
+			return m, nil
+		}
 		m.confirm.Show(msg.Message, msg.Action, msg.Phrase)
 		return m, nil
 

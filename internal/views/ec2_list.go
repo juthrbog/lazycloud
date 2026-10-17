@@ -239,11 +239,17 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			ids := e.pendingInstanceIDs
 			switch m.Value {
 			case "Start":
-				for _, id := range ids {
-					e.setInstanceState(id, "pending")
+				// Starting is reversible and destroys nothing, so a y/n
+				// prompt is enough. It still costs money, so it asks.
+				e.pendingAction = m.Value
+				count := len(ids)
+				return e, func() tea.Msg {
+					return msg.RequestConfirmMsg{
+						Message: fmt.Sprintf("Start %d instance(s)?", count),
+						Action:  "ec2_start",
+						Quick:   true,
+					}
 				}
-				e.spinner.Show(fmt.Sprintf("starting %d instance(s)...", len(ids)))
-				return e, tea.Batch(e.spinner.Tick(), e.startInstances(ids))
 			case "Stop", "Reboot", "Terminate":
 				e.pendingAction = m.Value
 				action := m.Value
@@ -275,6 +281,8 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		e.spinner.Show(fmt.Sprintf("%s %d instance(s)...", strings.ToLower(action)+"ing", len(ids)))
 		switch m.Action {
+		case "ec2_start":
+			return e, tea.Batch(e.spinner.Tick(), e.startInstances(ids))
 		case "ec2_stop":
 			return e, tea.Batch(e.spinner.Tick(), e.stopInstances(ids))
 		case "ec2_reboot":

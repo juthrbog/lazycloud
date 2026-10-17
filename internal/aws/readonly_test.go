@@ -141,7 +141,7 @@ func TestGuardPassesReadsInReadOnly(t *testing.T) {
 
 func TestGuardErrorWrapsErrReadOnly(t *testing.T) {
 	svc := aws.GuardS3(new(awstest.MockS3Service), func() bool { return true })
-	err := svc.CopyObject(context.Background(), "a", "k", "b", "k")
+	err := svc.CopyObject(context.Background(), "a", "k", "b", "k", false)
 	assert.True(t, errors.Is(err, aws.ErrReadOnly))
 	assert.Equal(t, "CopyObject: blocked in ReadOnly mode", err.Error())
 }

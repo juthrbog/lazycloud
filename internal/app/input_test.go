@@ -119,7 +119,7 @@ func TestCopyInputTakesModeKeyAndGuardBlocksCopy(t *testing.T) {
 	assert.False(t, m.capturingInput())
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3CopyCompleteMsg"))
 	assert.Contains(t, screen(m), aws.ErrReadOnly.Error())
-	s3m.AssertNotCalled(t, "CopyObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	s3m.AssertNotCalled(t, "CopyObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
 // T3: a confirmed prompt runs its action through the guarded service. If the
@@ -266,4 +266,24 @@ func TestReadWriteKeyIgnoresEnabledFlag(t *testing.T) {
 	assert.True(t, readWriteKey(hints, press("x")))
 	assert.False(t, readWriteKey(hints, press("d")), "d is not a ReadWrite key")
 	assert.False(t, readWriteKey(hints, press("y")), "y is not bound")
+}
+
+// M24: a Quick request shows a y/n prompt, and y confirms it. A request
+// without Quick wants the typed phrase, so y alone confirms nothing.
+func TestQuickConfirmRequest(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = update(t, m, msg.RequestConfirmMsg{Message: "Start 1 instance(s)?", Action: "ec2_start", Quick: true})
+	require.True(t, m.confirm.Visible())
+	assert.Contains(t, rendered(m), "Start 1 instance(s)?")
+
+	m, cmd := update(t, m, press("y"))
+	res, ok := findMsg(collectMsgs(cmd), "ui.ConfirmResultMsg").(ui.ConfirmResultMsg)
+	require.True(t, ok)
+	assert.Equal(t, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"}, res)
+	assert.False(t, m.confirm.Visible())
+
+	m, _ = update(t, m, msg.RequestConfirmMsg{Message: "Delete?", Action: "delete_objects"})
+	m, cmd = update(t, m, press("y"))
+	assert.Nil(t, findMsg(collectMsgs(cmd), "ui.ConfirmResultMsg"))
+	assert.True(t, m.confirm.Visible(), "the typed prompt stays open")
 }
