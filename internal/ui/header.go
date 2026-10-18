@@ -21,7 +21,15 @@ func RenderHeader(data HeaderData) string {
 	t := ActiveTheme
 	s := S
 
-	profile := data.Profile
+	// A breadcrumb can be an S3 key or a prefix.
+	crumbs := make([]string, len(data.Breadcrumbs))
+	for i, c := range data.Breadcrumbs {
+		crumbs[i] = Sanitize(c)
+	}
+	data.Breadcrumbs = crumbs
+	data.CrossNavBackLabel = Sanitize(data.CrossNavBackLabel)
+
+	profile := Sanitize(data.Profile)
 	if profile == "" {
 		profile = "default"
 	}

@@ -274,7 +274,8 @@ func (e *EventLog) refreshContent() {
 			lvl = debugStyle.Render("DBG")
 		}
 
-		fmt.Fprintf(&b, "%s  %s  %s  %s\n", ts, lvl, cat, entry.Message)
+		// Messages hold AWS names and errors. One entry stays on one line.
+		fmt.Fprintf(&b, "%s  %s  %s  %s\n", ts, lvl, cat, ui.Sanitize(entry.Message))
 		shown++
 	}
 

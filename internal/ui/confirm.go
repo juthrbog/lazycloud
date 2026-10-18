@@ -45,13 +45,13 @@ func (c *Confirm) Show(message, action, phrase string) {
 	if phrase == "" {
 		phrase = defaultPhrase
 	}
-	c.message = message
+	c.message = SanitizeLines(message)
 	c.action = action
 	c.phrase = phrase
 	c.err = ""
 	c.visible = true
 	c.quick = false
-	c.input.Placeholder = fmt.Sprintf("type '%s' to proceed", phrase)
+	c.input.Placeholder = fmt.Sprintf("type '%s' to proceed", Sanitize(phrase))
 	// With no width, the text input draws only the first letter of the
 	// placeholder.
 	c.input.SetWidth(lipgloss.Width(c.input.Placeholder))
@@ -61,7 +61,7 @@ func (c *Confirm) Show(message, action, phrase string) {
 
 // ShowQuick displays a y/n confirmation dialog for non-destructive actions.
 func (c *Confirm) ShowQuick(message, action string) {
-	c.message = message
+	c.message = SanitizeLines(message)
 	c.action = action
 	c.err = ""
 	c.visible = true
@@ -117,7 +117,7 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 					return ConfirmResultMsg{Confirmed: true, Action: action}
 				}
 			}
-			c.err = fmt.Sprintf("Type '%s' to proceed", c.phrase)
+			c.err = fmt.Sprintf("Type '%s' to proceed", Sanitize(c.phrase))
 			return c, nil
 		case "esc":
 			c.visible = false
@@ -156,7 +156,7 @@ func (c Confirm) View() string {
 		if c.err != "" {
 			content += s.Error.Render(c.err) + "\n"
 		}
-		content += "\n" + s.Muted.Render(fmt.Sprintf("type '%s' + enter to proceed  esc cancel", c.phrase))
+		content += "\n" + s.Muted.Render(fmt.Sprintf("type '%s' + enter to proceed  esc cancel", Sanitize(c.phrase)))
 	}
 
 	box := s.DialogErrorBorder

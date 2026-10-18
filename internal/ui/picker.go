@@ -183,7 +183,7 @@ func (p Picker) View() string {
 	hintStyle := s.Muted
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(p.title) + "\n")
+	b.WriteString(titleStyle.Render(Sanitize(p.title)) + "\n")
 
 	// Search input
 	if p.filter != "" {
@@ -205,7 +205,7 @@ func (p Picker) View() string {
 				indicator = "▸ "
 				style = selectedStyle
 			}
-			line := fmt.Sprintf("%s%s", indicator, opt.Label)
+			line := fmt.Sprintf("%s%s", indicator, Sanitize(opt.Label))
 			b.WriteString(style.Render(line) + "\n")
 		}
 	}

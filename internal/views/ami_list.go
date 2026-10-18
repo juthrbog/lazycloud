@@ -101,7 +101,7 @@ func amiColumns(tier ui.WidthTier) []ui.Column {
 		return []ui.Column{
 			{Title: "AMI ID", Width: 21, Weight: 1, MaxWidth: 35},
 			{Title: "Name", Width: 34, Weight: 2, MaxWidth: 60},
-			{Title: "State", Width: 14},
+			{Title: "State", Width: 14, Style: ui.StateColor},
 		}
 	}
 	if tier == ui.TierMedium {
@@ -109,7 +109,7 @@ func amiColumns(tier ui.WidthTier) []ui.Column {
 			{Title: "AMI ID", Width: 21, Weight: 1, MaxWidth: 35},
 			{Title: "Name", Width: 20, Weight: 2, MaxWidth: 60},
 			{Title: "Architecture", Width: 12},
-			{Title: "State", Width: 10},
+			{Title: "State", Width: 10, Style: ui.StateColor},
 		}
 	}
 	return []ui.Column{
@@ -117,7 +117,7 @@ func amiColumns(tier ui.WidthTier) []ui.Column {
 		{Title: "Name", Width: 34, Weight: 2, MaxWidth: 60},
 		{Title: "Owner", Width: 16, Weight: 1, MaxWidth: 25},
 		{Title: "Architecture", Width: 14},
-		{Title: "State", Width: 14},
+		{Title: "State", Width: 14, Style: ui.StateColor},
 		{Title: "Created", Width: 12, Weight: 1, MaxWidth: 25},
 	}
 }
@@ -430,12 +430,12 @@ func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []ui.Row {
 		switch tier {
 		case ui.TierNarrow:
 			cells = table.Row{
-				ami.ID, ami.Name, ui.StateColor(ami.State),
+				ami.ID, ami.Name, ami.State,
 			}
 		case ui.TierMedium:
 			cells = table.Row{
 				ami.ID, ami.Name, ami.Architecture,
-				ui.StateColor(ami.State),
+				ami.State,
 			}
 		default:
 			created := ami.CreationDate
@@ -444,7 +444,7 @@ func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []ui.Row {
 			}
 			cells = table.Row{
 				ami.ID, ami.Name, owner, ami.Architecture,
-				ui.StateColor(ami.State), created,
+				ami.State, created,
 			}
 		}
 		rows = append(rows, ui.Row{Key: ami.ID, Cells: cells})
@@ -474,7 +474,7 @@ func (a *AMIList) View() tea.View {
 	if a.loading && len(a.amis) == 0 {
 		content = "\n  " + a.spinner.View()
 	} else if a.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+a.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(a.err.Error()))
 	} else {
 		content = a.table.View()
 		if a.search.Active() {

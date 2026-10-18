@@ -428,7 +428,7 @@ func homeRelative(p string) string {
 // askOverwrite asks before a copy or move replaces an object that exists.
 func (s *S3Objects) askOverwrite(mode, srcKey, dstKey string) tea.Cmd {
 	s.pendingOverwrite = &s3Transfer{mode: mode, srcKey: srcKey, dstKey: dstKey}
-	message := fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, dstKey, path.Base(srcKey))
+	message := fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, ui.Sanitize(dstKey), ui.Sanitize(path.Base(srcKey)))
 	return func() tea.Msg {
 		return msg.RequestConfirmMsg{Message: message, Action: "s3_overwrite"}
 	}
@@ -800,7 +800,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			message := "Delete " + strings.Join(parts, " and ") + "?\n" + promptNameList(names)
 			phrase := "" // "confirm"
 			if all {
-				message = fmt.Sprintf("Delete all %d item(s) in s3://%s/%s?\n", len(entries), s.bucket, s.prefix) +
+				message = fmt.Sprintf("Delete all %d item(s) in s3://%s/%s?\n", len(entries), s.bucket, ui.Sanitize(s.prefix)) +
 					promptNameList(names)
 				phrase = fmt.Sprintf("delete %d items", len(entries))
 			}
@@ -872,7 +872,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *S3Objects) Footer() string {
 	filtered, total := s.table.RowCount()
-	footer := fmt.Sprintf("%d/%d items  s3://%s/%s", filtered, total, s.bucket, s.prefix)
+	footer := fmt.Sprintf("%d/%d items  s3://%s/%s", filtered, total, s.bucket, ui.Sanitize(s.prefix))
 	if s.loading {
 		footer += fmt.Sprintf("  (loading... %d items so far)", total)
 	}
@@ -888,7 +888,7 @@ func (s *S3Objects) View() tea.View {
 		// No data yet, show spinner only
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
 	} else {
 		content = s.table.View()
 		if s.filter.Active() {

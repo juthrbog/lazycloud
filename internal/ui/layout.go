@@ -35,6 +35,10 @@ type Column struct {
 	Width    int // base/minimum width
 	MaxWidth int // max width cap (0 = no limit)
 	Weight   int // flex weight for extra space distribution (0 = fixed)
+	// Style, when set, styles the text of each cell in the column, for
+	// example to color a state. The table calls it with text that Sanitize
+	// made safe, so the cells of a Row hold plain text only.
+	Style func(string) string
 }
 
 // cellPadding is the horizontal padding the bubbles table adds per cell.

@@ -143,24 +143,24 @@ func sqsColumns(tier ui.WidthTier) []ui.Column {
 	if tier == ui.TierNarrow {
 		return []ui.Column{
 			{Title: "Queue Name", Width: 30, Weight: 2, MaxWidth: 60},
-			{Title: "Messages", Width: 10},
+			{Title: "Messages", Width: 10, Style: ui.CountColor},
 		}
 	}
 	if tier == ui.TierMedium {
 		return []ui.Column{
 			{Title: "Queue Name", Width: 30, Weight: 2, MaxWidth: 60},
 			{Title: "Type", Width: 10},
-			{Title: "Messages", Width: 10},
-			{Title: "In-Flight", Width: 10},
-			{Title: "Delayed", Width: 10},
+			{Title: "Messages", Width: 10, Style: ui.CountColor},
+			{Title: "In-Flight", Width: 10, Style: ui.CountColor},
+			{Title: "Delayed", Width: 10, Style: ui.CountColor},
 		}
 	}
 	return []ui.Column{
 		{Title: "Queue Name", Width: 30, Weight: 2, MaxWidth: 60},
 		{Title: "Type", Width: 10},
-		{Title: "Messages", Width: 10},
-		{Title: "In-Flight", Width: 10},
-		{Title: "Delayed", Width: 10},
+		{Title: "Messages", Width: 10, Style: ui.CountColor},
+		{Title: "In-Flight", Width: 10, Style: ui.CountColor},
+		{Title: "Delayed", Width: 10, Style: ui.CountColor},
 		{Title: "DLQ", Width: 5},
 		{Title: "Created", Width: 12, Weight: 1, MaxWidth: 25},
 	}
@@ -812,9 +812,9 @@ func markDLQQueues(queues []aws.Queue) {
 func (s *SQSQueues) buildRows(queues []aws.Queue) []ui.Row {
 	rows := make([]ui.Row, 0, len(queues))
 	for _, q := range queues {
-		msgCount := ui.CountColor(q.ApproximateMessageCount)
-		inFlight := ui.CountColor(q.ApproximateInFlightCount)
-		delayed := ui.CountColor(q.ApproximateDelayedCount)
+		msgCount := strconv.Itoa(q.ApproximateMessageCount)
+		inFlight := strconv.Itoa(q.ApproximateInFlightCount)
+		delayed := strconv.Itoa(q.ApproximateDelayedCount)
 
 		rawMsg := ui.SortKeyInt(int64(q.ApproximateMessageCount))
 		rawFlight := ui.SortKeyInt(int64(q.ApproximateInFlightCount))
@@ -1045,7 +1045,7 @@ func (s *SQSQueues) View() tea.View {
 	if s.loading && len(s.queues) == 0 {
 		content = "\n  " + s.spinner.View()
 	} else if s.err != nil {
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+s.err.Error())
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
 	} else {
 		content = s.table.View()
 		if s.filter.Active() {
