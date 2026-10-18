@@ -30,7 +30,8 @@ func RenderStatusBar(data StatusBarData) string {
 	s := S
 
 	if data.Error != "" {
-		errMsg := s.Error.Render(" " + data.Error + " ")
+		// The error often names AWS text, for example a key.
+		errMsg := s.Error.Render(" " + Sanitize(data.Error) + " ")
 		errWidth := lipgloss.Width(errMsg)
 		if data.Width > errWidth {
 			padding := s.StatusBarBase.Width(data.Width - errWidth).Render("")
