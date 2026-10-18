@@ -49,17 +49,23 @@ type fakeS3 struct {
 	completed      int
 	aborted        int
 
-	// DeleteObjects.
-	deleteFail     map[string]bool // reported as failed in the response
+	// DeleteObjects and DeleteObject.
+	deleteFail     map[string]bool // reported as failed in the response, or a 403 for DeleteObject
 	failDeleteCall int             // this call (1 is the first) fails as a whole
 	deleteCalls    int
+	batchKeys      []string // the keys in each DeleteObjects body
+	singleDeletes  []string // the key of each DeleteObject
 
 	// truncate makes GET send half of the body and then drop the connection.
 	truncate bool
 
 	// versions is the version listing of bucket "b", sorted by key.
-	versions []ObjectVersion
-	lists    int
+	versions   []ObjectVersion
+	lists      int      // ListObjectsV2 and ListObjectVersions calls
+	keyMarkers []string // the key-marker of each ListObjectVersions call
+	// ignoreMarkers makes ListObjectVersions start at the first entry, as
+	// LocalStack does when URL encoding changes the key.
+	ignoreMarkers bool
 }
 
 func newFakeS3(t *testing.T) (*fakeS3, *S3ServiceImpl) {
@@ -104,6 +110,9 @@ func (f *fakeS3) serve(w http.ResponseWriter, r *http.Request) {
 
 	case r.Method == http.MethodGet && q.Has("versions"):
 		f.listVersions(w, q)
+
+	case r.Method == http.MethodGet && q.Get("list-type") == "2":
+		f.listObjects(w, bucket, q)
 
 	case r.Method == http.MethodHead:
 		f.heads[id]++
@@ -207,6 +216,11 @@ func (f *fakeS3) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`<CopyObjectResult><ETag>"c"</ETag></CopyObjectResult>`))
 
 	case r.Method == http.MethodDelete:
+		f.singleDeletes = append(f.singleDeletes, key)
+		if f.deleteFail[key] {
+			writeS3Error(w, http.StatusForbidden, "AccessDenied")
+			return
+		}
 		delete(f.objects, id)
 		w.WriteHeader(http.StatusNoContent)
 
@@ -244,6 +258,7 @@ func (f *fakeS3) deleteObjects(w http.ResponseWriter, r *http.Request, bucket st
 	var b strings.Builder
 	b.WriteString(`<DeleteResult>`)
 	for _, o := range req.Objects {
+		f.batchKeys = append(f.batchKeys, o.Key)
 		if f.deleteFail[o.Key] {
 			fmt.Fprintf(&b, `<Error><Key>%s</Key><Code>AccessDenied</Code><Message>Access Denied</Message></Error>`, o.Key)
 			continue
@@ -254,11 +269,88 @@ func (f *fakeS3) deleteObjects(w http.ResponseWriter, r *http.Request, bucket st
 	_, _ = w.Write([]byte(b.String()))
 }
 
+// maxLists stops a listing loop in a test that went wrong.
+const maxLists = 50
+
+// encodeFor returns how a listing writes a key. With encoding-type=url, it
+// URL-encodes the key, as S3 does. Otherwise it writes the key as XML text
+// with its control characters, as LocalStack does, so the SDK fails to read
+// a key with ESC.
+func encodeFor(q url.Values) func(string) string {
+	if q.Get("encoding-type") == "url" {
+		return url.QueryEscape
+	}
+	return xmlText.Replace
+}
+
+var xmlText = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+// listObjects answers ListObjectsV2 for one bucket as S3 does: prefix and
+// delimiter, max-keys entries per page (1,000 by default), and a
+// continuation token. A common prefix counts as one entry.
+func (f *fakeS3) listObjects(w http.ResponseWriter, bucket string, q url.Values) {
+	f.lists++
+	if f.lists > maxLists {
+		writeS3Error(w, http.StatusBadRequest, "TooManyLists")
+		return
+	}
+	prefix, delim := q.Get("prefix"), q.Get("delimiter")
+	maxKeys := 1000
+	if n, err := strconv.Atoi(q.Get("max-keys")); err == nil {
+		maxKeys = n
+	}
+	var keys []string
+	for id := range f.objects {
+		if k, ok := strings.CutPrefix(id, bucket+"/"); ok && strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	type entry struct {
+		name     string
+		isPrefix bool
+	}
+	var entries []entry
+	for _, k := range keys {
+		if i := strings.Index(k[len(prefix):], delim); delim != "" && i >= 0 {
+			p := k[:len(prefix)+i+len(delim)]
+			if len(entries) == 0 || entries[len(entries)-1].name != p {
+				entries = append(entries, entry{p, true})
+			}
+			continue
+		}
+		entries = append(entries, entry{k, false})
+	}
+
+	start, _ := strconv.Atoi(q.Get("continuation-token"))
+	end := min(start+maxKeys, len(entries))
+	enc := encodeFor(q)
+	var b strings.Builder
+	fmt.Fprintf(&b, `<ListBucketResult><Name>%s</Name><IsTruncated>%t</IsTruncated>`, bucket, end < len(entries))
+	if end < len(entries) {
+		fmt.Fprintf(&b, `<NextContinuationToken>%d</NextContinuationToken>`, end)
+	}
+	for _, e := range entries[start:end] {
+		if e.isPrefix {
+			fmt.Fprintf(&b, `<CommonPrefixes><Prefix>%s</Prefix></CommonPrefixes>`, enc(e.name))
+			continue
+		}
+		fmt.Fprintf(&b, `<Contents><Key>%s</Key><Size>%d</Size></Contents>`, enc(e.name), len(f.objects[bucket+"/"+e.name].body))
+	}
+	b.WriteString(`</ListBucketResult>`)
+	_, _ = w.Write([]byte(b.String()))
+}
+
 // listVersions pages through f.versions as S3 does: prefix filter, key and
 // version markers, and max-keys entries per page (1,000 by default).
 func (f *fakeS3) listVersions(w http.ResponseWriter, q url.Values) {
 	f.lists++
+	if f.lists > maxLists {
+		writeS3Error(w, http.StatusBadRequest, "TooManyLists")
+		return
+	}
 	prefix, keyMarker, idMarker := q.Get("prefix"), q.Get("key-marker"), q.Get("version-id-marker")
+	f.keyMarkers = append(f.keyMarkers, keyMarker)
 	maxKeys := 1000
 	if n, err := strconv.Atoi(q.Get("max-keys")); err == nil {
 		maxKeys = n
@@ -270,7 +362,7 @@ func (f *fakeS3) listVersions(w http.ResponseWriter, q url.Values) {
 		}
 	}
 	start := 0
-	if keyMarker != "" {
+	if keyMarker != "" && !f.ignoreMarkers {
 		start = sort.Search(len(match), func(i int) bool { return match[i].Key > keyMarker })
 		for i, v := range match {
 			if v.Key == keyMarker && v.VersionID == idMarker {
@@ -281,18 +373,19 @@ func (f *fakeS3) listVersions(w http.ResponseWriter, q url.Values) {
 	end := min(start+maxKeys, len(match))
 	page := match[start:end]
 
+	enc := encodeFor(q)
 	var b strings.Builder
 	fmt.Fprintf(&b, `<ListVersionsResult><Name>b</Name><IsTruncated>%t</IsTruncated>`, end < len(match))
 	if end < len(match) {
 		last := page[len(page)-1]
-		fmt.Fprintf(&b, `<NextKeyMarker>%s</NextKeyMarker><NextVersionIdMarker>%s</NextVersionIdMarker>`, last.Key, last.VersionID)
+		fmt.Fprintf(&b, `<NextKeyMarker>%s</NextKeyMarker><NextVersionIdMarker>%s</NextVersionIdMarker>`, enc(last.Key), last.VersionID)
 	}
 	for _, v := range page {
 		tag := "Version"
 		if v.IsDeleteMarker {
 			tag = "DeleteMarker"
 		}
-		fmt.Fprintf(&b, `<%s><Key>%s</Key><VersionId>%s</VersionId></%s>`, tag, v.Key, v.VersionID, tag)
+		fmt.Fprintf(&b, `<%s><Key>%s</Key><VersionId>%s</VersionId></%s>`, tag, enc(v.Key), v.VersionID, tag)
 	}
 	b.WriteString(`</ListVersionsResult>`)
 	_, _ = w.Write([]byte(b.String()))

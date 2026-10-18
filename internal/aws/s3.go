@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -170,9 +172,10 @@ func (svc *S3ServiceImpl) ListObjectsPage(ctx context.Context, bucket, prefix st
 	}
 
 	input := &s3.ListObjectsV2Input{
-		Bucket:    aws.String(bucket),
-		Prefix:    aws.String(prefix),
-		Delimiter: aws.String("/"),
+		Bucket:       aws.String(bucket),
+		Prefix:       aws.String(prefix),
+		Delimiter:    aws.String("/"),
+		EncodingType: s3types.EncodingTypeUrl,
 	}
 	if token != nil {
 		input.ContinuationToken = token
@@ -189,11 +192,18 @@ func (svc *S3ServiceImpl) ListObjectsPage(ctx context.Context, bucket, prefix st
 	}
 
 	for _, cp := range output.CommonPrefixes {
-		page.Prefixes = append(page.Prefixes, aws.ToString(cp.Prefix))
+		p, err := decodeKey(cp.Prefix)
+		if err != nil {
+			return nil, err
+		}
+		page.Prefixes = append(page.Prefixes, p)
 	}
 
 	for _, obj := range output.Contents {
-		key := aws.ToString(obj.Key)
+		key, err := decodeKey(obj.Key)
+		if err != nil {
+			return nil, err
+		}
 		if key == prefix {
 			continue
 		}
@@ -209,6 +219,34 @@ func (svc *S3ServiceImpl) ListObjectsPage(ctx context.Context, bucket, prefix st
 	}
 
 	return page, nil
+}
+
+// decodeKey decodes a key or a prefix from a listing that asked for
+// EncodingType url. The listings ask for it because XML 1.0 cannot hold every
+// character of a key. Without it, one key with ESC makes the whole listing
+// fail, and a CR in a key comes back as LF.
+func decodeKey(s *string) (string, error) {
+	key, err := url.QueryUnescape(aws.ToString(s))
+	if err != nil {
+		return "", fmt.Errorf("decoding the key %q: %w", aws.ToString(s), err)
+	}
+	return key, nil
+}
+
+// xmlSafe reports whether the XML body of a DeleteObjects request can carry
+// key. XML 1.0 cannot hold most C0 controls, for example ESC, or U+FFFE and
+// U+FFFF. The SDK writes U+FFFD in their place, so S3 deletes a different
+// key and reports success.
+func xmlSafe(key string) bool {
+	if !utf8.ValidString(key) {
+		return false
+	}
+	for _, r := range key {
+		if (r < 0x20 && r != '\t' && r != '\n' && r != '\r') || r == 0xFFFE || r == 0xFFFF {
+			return false
+		}
+	}
+	return true
 }
 
 // HeadObject returns detailed metadata for an S3 object.
@@ -292,8 +330,9 @@ func (svc *S3ServiceImpl) ListAllKeys(ctx context.Context, bucket, prefix string
 	var token *string
 	for {
 		input := &s3.ListObjectsV2Input{
-			Bucket: aws.String(bucket),
-			Prefix: aws.String(prefix),
+			Bucket:       aws.String(bucket),
+			Prefix:       aws.String(prefix),
+			EncodingType: s3types.EncodingTypeUrl,
 		}
 		if token != nil {
 			input.ContinuationToken = token
@@ -303,7 +342,11 @@ func (svc *S3ServiceImpl) ListAllKeys(ctx context.Context, bucket, prefix string
 			return nil, err
 		}
 		for _, obj := range output.Contents {
-			keys = append(keys, aws.ToString(obj.Key))
+			key, err := decodeKey(obj.Key)
+			if err != nil {
+				return nil, err
+			}
+			keys = append(keys, key)
 		}
 		if !aws.ToBool(output.IsTruncated) {
 			break
@@ -345,7 +388,8 @@ func (e *DeleteObjectsError) Error() string {
 
 // DeleteObjects deletes multiple S3 objects in batches of up to 1000. When
 // some keys are not deleted, it returns a *DeleteObjectsError that lists
-// them. A batch call that fails does not stop the other batches.
+// them. A batch call that fails does not stop the other batches. A key that
+// the XML body cannot carry (see xmlSafe) is deleted with its own call.
 func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
@@ -353,9 +397,24 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 	}
 
 	var failed []KeyFailure
+	var batchKeys []string
+	for _, key := range keys {
+		if xmlSafe(key) {
+			batchKeys = append(batchKeys, key)
+			continue
+		}
+		_, err := s3c.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String(key),
+		})
+		if err != nil {
+			failed = append(failed, KeyFailure{Key: key, Code: ErrorCode(err), Message: err.Error()})
+		}
+	}
+
 	const batchSize = 1000
-	for i := 0; i < len(keys); i += batchSize {
-		batch := keys[i:min(i+batchSize, len(keys))]
+	for i := 0; i < len(batchKeys); i += batchSize {
+		batch := batchKeys[i:min(i+batchSize, len(batchKeys))]
 
 		objects := make([]s3types.ObjectIdentifier, len(batch))
 		for j, key := range batch {
@@ -391,19 +450,36 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 }
 
 // DeleteObjectVersions deletes specific object versions and delete markers in batches of up to 1000.
+// A version whose key the XML body cannot carry (see xmlSafe) is deleted with its own call.
 func (svc *S3ServiceImpl) DeleteObjectVersions(ctx context.Context, bucket string, versions []ObjectVersion) error {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
 		return err
 	}
 
-	const batchSize = 1000
-	for i := 0; i < len(versions); i += batchSize {
-		end := i + batchSize
-		if end > len(versions) {
-			end = len(versions)
+	var batchable []ObjectVersion
+	for _, v := range versions {
+		if xmlSafe(v.Key) {
+			batchable = append(batchable, v)
+			continue
 		}
-		batch := versions[i:end]
+		_, err := s3c.DeleteObject(ctx, &s3.DeleteObjectInput{
+			Bucket:    aws.String(bucket),
+			Key:       aws.String(v.Key),
+			VersionId: aws.String(v.VersionID),
+		})
+		if err != nil {
+			return fmt.Errorf("deleting version %s of %s: %w", v.VersionID, v.Key, err)
+		}
+	}
+
+	const batchSize = 1000
+	for i := 0; i < len(batchable); i += batchSize {
+		end := i + batchSize
+		if end > len(batchable) {
+			end = len(batchable)
+		}
+		batch := batchable[i:end]
 
 		objects := make([]s3types.ObjectIdentifier, len(batch))
 		for j, v := range batch {
@@ -440,7 +516,8 @@ func (svc *S3ServiceImpl) firstVersionPage(ctx context.Context, bucket string) (
 		return nil, err
 	}
 	output, err := s3c.ListObjectVersions(ctx, &s3.ListObjectVersionsInput{
-		Bucket: aws.String(bucket),
+		Bucket:       aws.String(bucket),
+		EncodingType: s3types.EncodingTypeUrl,
 	})
 	if err != nil {
 		return nil, err
@@ -448,14 +525,22 @@ func (svc *S3ServiceImpl) firstVersionPage(ctx context.Context, bucket string) (
 
 	page := make([]ObjectVersion, 0, len(output.Versions)+len(output.DeleteMarkers))
 	for _, v := range output.Versions {
+		key, err := decodeKey(v.Key)
+		if err != nil {
+			return nil, err
+		}
 		page = append(page, ObjectVersion{
-			Key:       aws.ToString(v.Key),
+			Key:       key,
 			VersionID: aws.ToString(v.VersionId),
 		})
 	}
 	for _, dm := range output.DeleteMarkers {
+		key, err := decodeKey(dm.Key)
+		if err != nil {
+			return nil, err
+		}
 		page = append(page, ObjectVersion{
-			Key:            aws.ToString(dm.Key),
+			Key:            key,
 			VersionID:      aws.ToString(dm.VersionId),
 			IsDeleteMarker: true,
 		})
@@ -479,8 +564,10 @@ func (svc *S3ServiceImpl) DeleteBucket(ctx context.Context, bucket string) error
 // markers, then deletes the bucket. It works for versioned and unversioned
 // buckets. It lists and deletes one page at a time, so a large bucket does
 // not have to fit in memory. A deleted page is gone from the listing, so each
-// round lists from the start.
+// round lists from the start. When the first entry of a round comes back, S3
+// did not delete it, and the function stops instead of looping forever.
 func (svc *S3ServiceImpl) EmptyAndDeleteBucket(ctx context.Context, bucket string) error {
+	var first ObjectVersion
 	for {
 		page, err := svc.firstVersionPage(ctx, bucket)
 		if err != nil {
@@ -489,6 +576,10 @@ func (svc *S3ServiceImpl) EmptyAndDeleteBucket(ctx context.Context, bucket strin
 		if len(page) == 0 {
 			break
 		}
+		if page[0].Key == first.Key && page[0].VersionID == first.VersionID {
+			return fmt.Errorf("deleting versions: version %s of %s is still there", first.VersionID, first.Key)
+		}
+		first = page[0]
 		if err := svc.DeleteObjectVersions(ctx, bucket, page); err != nil {
 			return fmt.Errorf("deleting versions: %w", err)
 		}
@@ -766,6 +857,13 @@ type ObjectVersion struct {
 // the listing by key, and key sorts before every sibling. So the function
 // reads pages until a page holds a sibling key or no page is left. A key
 // with more than 1,000 versions then shows them all.
+//
+// The listing asks for URL-encoded keys (see decodeKey). The next page starts
+// after the last version of key in the page, so the function sends key itself
+// as the marker, as the AWS CLI does. It does not use NextKeyMarker: S3 sends
+// it URL-encoded, and LocalStack does not. LocalStack also ignores the marker
+// when URL encoding changes the key, and sends the same page again. The
+// function then stops with an error.
 func (svc *S3ServiceImpl) ListObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error) {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
@@ -773,18 +871,23 @@ func (svc *S3ServiceImpl) ListObjectVersions(ctx context.Context, bucket, key st
 	}
 
 	var versions []ObjectVersion
-	p := s3.NewListObjectVersionsPaginator(s3c, &s3.ListObjectVersionsInput{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(key),
-	})
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
+	input := &s3.ListObjectVersionsInput{
+		Bucket:       aws.String(bucket),
+		Prefix:       aws.String(key),
+		EncodingType: s3types.EncodingTypeUrl,
+	}
+	for {
+		page, err := s3c.ListObjectVersions(ctx, input)
 		if err != nil {
 			return nil, err
 		}
 		sibling := false
 		for _, v := range page.Versions {
-			if aws.ToString(v.Key) != key {
+			k, err := decodeKey(v.Key)
+			if err != nil {
+				return nil, err
+			}
+			if k != key {
 				sibling = true
 				continue
 			}
@@ -800,7 +903,11 @@ func (svc *S3ServiceImpl) ListObjectVersions(ctx context.Context, bucket, key st
 			versions = append(versions, ov)
 		}
 		for _, dm := range page.DeleteMarkers {
-			if aws.ToString(dm.Key) != key {
+			k, err := decodeKey(dm.Key)
+			if err != nil {
+				return nil, err
+			}
+			if k != key {
 				sibling = true
 				continue
 			}
@@ -815,9 +922,14 @@ func (svc *S3ServiceImpl) ListObjectVersions(ctx context.Context, bucket, key st
 			}
 			versions = append(versions, ov)
 		}
-		if sibling {
-			break // every version of key came before the first sibling
+		if sibling || !aws.ToBool(page.IsTruncated) {
+			break // the last page, or every version of key came before the first sibling
 		}
+		if aws.ToString(page.NextVersionIdMarker) == aws.ToString(input.VersionIdMarker) {
+			return nil, errors.New("the server sent the same page of versions again")
+		}
+		input.KeyMarker = aws.String(key)
+		input.VersionIdMarker = page.NextVersionIdMarker
 	}
 	return versions, nil
 }
