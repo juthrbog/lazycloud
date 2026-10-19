@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -591,6 +592,9 @@ func getEditor() string {
 	}
 	if _, err := exec.LookPath("nano"); err == nil {
 		return "nano"
+	}
+	if runtime.GOOS == "windows" {
+		return "notepad"
 	}
 	return "vi"
 }

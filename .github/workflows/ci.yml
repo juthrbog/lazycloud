@@ -30,6 +30,12 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      # The release archives also cover macOS and Windows.
+      - name: Vet for macOS and Windows
+        run: |
+          GOOS=darwin go vet ./...
+          GOOS=windows go vet ./...
+
       # The race detector finds data races between Update and command
       # goroutines. A random test order finds tests that depend on global
       # state, for example the ReadOnly mode or the event log.
