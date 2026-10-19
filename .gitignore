@@ -44,5 +44,5 @@ dist/
 # LocalStack
 localstack-data/
 
-# VHS
-demo/
+# The binary that task demo builds for the VHS recording
+demo/lazycloud
