@@ -82,7 +82,7 @@ func TestTabbedPanelViewRendersTabBar(t *testing.T) {
 
 func TestTabbedPanelViewEmpty(t *testing.T) {
 	tp := NewTabbedPanel("test", nil)
-	assert.Equal(t, "", tp.View())
+	assert.Empty(t, tp.View())
 }
 
 func TestTabbedPanelLazyCreation(t *testing.T) {
@@ -119,7 +119,7 @@ func TestTabbedPanelPassesLinksToViewer(t *testing.T) {
 	tp.SetSize(80, 24)
 
 	assert.NotNil(t, tp.tabs[0].viewer)
-	assert.True(t, tp.tabs[0].viewer.HasLinkAtCursor() == false) // cursor at line 0
+	assert.False(t, tp.tabs[0].viewer.HasLinkAtCursor()) // cursor at line 0
 
 	// Move cursor to linked line
 	tp, _ = tp.Update(tea.KeyPressMsg{Code: 'j', Text: "j"})

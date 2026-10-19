@@ -808,17 +808,18 @@ func (s *SQSMessages) View() tea.View {
 	banner := warnStyle.Render(text)
 
 	var content string
-	if s.loading && len(s.messages) == 0 {
+	switch {
+	case s.loading && len(s.messages) == 0:
 		content = "\n  " + s.spinner.View()
-	} else if s.err != nil {
+	case s.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
-	} else if len(s.messages) == 0 && s.fetched {
+	case len(s.messages) == 0 && s.fetched:
 		content = "\n  No messages in queue. Press l to peek again."
-	} else if len(s.messages) == 0 && s.attrsLoaded && s.peekBlocked() != "" {
+	case len(s.messages) == 0 && s.attrsLoaded && s.peekBlocked() != "":
 		content = "\n  Press W to switch to ReadWrite mode, then l to peek at messages"
-	} else if len(s.messages) == 0 {
+	case len(s.messages) == 0:
 		content = "\n  Press l to peek at messages"
-	} else {
+	default:
 		content = s.table.View()
 		if s.filter.Active() {
 			content = s.filter.View() + "\n" + content

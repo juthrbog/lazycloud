@@ -970,13 +970,14 @@ func buildSQSDLQContent(q *aws.Queue, sourceQueues []string) (string, []msg.TabL
 
 func buildSQSEncryptionContent(q *aws.Queue) string {
 	var b strings.Builder
-	if q.SqsManagedSseEnabled {
+	switch {
+	case q.SqsManagedSseEnabled:
 		writeField(&b, "SSE", "SQS-managed (SSE-SQS)")
-	} else if q.KmsMasterKeyID != "" {
+	case q.KmsMasterKeyID != "":
 		writeField(&b, "SSE", "KMS")
 		writeField(&b, "KMS Key ID", q.KmsMasterKeyID)
 		writeField(&b, "KMS Reuse Period", fmt.Sprintf("%ds", q.KmsDataKeyReusePeriod))
-	} else {
+	default:
 		writeField(&b, "SSE", "Disabled")
 	}
 	return b.String()
@@ -1042,11 +1043,12 @@ func (s *SQSQueues) Footer() string {
 
 func (s *SQSQueues) View() tea.View {
 	var content string
-	if s.loading && len(s.queues) == 0 {
+	switch {
+	case s.loading && len(s.queues) == 0:
 		content = "\n  " + s.spinner.View()
-	} else if s.err != nil {
+	case s.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
-	} else {
+	default:
 		content = s.table.View()
 		if s.filter.Active() {
 			content = s.filter.View() + "\n" + content

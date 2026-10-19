@@ -3,7 +3,6 @@ package aws
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -149,7 +148,7 @@ func TestReceiveMessagesResetFailure(t *testing.T) {
 			msgs, err := NewSQSService(c).ReceiveMessages(context.Background(), "http://q/test", 10)
 			assert.Len(t, msgs, 2, "messages are returned even when the reset fails")
 			var vre *VisibilityResetError
-			require.True(t, errors.As(err, &vre), "expected VisibilityResetError, got %v", err)
+			require.ErrorAs(t, err, &vre, "expected VisibilityResetError, got %v", err)
 			assert.Equal(t, tt.wantFailed, vre.Failed)
 		})
 	}

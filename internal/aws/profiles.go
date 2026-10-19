@@ -61,7 +61,7 @@ func parseConfigFile(path string, profilePrefix bool) []string {
 		return nil
 	}
 
-	f, err := os.Open(path) //nolint:gosec // path is from os.UserHomeDir, not user input
+	f, err := os.Open(path) //nolint:gosec // the AWS config or credentials file of the user (home directory or AWS_* variable), as in the AWS CLI
 	if err != nil {
 		return nil
 	}
@@ -81,8 +81,8 @@ func parseConfigFile(path string, profilePrefix bool) []string {
 			// [default] is a special case — no "profile " prefix
 			if section == "default" {
 				profiles = append(profiles, "default")
-			} else if strings.HasPrefix(section, "profile ") {
-				name := strings.TrimSpace(strings.TrimPrefix(section, "profile "))
+			} else if after, ok := strings.CutPrefix(section, "profile "); ok {
+				name := strings.TrimSpace(after)
 				if name != "" {
 					profiles = append(profiles, name)
 				}

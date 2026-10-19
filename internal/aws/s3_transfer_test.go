@@ -520,7 +520,7 @@ func TestCopyObjectMissingSource(t *testing.T) {
 	f, svc := newFakeS3(t)
 	err := svc.CopyObject(context.Background(), "b", "gone", "b", "dst", false)
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrDestinationExists)
+	require.NotErrorIs(t, err, ErrDestinationExists)
 	assert.Contains(t, err.Error(), "reading the source")
 	assert.Empty(t, f.copySources)
 }

@@ -868,12 +868,13 @@ func (e *EC2List) Footer() string {
 
 func (e *EC2List) View() tea.View {
 	var content string
-	if e.loading && len(e.instances) == 0 {
+	switch {
+	case e.loading && len(e.instances) == 0:
 		// Initial load — spinner only
 		content = "\n  " + e.spinner.View()
-	} else if e.err != nil {
+	case e.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(e.err.Error()))
-	} else {
+	default:
 		content = e.table.View()
 		if e.filter.Active() {
 			content = e.filter.View() + "\n" + content

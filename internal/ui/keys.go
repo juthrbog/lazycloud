@@ -38,6 +38,8 @@ func (h HintBinding) WithCategory(cat string) HintBinding {
 // ModeReadOnly bindings are disabled when ReadOnly is false.
 func (h *HintBinding) ApplyMode() {
 	switch h.Mode {
+	case ModeAny:
+		// Shown in both modes, so the mode does not change it.
 	case ModeReadWrite:
 		h.SetEnabled(!IsReadOnly())
 	case ModeReadOnly:

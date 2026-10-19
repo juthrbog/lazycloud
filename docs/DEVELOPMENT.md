@@ -117,6 +117,8 @@ Exact counts are defined in `cmd/seed/tiers.toml`.
 | `task vuln` | Scan for known vulnerabilities with govulncheck. `go.mod` pins its version as a tool |
 | `task fmt` | Format code (gofmt + goimports) |
 
+`.golangci.yml` lists the linters, with a short note on what each one finds. modernize and testifylint can fix most of their issues: run `golangci-lint run --fix`, then read the diff. A `//nolint` comment must name the linter and give a reason, for example `//nolint:gosec // seed for visual animation, not crypto`. nolintlint reports a `//nolint` comment that has no reason or that no longer hides an issue.
+
 ### Release
 
 | Task | Description |

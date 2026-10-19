@@ -2,6 +2,7 @@ package ui
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -193,17 +194,22 @@ func (cv ContentView) OpenInEditorCmd() tea.Cmd {
 		return func() tea.Msg { return EditorFinishedMsg{Err: err} }
 	}
 
-	if _, err := tmpFile.WriteString(cv.raw); err != nil {
-		tmpFile.Close()           //nolint:gosec // best-effort cleanup on write error
-		os.Remove(tmpFile.Name()) //nolint:gosec // best-effort cleanup
+	_, err = tmpFile.WriteString(cv.raw)
+	// Close can report a write that failed, so the editor does not open a
+	// part of the content.
+	if closeErr := tmpFile.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		_ = os.Remove(tmpFile.Name())
 		return func() tea.Msg { return EditorFinishedMsg{Err: err} }
 	}
-	tmpFile.Close() //nolint:gosec // file is flushed by OS on close; error is non-critical for temp file
 
 	editor := getEditor()
-	c := exec.Command(editor, tmpFile.Name()) //nolint:gosec // editor is from $EDITOR env, standard pattern
+	// The user closes the editor, so no context cancels it.
+	c := exec.CommandContext(context.Background(), editor, tmpFile.Name()) //nolint:gosec // editor is from $EDITOR env, standard pattern
 	return tea.ExecProcess(c, func(err error) tea.Msg {
-		os.Remove(tmpFile.Name()) //nolint:gosec // best-effort temp file cleanup
+		_ = os.Remove(tmpFile.Name())
 		return EditorFinishedMsg{Err: err}
 	})
 }
@@ -421,25 +427,19 @@ func (cv *ContentView) renderContent() {
 	if cv.lineNumbers {
 		gutterWidth = numWidth + 3 // digits + " │ "
 	}
-	lineWidth := width - gutterWidth - 2
-	if lineWidth < 10 {
-		lineWidth = 10
-	}
+	lineWidth := max(width-gutterWidth-2, 10)
 
-	cursorStyle := lipgloss.NewStyle().Background(t.Overlay).Width(lineWidth)
-	selectStyle := lipgloss.NewStyle().Background(t.Secondary).Width(lineWidth)
 	linkPrefix := S.LinkIndicator.Render("→ ")
 	linkPrefixWidth := lipgloss.Width(linkPrefix)
 	linkSpacer := strings.Repeat(" ", linkPrefixWidth)
 
-	// Adjusted styles for lines in panels that have links (prefix takes space)
+	// In panels that have links, the link prefix takes part of the line.
 	hasLinks := len(cv.links) > 0
-	adjWidth := lineWidth - linkPrefixWidth
-	if adjWidth < 10 {
-		adjWidth = 10
+	if hasLinks {
+		lineWidth = max(lineWidth-linkPrefixWidth, 10)
 	}
-	adjCursor := lipgloss.NewStyle().Background(t.Overlay).Width(adjWidth)
-	adjSelect := lipgloss.NewStyle().Background(t.Secondary).Width(adjWidth)
+	cursorStyle := lipgloss.NewStyle().Background(t.Overlay).Width(lineWidth)
+	selectStyle := lipgloss.NewStyle().Background(t.Secondary).Width(lineWidth)
 
 	lo, hi := cv.selectionRange()
 
@@ -460,22 +460,13 @@ func (cv *ContentView) renderContent() {
 		}
 
 		// Apply cursor/selection highlight
-		if hasLinks {
-			if cv.visualMode && i >= lo && i <= hi {
-				b.WriteString(adjSelect.Render(line))
-			} else if i == cv.cursor {
-				b.WriteString(adjCursor.Render(line))
-			} else {
-				b.WriteString(line)
-			}
-		} else {
-			if cv.visualMode && i >= lo && i <= hi {
-				b.WriteString(selectStyle.Render(line))
-			} else if i == cv.cursor {
-				b.WriteString(cursorStyle.Render(line))
-			} else {
-				b.WriteString(line)
-			}
+		switch {
+		case cv.visualMode && i >= lo && i <= hi:
+			b.WriteString(selectStyle.Render(line))
+		case i == cv.cursor:
+			b.WriteString(cursorStyle.Render(line))
+		default:
+			b.WriteString(line)
 		}
 
 		if i < len(hLines)-1 {

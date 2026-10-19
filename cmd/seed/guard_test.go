@@ -37,9 +37,9 @@ func TestCheckEndpoint(t *testing.T) {
 	for _, tc := range tests {
 		err := checkEndpoint(tc.endpoint, tc.allowRemote)
 		if tc.ok {
-			assert.NoError(t, err, "%q allowRemote=%v", tc.endpoint, tc.allowRemote)
+			require.NoError(t, err, "%q allowRemote=%v", tc.endpoint, tc.allowRemote)
 		} else {
-			assert.Error(t, err, "%q allowRemote=%v", tc.endpoint, tc.allowRemote)
+			require.Error(t, err, "%q allowRemote=%v", tc.endpoint, tc.allowRemote)
 		}
 	}
 	// An empty endpoint, for example from an unset variable, gets its own
@@ -69,7 +69,7 @@ func TestCheckLocalStack(t *testing.T) {
 
 	missing := httptest.NewServer(http.NotFoundHandler())
 	defer missing.Close()
-	assert.Error(t, checkLocalStack(context.Background(), missing.URL))
+	require.Error(t, checkLocalStack(context.Background(), missing.URL))
 
 	closed := httptest.NewServer(http.NotFoundHandler())
 	closed.Close()
@@ -87,6 +87,6 @@ func TestWipeStateTimesOut(t *testing.T) {
 	defer func() { httpClient.Timeout = old }()
 
 	start := time.Now()
-	assert.Error(t, wipeState(context.Background(), slow.URL))
+	require.Error(t, wipeState(context.Background(), slow.URL))
 	assert.Less(t, time.Since(start), 400*time.Millisecond)
 }

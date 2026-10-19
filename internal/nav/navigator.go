@@ -84,7 +84,7 @@ func tagMsg(origin View, m tea.Msg) tea.Msg {
 	return Routed{Origin: origin, Msg: m}
 }
 
-var teaPkgPath = reflect.TypeOf(tea.BatchMsg(nil)).PkgPath()
+var teaPkgPath = reflect.TypeFor[tea.BatchMsg]().PkgPath()
 
 // isRuntimeMsg reports whether m is a type from the Bubble Tea package.
 // Several of these are unexported and handled only by the runtime.

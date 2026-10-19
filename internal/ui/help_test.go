@@ -70,7 +70,7 @@ func TestHelpOverlayFilterBackspace(t *testing.T) {
 	assert.Equal(t, "q", h.filter)
 
 	h, _ = h.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	assert.Equal(t, "", h.filter)
+	assert.Empty(t, h.filter)
 }
 
 func TestHelpOverlayRenderContentGroupsCategories(t *testing.T) {
@@ -93,7 +93,7 @@ func TestHelpOverlayRenderContentShowsRWBadge(t *testing.T) {
 
 func TestHelpOverlayViewEmptyWhenHidden(t *testing.T) {
 	h := NewHelpOverlay()
-	assert.Equal(t, "", h.View())
+	assert.Empty(t, h.View())
 }
 
 func TestHelpOverlayNoMatchesFilter(t *testing.T) {

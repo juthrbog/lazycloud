@@ -111,10 +111,7 @@ func (h HelpOverlay) View() string {
 }
 
 func (h HelpOverlay) boxWidth() int {
-	w := h.width * 3 / 4
-	if w > 70 {
-		w = 70
-	}
+	w := min(h.width*3/4, 70)
 	if w < 40 {
 		w = h.width - 4
 	}
@@ -128,11 +125,7 @@ func (h HelpOverlay) contentWidth() int {
 
 func (h HelpOverlay) contentHeight() int {
 	// screen height minus box border/padding (4) minus header (2) minus footer (1) minus some margin
-	ch := h.height - 12
-	if ch < 5 {
-		ch = 5
-	}
-	return ch
+	return max(h.height-12, 5)
 }
 
 // renderContent builds the grouped, filtered hint content.

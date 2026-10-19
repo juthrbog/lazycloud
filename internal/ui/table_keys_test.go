@@ -256,7 +256,7 @@ func TestSearchTextLowercasesMixedText(t *testing.T) {
 func TestEmptyTable(t *testing.T) {
 	tbl := NewTable([]Column{{Title: "Name"}, {Title: "Status"}})
 	assert.Nil(t, tbl.SelectedRow())
-	assert.Equal(t, "", tbl.CursorKey())
+	assert.Empty(t, tbl.CursorKey())
 	tbl.ToggleSelect()
 	tbl.SelectAll()
 	assert.Zero(t, tbl.SelectionCount())

@@ -471,11 +471,12 @@ func (a *AMIList) Footer() string {
 
 func (a *AMIList) View() tea.View {
 	var content string
-	if a.loading && len(a.amis) == 0 {
+	switch {
+	case a.loading && len(a.amis) == 0:
 		content = "\n  " + a.spinner.View()
-	} else if a.err != nil {
+	case a.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(a.err.Error()))
-	} else {
+	default:
 		content = a.table.View()
 		if a.search.Active() {
 			content = a.search.View() + "\n" + content

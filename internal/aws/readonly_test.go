@@ -2,7 +2,6 @@ package aws_test
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"slices"
 	"testing"
@@ -86,8 +85,8 @@ var guardCases = []guardCase{
 func TestGuardListsEveryMethod(t *testing.T) {
 	for _, tc := range guardCases {
 		t.Run(tc.name, func(t *testing.T) {
-			for i := range tc.iface.NumMethod() {
-				name := tc.iface.Method(i).Name
+			for method := range tc.iface.Methods() {
+				name := method.Name
 				listed := slices.Contains(tc.reads, name) || slices.Contains(tc.mutations, name)
 				assert.True(t, listed, "%s.%s is in neither reads nor mutations", tc.name, name)
 			}
@@ -103,7 +102,7 @@ func TestGuardBlocksMutationsInReadOnly(t *testing.T) {
 				svc, m := tc.guard(func() bool { return true })
 				expect(m, tc.iface, name)
 				out := call(svc, name)
-				err, _ := out[len(out)-1].Interface().(error)
+				err, _ := reflect.TypeAssert[error](out[len(out)-1])
 				require.ErrorIs(t, err, aws.ErrReadOnly)
 				assert.Contains(t, err.Error(), name)
 				m.AssertNotCalled(t, name, anyArgs(tc.iface, name)...)
@@ -142,7 +141,7 @@ func TestGuardPassesReadsInReadOnly(t *testing.T) {
 func TestGuardErrorWrapsErrReadOnly(t *testing.T) {
 	svc := aws.GuardS3(new(awstest.MockS3Service), func() bool { return true })
 	err := svc.CopyObject(context.Background(), "a", "k", "b", "k", false)
-	assert.True(t, errors.Is(err, aws.ErrReadOnly))
+	require.ErrorIs(t, err, aws.ErrReadOnly)
 	assert.Equal(t, "CopyObject: blocked in ReadOnly mode", err.Error())
 }
 

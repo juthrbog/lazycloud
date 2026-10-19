@@ -82,7 +82,7 @@ func buildSeeders(client *aws.Client, cfg *SeedConfig, region string) []Seeder {
 
 func filterSeeders(seeders []Seeder, filter string) []Seeder {
 	want := make(map[string]bool)
-	for _, s := range strings.Split(filter, ",") {
+	for s := range strings.SplitSeq(filter, ",") {
 		want[strings.TrimSpace(strings.ToLower(s))] = true
 	}
 	var filtered []Seeder

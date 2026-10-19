@@ -82,7 +82,7 @@ func TestTagPassesRuntimeMessagesThrough(t *testing.T) {
 	for name, cmd := range map[string]tea.Cmd{
 		"quit":      tea.Quit,
 		"clipboard": tea.SetClipboard("i-123"),
-		"exec":      tea.ExecProcess(exec.Command("true"), nil), // SSM Connect; returning the msg does not run it
+		"exec":      tea.ExecProcess(exec.CommandContext(t.Context(), "true"), nil), // SSM Connect; returning the msg does not run it
 	} {
 		got := Tag(a, cmd)()
 		_, routed := got.(Routed)

@@ -13,11 +13,11 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-func newTestAMIList() (*AMIList, *awstest.MockEC2Service) {
+func newTestAMIList() *AMIList {
 	m := new(awstest.MockEC2Service)
 	view := NewAMIList(m)
 	view.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
-	return view, m
+	return view
 }
 
 func loadAMIs(view *AMIList, amis []aws.AMI) {
@@ -30,7 +30,7 @@ var testAMI2 = aws.AMI{ID: "ami-222", Name: "my-arm-image", OwnerID: "1234567890
 // --- Load ---
 
 func TestAMIList_LoadedAMIsPopulateTable(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1, testAMI2})
 
 	assert.False(t, view.loading)
@@ -40,7 +40,7 @@ func TestAMIList_LoadedAMIsPopulateTable(t *testing.T) {
 }
 
 func TestAMIList_OwnedModeAfterLoad(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1})
 
 	assert.True(t, view.ownedMode)
@@ -48,7 +48,7 @@ func TestAMIList_OwnedModeAfterLoad(t *testing.T) {
 }
 
 func TestAMIList_SearchResultSetsOwnedModeFalse(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	view.Update(amiListLoadedMsg{amis: []aws.AMI{testAMI1}, owned: false, query: "linux"})
 
 	assert.False(t, view.ownedMode)
@@ -58,7 +58,7 @@ func TestAMIList_SearchResultSetsOwnedModeFalse(t *testing.T) {
 // --- Search mode ---
 
 func TestAMIList_PActivatesSearch(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1})
 
 	view.Update(keyPress('p'))
@@ -67,7 +67,7 @@ func TestAMIList_PActivatesSearch(t *testing.T) {
 }
 
 func TestAMIList_EscCancelsSearch(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1})
 
 	view.Update(keyPress('p'))
@@ -80,7 +80,7 @@ func TestAMIList_EscCancelsSearch(t *testing.T) {
 // --- Refresh ---
 
 func TestAMIList_RefreshReloadsOwned(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	// Put view into search-result mode first
 	view.Update(amiListLoadedMsg{amis: []aws.AMI{testAMI1}, owned: false, query: "linux"})
 	assert.False(t, view.ownedMode)
@@ -95,7 +95,7 @@ func TestAMIList_RefreshReloadsOwned(t *testing.T) {
 // --- Detail navigation ---
 
 func TestAMIList_EnterEmitsNavigateToContent(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -113,26 +113,26 @@ func TestAMIList_EnterEmitsNavigateToContent(t *testing.T) {
 
 func TestAMIList_NarrowTierHidesColumns(t *testing.T) {
 	cols := amiColumns(ui.TierNarrow)
-	assert.Equal(t, 3, len(cols), "narrow tier should show 3 columns")
+	assert.Len(t, cols, 3, "narrow tier should show 3 columns")
 	assert.Equal(t, "AMI ID", cols[0].Title)
 	assert.Equal(t, "State", cols[2].Title)
 }
 
 func TestAMIList_MediumTierColumns(t *testing.T) {
 	cols := amiColumns(ui.TierMedium)
-	assert.Equal(t, 4, len(cols), "medium tier should show 4 columns")
+	assert.Len(t, cols, 4, "medium tier should show 4 columns")
 	assert.Equal(t, "State", cols[3].Title)
 }
 
 func TestAMIList_WideTierShowsAllColumns(t *testing.T) {
 	cols := amiColumns(ui.TierWide)
-	assert.Equal(t, 6, len(cols), "wide tier should show 6 columns")
+	assert.Len(t, cols, 6, "wide tier should show 6 columns")
 }
 
 // --- findAMI ---
 
 func TestAMIList_FindAMI(t *testing.T) {
-	view, _ := newTestAMIList()
+	view := newTestAMIList()
 	loadAMIs(view, []aws.AMI{testAMI1, testAMI2})
 
 	found := view.findAMI("ami-222")

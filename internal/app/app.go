@@ -123,7 +123,7 @@ func (m Model) Init() tea.Cmd {
 // See nav.Routed for why results carry their origin view.
 func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 	switch inner := r.Msg.(type) {
-	case appmsg.ToastMsg, appmsg.StatusMsg:
+	case appmsg.ToastMsg:
 		// Feedback is useful even from a view the user has left.
 		return m.Update(inner)
 
@@ -313,12 +313,6 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return appmsg.NavigateMsg{ViewID: viewID, Params: params}
 		}
 
-	case appmsg.StatusMsg:
-		// Legacy — convert to toast
-		_, cmd := m.toasts.Add(msg.Text, ui.ToastInfo, 0)
-		m.err = ""
-		return m, cmd
-
 	case appmsg.ToastMsg:
 		_, cmd := m.toasts.Add(msg.Text, ui.ToastLevel(msg.Level), 0)
 		return m, cmd
@@ -374,10 +368,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, col := range msg.Columns {
 			options = append(options, ui.PickerOption{Label: col, Value: col})
 		}
-		initialIdx := 0
-		if msg.CurrentCol >= 0 {
-			initialIdx = msg.CurrentCol
-		}
+		initialIdx := max(msg.CurrentCol, 0)
 		m.picker.Show("sort", "Sort by Column", options, initialIdx)
 		return m, nil
 
@@ -719,23 +710,9 @@ func (m Model) canShowPanel() bool {
 func (m Model) panelWidth() int {
 	if m.panelWidthOverride > 0 {
 		maxW := m.width - panelMinMainWidth - 3 // gap + main borders
-		w := m.panelWidthOverride
-		if w < panelMinWidth {
-			w = panelMinWidth
-		}
-		if w > maxW {
-			w = maxW
-		}
-		return w
+		return min(max(m.panelWidthOverride, panelMinWidth), maxW)
 	}
-	w := m.width * 40 / 100
-	if w < panelMinWidth {
-		w = panelMinWidth
-	}
-	if w > panelMaxWidth {
-		w = panelMaxWidth
-	}
-	return w
+	return min(max(m.width*40/100, panelMinWidth), panelMaxWidth)
 }
 
 func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
@@ -1216,10 +1193,7 @@ func (m Model) View() tea.View {
 	if m.commandBar.Visible() {
 		if suggestions := m.commandBar.ViewSuggestions(); suggestions != "" {
 			sugH := lipgloss.Height(suggestions)
-			y := m.height - sugH - 1
-			if y < 0 {
-				y = 0
-			}
+			y := max(m.height-sugH-1, 0)
 			comp := lipgloss.NewCompositor(
 				lipgloss.NewLayer(body).Z(0),
 				lipgloss.NewLayer(suggestions).X(1).Y(y).Z(1),
@@ -1284,8 +1258,8 @@ func (m Model) topLevelViewID() string {
 	// without AWS data such as the event log. The nearest service view of
 	// the registry under it is the one to open again.
 	views := m.nav.Views()
-	for i := len(views) - 1; i >= 0; i-- {
-		id, _, _ := strings.Cut(views[i].ID(), ":")
+	for _, view := range slices.Backward(views) {
+		id, _, _ := strings.Cut(view.ID(), ":")
 		if registry.IsServiceView(id) {
 			return id
 		}

@@ -238,8 +238,8 @@ func TestAppServicesAreGuarded(t *testing.T) {
 	check := func(t *testing.T, m Model) {
 		t.Helper()
 		ctx := context.Background()
-		assert.ErrorIs(t, m.svc.S3.DeleteBucket(ctx, "b"), aws.ErrReadOnly)
-		assert.ErrorIs(t, m.svc.EC2.TerminateInstances(ctx, []string{"i-1"}), aws.ErrReadOnly)
+		require.ErrorIs(t, m.svc.S3.DeleteBucket(ctx, "b"), aws.ErrReadOnly)
+		require.ErrorIs(t, m.svc.EC2.TerminateInstances(ctx, []string{"i-1"}), aws.ErrReadOnly)
 		assert.ErrorIs(t, m.svc.SQS.PurgeQueue(ctx, "u"), aws.ErrReadOnly)
 	}
 	// newTestModel points the client at a closed local port, so a missing

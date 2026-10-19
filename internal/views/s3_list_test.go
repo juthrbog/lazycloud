@@ -68,7 +68,7 @@ func TestS3List_ErrorMsg(t *testing.T) {
 	view.Update(msg.ErrorMsg{Err: fmt.Errorf("access denied"), Context: "S3"})
 
 	assert.False(t, view.loading)
-	assert.Error(t, view.err)
+	require.Error(t, view.err)
 	assert.Contains(t, view.err.Error(), "access denied")
 }
 

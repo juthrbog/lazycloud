@@ -73,17 +73,18 @@ func RenderHeader(data HeaderData) string {
 	}
 
 	var bar string
-	if data.Width < 60 {
+	switch {
+	case data.Width < 60:
 		// Minimal: title + breadcrumbs only
 		crumbs := renderBreadcrumbs(data.Breadcrumbs, sep, t)
 		bar = titleRendered + "  " + crumbs
-	} else if data.Width < 80 {
+	case data.Width < 80:
 		// Compact: drop region badge
 		fixed := titleRendered + " " + profileBadge + " " + modeBadge + "  "
 		remaining := data.Width - lipgloss.Width(fixed) - backWidth
 		crumbs := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
 		bar = fixed + crumbs
-	} else {
+	default:
 		// Full: all badges + breadcrumbs
 		fixed := titleRendered + " " + profileBadge + " " + regionBadge + " " + modeBadge + "  "
 		remaining := data.Width - lipgloss.Width(fixed) - backWidth

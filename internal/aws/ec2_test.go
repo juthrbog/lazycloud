@@ -46,7 +46,7 @@ func TestSSMSessionCmdHostileLabel(t *testing.T) {
 func TestSSMSessionRunPrintsBannerFirst(t *testing.T) {
 	s := (&Client{}).SSMSessionCmd("i-abc123", "my-server")
 	// Stand in for the aws CLI: re-run this test binary with no tests selected.
-	s.cmd = exec.Command(os.Args[0], "-test.run=^$") //nolint:gosec // re-runs the test binary itself
+	s.cmd = exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$") //nolint:gosec // re-runs the test binary itself
 
 	var out bytes.Buffer
 	s.SetStdout(&out)

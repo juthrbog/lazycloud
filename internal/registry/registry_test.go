@@ -32,7 +32,7 @@ func TestEveryServiceFeatureHasNavCommand(t *testing.T) {
 
 func TestCommandBarEntriesCount(t *testing.T) {
 	entries := CommandBarEntries()
-	assert.Equal(t, len(Commands), len(entries))
+	assert.Len(t, entries, len(Commands))
 }
 
 func TestCommandBarEntriesValues(t *testing.T) {
@@ -86,5 +86,5 @@ func TestNavCommands(t *testing.T) {
 			assert.NotEmpty(t, cmd.ViewID)
 		}
 	}
-	assert.Greater(t, navCount, 0, "should have at least one nav command")
+	assert.Positive(t, navCount, "should have at least one nav command")
 }

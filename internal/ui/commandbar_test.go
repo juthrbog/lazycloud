@@ -81,7 +81,7 @@ func TestCommandBarFilterPrefixFirst(t *testing.T) {
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 
-	assert.True(t, len(c.filtered) >= 2)
+	assert.GreaterOrEqual(t, len(c.filtered), 2)
 	assert.Equal(t, "ec2", c.commands[c.filtered[0]].Name)
 	assert.Equal(t, "ec2/amis", c.commands[c.filtered[1]].Name)
 }
@@ -95,7 +95,7 @@ func TestCommandBarFilterByAlias(t *testing.T) {
 		c, _ = c.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
 	}
 
-	assert.True(t, len(c.filtered) > 0)
+	assert.NotEmpty(t, c.filtered)
 	assert.Equal(t, "ec2", c.commands[c.filtered[0]].Name)
 }
 
@@ -146,7 +146,7 @@ func TestCommandBarHistory(t *testing.T) {
 
 	// Down again returns to empty draft
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Equal(t, "", c.input)
+	assert.Empty(t, c.input)
 }
 
 func TestCommandBarHistoryDeduplicates(t *testing.T) {
@@ -167,7 +167,7 @@ func TestCommandBarCtrlUClearsInput(t *testing.T) {
 	assert.Equal(t, "ec", c.input)
 
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	assert.Equal(t, "", c.input)
+	assert.Empty(t, c.input)
 }
 
 func TestCommandBarEnterOnEmptyDismisses(t *testing.T) {
@@ -190,7 +190,7 @@ func TestCommandBarEnterResolvesTopMatch(t *testing.T) {
 		c, _ = c.Update(tea.KeyPressMsg{Code: rune(ch), Text: string(ch)})
 	}
 
-	assert.True(t, len(c.filtered) > 0)
+	assert.NotEmpty(t, c.filtered)
 	assert.Equal(t, "quit", c.commands[c.filtered[0]].Name)
 
 	c, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -217,10 +217,10 @@ func TestCommandBarEnterResolvesSelectedSuggestion(t *testing.T) {
 
 func TestCommandBarViewInputNotVisibleReturnsEmpty(t *testing.T) {
 	c := NewCommandBar()
-	assert.Equal(t, "", c.ViewInput(120))
+	assert.Empty(t, c.ViewInput(120))
 }
 
 func TestCommandBarViewSuggestionsNotVisibleReturnsEmpty(t *testing.T) {
 	c := NewCommandBar()
-	assert.Equal(t, "", c.ViewSuggestions())
+	assert.Empty(t, c.ViewSuggestions())
 }

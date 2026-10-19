@@ -3,6 +3,8 @@
 package registry
 
 import (
+	"slices"
+
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
@@ -99,10 +101,8 @@ func LookupCommand(input string) *Command {
 		if Commands[i].Name == input {
 			return &Commands[i]
 		}
-		for _, alias := range Commands[i].Aliases {
-			if alias == input {
-				return &Commands[i]
-			}
+		if slices.Contains(Commands[i].Aliases, input) {
+			return &Commands[i]
 		}
 	}
 	return nil

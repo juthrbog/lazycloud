@@ -141,11 +141,12 @@ func (p *Picker) rebuildFiltered() {
 		for i, opt := range p.options {
 			label := strings.ToLower(opt.Label)
 			value := strings.ToLower(opt.Value)
-			if strings.HasPrefix(label, query) || strings.HasPrefix(value, query) {
+			switch {
+			case strings.HasPrefix(label, query) || strings.HasPrefix(value, query):
 				prefix = append(prefix, i)
-			} else if strings.Contains(label, query) || strings.Contains(value, query) {
+			case strings.Contains(label, query) || strings.Contains(value, query):
 				contains = append(contains, i)
-			} else if fuzzyMatch(label, query) || fuzzyMatch(value, query) {
+			case fuzzyMatch(label, query) || fuzzyMatch(value, query):
 				fuzzyOnly = append(fuzzyOnly, i)
 			}
 		}
