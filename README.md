@@ -12,8 +12,8 @@
   <a href="https://www.localstack.cloud/"><img src="https://img.shields.io/badge/supported%20by-LocalStack-blue" alt="Supported by LocalStack"></a>
 </p>
 
-<!-- Record with: vhs demo/s3.tape -->
-<!-- <p align="center"><img src="demo/s3.gif" alt="LazyCloud Demo" width="800"></p> -->
+<!-- Record with: task demo -->
+<p align="center"><img src="demo/demo.gif" alt="LazyCloud demo: S3 buckets and a file preview, EC2 instances with the detail panel, and SQS queues" width="800"></p>
 
 Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing TUIs like [lazygit](https://github.com/jesseduffield/lazygit) and [k9s](https://github.com/derailed/k9s).
 
@@ -41,9 +41,40 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 
 ## Getting Started
 
+### Install with Homebrew
+
+On macOS and Linux:
+
+```bash
+brew install juthrbog/tap/lazycloud
+```
+
+### Install with Go
+
+```bash
+go install github.com/juthrbog/lazycloud@latest
+```
+
+This needs Go 1.26.2 or later. `lazycloud --version` shows the module version.
+
 ### Install from releases
 
-Download the latest binary from the [Releases](https://github.com/juthrbog/lazycloud/releases) page.
+The [Releases](https://github.com/juthrbog/lazycloud/releases) page has archives for Linux, macOS, and Windows, each for amd64 and arm64. The Windows archives are zip files.
+
+Each release also has an SBOM (a list of the Go modules in the binary) for each archive. To make sure that an archive comes from the release workflow of this repository, use one of these commands:
+
+```bash
+# With the GitHub CLI
+gh attestation verify lazycloud_0.6.0_linux_amd64.tar.gz --repo juthrbog/lazycloud
+
+# With cosign: check the signature of checksums.txt, then the archive
+cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/juthrbog/lazycloud/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c checksums.txt
+```
+
+SSM Connect needs the [AWS CLI](https://aws.amazon.com/cli/) and the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) on all platforms.
 
 ### Build from source
 

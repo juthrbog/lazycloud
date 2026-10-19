@@ -158,6 +158,18 @@ tasks:
       - go mod download
       - go mod tidy
 
+  # ─── Demo ───────────────────────────────────────────────
+
+  demo:
+    desc: Record demo/demo.gif with VHS in Docker (needs LocalStack with the seed data)
+    cmds:
+      - CGO_ENABLED=0 GOOS=linux go build -o demo/lazycloud .
+      - defer: rm -f demo/lazycloud
+      - >-
+        docker run --rm --network host --user "$(id -u):$(id -g)"
+        -e AWS_ACCESS_KEY_ID=test -e AWS_SECRET_ACCESS_KEY=test -e AWS_DEFAULT_REGION=us-east-1
+        -v "$PWD:/vhs" ghcr.io/charmbracelet/vhs:v0.12.1 demo/demo.tape
+
   # ─── Release ────────────────────────────────────────────
 
   snapshot:
