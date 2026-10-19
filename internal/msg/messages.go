@@ -44,12 +44,6 @@ type RegionChangedMsg struct {
 	Region string
 }
 
-// StatusMsg displays a transient status message in the status bar.
-// Deprecated: Use ToastMsg for auto-dismissing notifications.
-type StatusMsg struct {
-	Text string
-}
-
 // ToastMsg displays an auto-dismissing toast notification.
 type ToastMsg struct {
 	Text  string

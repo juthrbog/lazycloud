@@ -187,7 +187,7 @@ func TestSQSMessages_NoSourceListWhenSettingsFail(t *testing.T) {
 	v, svc := newTestSQSMessages()
 	svc.On("GetQueueAttributes", mock.Anything, testQueueURL).Return(nil, errDenied)
 	got := collectMsgs(v.fetchQueueAttrs())[0].(sqsQueueAttrsMsg)
-	assert.Error(t, got.err)
+	require.Error(t, got.err)
 	svc.AssertNotCalled(t, "ListDeadLetterSourceQueues", mock.Anything, mock.Anything)
 }
 
@@ -272,7 +272,7 @@ func TestS3List_DeleteBucketsReportsEachBucket(t *testing.T) {
 	svc.On("ListBuckets", mock.Anything).Return([]aws.Bucket{{Name: "other-bucket"}}, nil)
 
 	_, cmd := v.Update(collectMsgs(v.deleteBuckets([]string{"test-bucket", "other-bucket"}))[0])
-	assert.Nil(t, v.err, "the list stays visible")
+	require.NoError(t, v.err, "the list stays visible")
 	got := collectMsgs(cmd)
 	tt := toasts(got)
 	require.Len(t, tt, 1)
@@ -292,7 +292,7 @@ func TestEC2List_FailedActionRefreshesInstances(t *testing.T) {
 
 	_, cmd := v.Update(ec2InstanceMutatedMsg{action: "terminated", ids: ids, instanceID: "i-running, i-2",
 		err: &smithy.GenericAPIError{Code: "OperationNotPermitted"}})
-	assert.Nil(t, v.err, "the list stays visible")
+	require.NoError(t, v.err, "the list stays visible")
 	got := collectMsgs(cmd)
 	tt := toasts(got)
 	require.Len(t, tt, 1)

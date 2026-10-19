@@ -475,10 +475,7 @@ func (svc *S3ServiceImpl) DeleteObjectVersions(ctx context.Context, bucket strin
 
 	const batchSize = 1000
 	for i := 0; i < len(batchable); i += batchSize {
-		end := i + batchSize
-		if end > len(batchable) {
-			end = len(batchable)
-		}
+		end := min(i+batchSize, len(batchable))
 		batch := batchable[i:end]
 
 		objects := make([]s3types.ObjectIdentifier, len(batch))
@@ -606,7 +603,7 @@ func (svc *S3ServiceImpl) DownloadObject(ctx context.Context, bucket, key, destP
 	}
 	defer output.Body.Close()
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil { //nolint:gosec // download dir needs user+group access
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o750); err != nil {
 		return "", fmt.Errorf("creating directory: %w", err)
 	}
 
@@ -767,8 +764,8 @@ func multipartCopy(ctx context.Context, c *s3.Client, srcBucket, srcKey, dstBuck
 		return fmt.Errorf("starting the multipart copy: %w", err)
 	}
 	abort := func(cause error) error {
-		// A new context: the abort runs also when ctx was canceled.
-		_, _ = c.AbortMultipartUpload(context.Background(), &s3.AbortMultipartUploadInput{
+		// The abort runs also when ctx was canceled.
+		_, _ = c.AbortMultipartUpload(context.WithoutCancel(ctx), &s3.AbortMultipartUploadInput{
 			Bucket:   aws.String(dstBucket),
 			Key:      aws.String(dstKey),
 			UploadId: created.UploadId,

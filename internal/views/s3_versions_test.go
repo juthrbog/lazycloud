@@ -14,15 +14,15 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
-func newTestS3Versions() (*S3Versions, *awstest.MockS3Service) {
+func newTestS3Versions() *S3Versions {
 	m := new(awstest.MockS3Service)
 	view := NewS3Versions(m, "test-bucket", "file.txt")
 	view.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	return view, m
+	return view
 }
 
 func TestS3Versions_LoadedMsg(t *testing.T) {
-	view, _ := newTestS3Versions()
+	view := newTestS3Versions()
 	assert.True(t, view.loading)
 
 	versions := []aws.ObjectVersion{
@@ -38,7 +38,7 @@ func TestS3Versions_LoadedMsg(t *testing.T) {
 
 // Unversioned buckets return the version ID "null". Viewing it must not panic.
 func TestS3Versions_ViewNullVersionID(t *testing.T) {
-	view, _ := newTestS3Versions()
+	view := newTestS3Versions()
 	view.Update(s3VersionsLoadedMsg{versions: []aws.ObjectVersion{
 		{Key: "file.txt", VersionID: "null", IsLatest: true},
 	}})
@@ -56,7 +56,7 @@ func TestS3Versions_ViewNullVersionID(t *testing.T) {
 // After a sort, enter must show the version under the cursor, not the one at
 // the same position in the unsorted slice.
 func TestS3Versions_ViewAfterSortShowsCursorVersion(t *testing.T) {
-	view, _ := newTestS3Versions()
+	view := newTestS3Versions()
 	view.Update(s3VersionsLoadedMsg{versions: []aws.ObjectVersion{
 		{Key: "file.txt", VersionID: "aaaaaaaaaaaa"},
 		{Key: "file.txt", VersionID: "zzzzzzzzzzzz"},
@@ -75,7 +75,7 @@ func TestS3Versions_ViewAfterSortShowsCursorVersion(t *testing.T) {
 }
 
 func TestS3Versions_ErrorClearsLoading(t *testing.T) {
-	view, _ := newTestS3Versions()
+	view := newTestS3Versions()
 	assert.True(t, view.loading)
 
 	view.Update(msg.ErrorMsg{Err: fmt.Errorf("forbidden"), Context: "versions"})
@@ -85,7 +85,7 @@ func TestS3Versions_ErrorClearsLoading(t *testing.T) {
 }
 
 func TestS3Versions_EscNavigatesBack(t *testing.T) {
-	view, _ := newTestS3Versions()
+	view := newTestS3Versions()
 	view.loading = false // skip spinner handling
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEscape})

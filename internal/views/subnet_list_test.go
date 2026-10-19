@@ -13,11 +13,11 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-func newTestSubnetList(vpcID string) (*SubnetList, *awstest.MockEC2Service) {
+func newTestSubnetList(vpcID string) *SubnetList {
 	m := new(awstest.MockEC2Service)
 	view := NewSubnetList(m, vpcID)
 	view.Update(tea.WindowSizeMsg{Width: 200, Height: 24})
-	return view, m
+	return view
 }
 
 func loadSubnets(view *SubnetList, subnets []aws.Subnet) {
@@ -42,7 +42,7 @@ var testSubnet2 = aws.Subnet{
 // --- Load ---
 
 func TestSubnetList_LoadedSubnetsPopulateTable(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
 
 	assert.False(t, view.loading)
@@ -54,7 +54,7 @@ func TestSubnetList_LoadedSubnetsPopulateTable(t *testing.T) {
 // --- Detail ---
 
 func TestSubnetList_EnterEmitsDetailPanel(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -70,7 +70,7 @@ func TestSubnetList_EnterEmitsDetailPanel(t *testing.T) {
 }
 
 func TestSubnetList_DetailHasVPCLink(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -84,7 +84,7 @@ func TestSubnetList_DetailHasVPCLink(t *testing.T) {
 }
 
 func TestSubnetList_DetailHasTagsTab(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -96,7 +96,7 @@ func TestSubnetList_DetailHasTagsTab(t *testing.T) {
 // --- Copy ID ---
 
 func TestSubnetList_CopyID(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1})
 
 	_, cmd := view.Update(keyPress('y'))
@@ -106,7 +106,7 @@ func TestSubnetList_CopyID(t *testing.T) {
 // --- Refresh ---
 
 func TestSubnetList_RefreshReloads(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1})
 
 	_, cmd := view.Update(keyPress('r'))
@@ -117,13 +117,13 @@ func TestSubnetList_RefreshReloads(t *testing.T) {
 // --- VPC-filtered mode ---
 
 func TestSubnetList_FilteredByVPC_ID(t *testing.T) {
-	view, _ := newTestSubnetList("vpc-aaa111")
+	view := newTestSubnetList("vpc-aaa111")
 	assert.Equal(t, "subnet_list:vpc-aaa111", view.ID())
 	assert.Equal(t, "Subnets (vpc-aaa111)", view.Title())
 }
 
 func TestSubnetList_Unfiltered_ID(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	assert.Equal(t, "subnet_list", view.ID())
 	assert.Equal(t, "Subnets", view.Title())
 }
@@ -132,14 +132,14 @@ func TestSubnetList_Unfiltered_ID(t *testing.T) {
 
 func TestSubnetList_NarrowTierColumns(t *testing.T) {
 	cols := subnetColumns(ui.TierNarrow)
-	assert.Equal(t, 5, len(cols))
+	assert.Len(t, cols, 5)
 	assert.Equal(t, "Subnet ID", cols[0].Title)
 	assert.Equal(t, "State", cols[4].Title)
 }
 
 func TestSubnetList_MediumTierColumns(t *testing.T) {
 	cols := subnetColumns(ui.TierMedium)
-	assert.Equal(t, 5, len(cols))
+	assert.Len(t, cols, 5)
 	assert.Equal(t, "CIDR Block", cols[3].Title)
 	assert.Equal(t, "State", cols[4].Title)
 }
@@ -147,7 +147,7 @@ func TestSubnetList_MediumTierColumns(t *testing.T) {
 // --- Footer ---
 
 func TestSubnetList_Footer(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
 
 	assert.Contains(t, view.Footer(), "2/2 subnets")
@@ -156,7 +156,7 @@ func TestSubnetList_Footer(t *testing.T) {
 // --- findSubnet ---
 
 func TestSubnetList_FindSubnet(t *testing.T) {
-	view, _ := newTestSubnetList("")
+	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
 
 	found := view.findSubnet("subnet-bbb222")

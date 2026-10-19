@@ -182,13 +182,13 @@ func TestSortWithFilter(t *testing.T) {
 	// Sort while filtered
 	tbl.SortNext() // sort by Name
 	rows := tbl.inner.Rows()
-	assert.Equal(t, 1, len(rows))
+	assert.Len(t, rows, 1)
 	assert.Equal(t, "alpha", rows[0][0])
 
 	// Clear filter — sort should still apply
 	tbl.Filter("")
 	rows = tbl.inner.Rows()
-	assert.Equal(t, 3, len(rows))
+	assert.Len(t, rows, 3)
 	assert.Equal(t, "alpha", rows[0][0])
 	assert.Equal(t, "bravo", rows[1][0])
 	assert.Equal(t, "charlie", rows[2][0])
@@ -210,7 +210,7 @@ func TestSetColumnsSwapsColumns(t *testing.T) {
 	}
 	tbl.SetColumns(newCols)
 
-	assert.Equal(t, 2, len(tbl.flexColumns))
+	assert.Len(t, tbl.flexColumns, 2)
 	assert.Equal(t, -1, tbl.sortCol, "an unsorted table stays unsorted")
 }
 

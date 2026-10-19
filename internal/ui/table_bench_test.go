@@ -9,7 +9,11 @@ import (
 
 // Run with: go test ./internal/ui -run '^$' -bench Table -benchmem
 
-func benchRows(n int) []Row {
+// benchRowCount is the number of rows in each table benchmark.
+const benchRowCount = 100_000
+
+func benchRows() []Row {
+	n := benchRowCount
 	rows := make([]Row, n)
 	for i := range rows {
 		name := fmt.Sprintf("logs/2026/10/%06d/object-%d.json", (i*7919)%n, i)
@@ -37,7 +41,7 @@ func benchTable(rows []Row) Table {
 }
 
 func BenchmarkTableSetRows100k(b *testing.B) {
-	rows := benchRows(100_000)
+	rows := benchRows()
 	t := benchTable(nil)
 	b.ResetTimer()
 	for range b.N {
@@ -46,7 +50,7 @@ func BenchmarkTableSetRows100k(b *testing.B) {
 }
 
 func BenchmarkTableFilterKeystroke100k(b *testing.B) {
-	t := benchTable(benchRows(100_000))
+	t := benchTable(benchRows())
 	qs := []string{"o", "ob", "obj", "obje", "objec", "object"}
 	b.ResetTimer()
 	for i := range b.N {
@@ -55,7 +59,7 @@ func BenchmarkTableFilterKeystroke100k(b *testing.B) {
 }
 
 func BenchmarkTableToggleSelect100k(b *testing.B) {
-	t := benchTable(benchRows(100_000))
+	t := benchTable(benchRows())
 	b.ResetTimer()
 	for range b.N {
 		t.ToggleSelect()
@@ -64,7 +68,7 @@ func BenchmarkTableToggleSelect100k(b *testing.B) {
 
 // 100 pages of 1,000 rows, each added with AppendRows.
 func BenchmarkTablePagedLoad100k(b *testing.B) {
-	rows := benchRows(100_000)
+	rows := benchRows()
 	for range b.N {
 		t := benchTable(nil)
 		for p := 0; p < len(rows); p += 1000 {

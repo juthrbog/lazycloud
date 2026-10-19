@@ -93,20 +93,12 @@ func (tp TabbedPanel) tabBarHeight() int {
 	if tp.width > 0 {
 		bar = lipgloss.NewStyle().Width(tp.width).Render(bar)
 	}
-	h := lipgloss.Height(bar)
-	if h < 1 {
-		h = 1
-	}
-	return h
+	return max(lipgloss.Height(bar), 1)
 }
 
 // viewerHeight returns the height available for the content viewer (minus tab bar).
 func (tp TabbedPanel) viewerHeight() int {
-	h := tp.height - tp.tabBarHeight()
-	if h < 1 {
-		h = 1
-	}
-	return h
+	return max(tp.height-tp.tabBarHeight(), 1)
 }
 
 // TabCount returns the number of tabs.

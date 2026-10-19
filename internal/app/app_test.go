@@ -166,7 +166,7 @@ func TestResizeBelowThresholdClosesPanel(t *testing.T) {
 
 func TestTopLevelViewIDOnHome(t *testing.T) {
 	m := newTestModel(140, 40)
-	assert.Equal(t, "", m.topLevelViewID())
+	assert.Empty(t, m.topLevelViewID())
 }
 
 func TestTopLevelViewIDOnEC2(t *testing.T) {

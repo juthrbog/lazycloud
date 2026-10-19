@@ -418,11 +418,12 @@ func (v *VPCList) Footer() string {
 
 func (v *VPCList) View() tea.View {
 	var content string
-	if v.loading && len(v.vpcs) == 0 {
+	switch {
+	case v.loading && len(v.vpcs) == 0:
 		content = "\n  " + v.spinner.View()
-	} else if v.err != nil {
+	case v.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(v.err.Error()))
-	} else {
+	default:
 		content = v.table.View()
 		if v.filter.Active() {
 			content = v.filter.View() + "\n" + content

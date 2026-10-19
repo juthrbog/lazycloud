@@ -85,7 +85,7 @@ func TestFailedProfileSwitchKeepsSession(t *testing.T) {
 	m, _ = m.applyProfile("typo")
 	assert.Same(t, before.Client, m.svc.Client, "the session stays")
 	assert.Same(t, before.EC2, m.svc.EC2)
-	assert.Equal(t, "", m.config.AWS.Profile, "the configuration stays")
+	assert.Empty(t, m.config.AWS.Profile, "the configuration stays")
 	assert.Equal(t, 2, m.nav.Depth(), "the views stay")
 	assert.Contains(t, rendered(m), "Cannot switch profile to typo")
 }

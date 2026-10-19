@@ -405,11 +405,12 @@ func (s *SGList) Footer() string {
 
 func (s *SGList) View() tea.View {
 	var content string
-	if s.loading && len(s.groups) == 0 {
+	switch {
+	case s.loading && len(s.groups) == 0:
 		content = "\n  " + s.spinner.View()
-	} else if s.err != nil {
+	case s.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
-	} else {
+	default:
 		content = s.table.View()
 		if s.filter.Active() {
 			content = s.filter.View() + "\n" + content

@@ -236,21 +236,21 @@ func TestEC2List_KeyMapAlwaysContainsAllHints(t *testing.T) {
 
 func TestEC2List_NarrowTierHidesColumns(t *testing.T) {
 	cols := ec2Columns(ui.TierNarrow)
-	assert.Equal(t, 4, len(cols), "narrow tier should show 4 columns")
+	assert.Len(t, cols, 4, "narrow tier should show 4 columns")
 	assert.Equal(t, "Instance ID", cols[0].Title)
 	assert.Equal(t, "Type", cols[3].Title)
 }
 
 func TestEC2List_MediumTierColumns(t *testing.T) {
 	cols := ec2Columns(ui.TierMedium)
-	assert.Equal(t, 5, len(cols), "medium tier should show 5 columns")
+	assert.Len(t, cols, 5, "medium tier should show 5 columns")
 	assert.Equal(t, "Instance ID", cols[0].Title)
 	assert.Equal(t, "Private IP", cols[4].Title)
 }
 
 func TestEC2List_WideTierShowsAllColumns(t *testing.T) {
 	cols := ec2Columns(ui.TierWide)
-	assert.Equal(t, 8, len(cols), "wide tier should show 8 columns")
+	assert.Len(t, cols, 8, "wide tier should show 8 columns")
 	assert.Equal(t, "Launched", cols[7].Title)
 }
 

@@ -147,10 +147,7 @@ func DistributeWidths(cols []Column, totalWidth int) []table.Column {
 			if cols[i].Weight > 0 && (cols[i].MaxWidth == 0 || widths[i] < cols[i].MaxWidth) {
 				room := extra
 				if cols[i].MaxWidth > 0 {
-					room = cols[i].MaxWidth - widths[i]
-					if room > extra {
-						room = extra
-					}
+					room = min(cols[i].MaxWidth-widths[i], extra)
 				}
 				widths[i] += room
 				extra -= room

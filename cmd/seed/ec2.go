@@ -497,8 +497,7 @@ func isDuplicatePermission(err error) bool {
 	if err == nil {
 		return false
 	}
-	var apiErr smithy.APIError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[smithy.APIError](err); ok {
 		return apiErr.ErrorCode() == "InvalidPermission.Duplicate"
 	}
 	// LocalStack may not always use structured errors

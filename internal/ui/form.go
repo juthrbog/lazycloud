@@ -132,6 +132,8 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch f.form.State {
+	case huh.StateNormal:
+		// The form is still open.
 	case huh.StateCompleted:
 		f.done = true
 		values := make(map[string]string, len(f.keys))

@@ -90,9 +90,10 @@ func (c *Client) SSMSessionCmd(instanceID, label string) *SSMSession {
 	if c.Profile != "" {
 		args = append(args, "--profile", c.Profile)
 	}
+	// The user ends the session, so no context cancels it.
 	return &SSMSession{
 		banner: fmt.Sprintf("\033[1;36m── SSM Session: %s ──\033[0m\n", stripControl(label)),
-		cmd:    exec.Command("aws", args...), //nolint:gosec // fixed binary, no shell; args are argv elements, never parsed. Keep the label out of args.
+		cmd:    exec.CommandContext(context.Background(), "aws", args...), //nolint:gosec // fixed binary, no shell; args are argv elements, never parsed. Keep the label out of args.
 	}
 }
 

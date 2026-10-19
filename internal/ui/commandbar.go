@@ -134,11 +134,12 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			return c, nil
 
 		case "up":
-			if len(c.filtered) > 0 && c.selected > 0 {
+			switch {
+			case len(c.filtered) > 0 && c.selected > 0:
 				c.selected--
-			} else if len(c.filtered) > 0 && c.selected == 0 {
+			case len(c.filtered) > 0 && c.selected == 0:
 				c.selected = -1 // deselect
-			} else if c.selected == -1 && len(c.history) > 0 {
+			case c.selected == -1 && len(c.history) > 0:
 				// Start browsing history
 				if c.histIdx == -1 {
 					c.histDraft = c.input
@@ -152,7 +153,8 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			return c, nil
 
 		case "down":
-			if c.histIdx >= 0 {
+			switch {
+			case c.histIdx >= 0:
 				// Browsing history forward
 				if c.histIdx < len(c.history)-1 {
 					c.histIdx++
@@ -163,11 +165,11 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 					c.input = c.histDraft
 				}
 				c.rebuildFiltered()
-			} else if c.selected >= 0 && c.selected < len(c.filtered)-1 {
+			case c.selected >= 0 && c.selected < len(c.filtered)-1:
 				c.selected++
-			} else if c.selected == -1 && len(c.filtered) > 1 {
+			case c.selected == -1 && len(c.filtered) > 1:
 				c.selected = 1 // skip implicit top highlight
-			} else if c.selected == -1 && len(c.filtered) == 1 {
+			case c.selected == -1 && len(c.filtered) == 1:
 				c.selected = 0
 			}
 			return c, nil
@@ -245,10 +247,7 @@ func (c CommandBar) ViewSuggestions() string {
 	indicatorSelected := s.CommandCursor.Render("▸ ")
 	indicatorNormal := "  "
 
-	limit := len(c.filtered)
-	if limit > maxSuggestions {
-		limit = maxSuggestions
-	}
+	limit := min(len(c.filtered), maxSuggestions)
 
 	// Default to top match when no manual selection (matches Enter behavior)
 	effectiveSelected := c.selected
@@ -257,7 +256,7 @@ func (c CommandBar) ViewSuggestions() string {
 	}
 
 	var b strings.Builder
-	for i := 0; i < limit; i++ {
+	for i := range limit {
 		entry := c.commands[c.filtered[i]]
 		if i == effectiveSelected {
 			b.WriteString(indicatorSelected + selectedNameStyle.Render(entry.Name) + selectedDescStyle.Render(entry.Description))
@@ -304,11 +303,12 @@ func (c *CommandBar) rebuildFiltered() {
 			}
 		}
 
-		if strings.HasPrefix(name, query) {
+		switch {
+		case strings.HasPrefix(name, query):
 			prefix = append(prefix, i)
-		} else if aliasMatch || strings.Contains(name, query) || strings.Contains(desc, query) {
+		case aliasMatch || strings.Contains(name, query) || strings.Contains(desc, query):
 			contains = append(contains, i)
-		} else if cmdFuzzyMatch(name, query) || cmdFuzzyMatch(desc, query) {
+		case cmdFuzzyMatch(name, query) || cmdFuzzyMatch(desc, query):
 			fuzzyOnly = append(fuzzyOnly, i)
 		}
 	}

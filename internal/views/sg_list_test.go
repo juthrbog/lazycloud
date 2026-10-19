@@ -13,11 +13,11 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-func newTestSGList() (*SGList, *awstest.MockEC2Service) {
+func newTestSGList() *SGList {
 	m := new(awstest.MockEC2Service)
 	view := NewSGList(m)
 	view.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
-	return view, m
+	return view
 }
 
 func loadSGs(view *SGList, groups []aws.SecurityGroup) {
@@ -46,7 +46,7 @@ var testSG2 = aws.SecurityGroup{
 // --- Load ---
 
 func TestSGList_LoadedGroupsPopulateTable(t *testing.T) {
-	view, _ := newTestSGList()
+	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1, testSG2})
 
 	assert.False(t, view.loading)
@@ -58,7 +58,7 @@ func TestSGList_LoadedGroupsPopulateTable(t *testing.T) {
 // --- Detail ---
 
 func TestSGList_EnterEmitsDetailPanel(t *testing.T) {
-	view, _ := newTestSGList()
+	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -79,7 +79,7 @@ func TestSGList_EnterEmitsDetailPanel(t *testing.T) {
 // --- Copy ID ---
 
 func TestSGList_CopyID(t *testing.T) {
-	view, _ := newTestSGList()
+	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1})
 
 	_, cmd := view.Update(keyPress('y'))
@@ -89,7 +89,7 @@ func TestSGList_CopyID(t *testing.T) {
 // --- Refresh ---
 
 func TestSGList_RefreshReloads(t *testing.T) {
-	view, _ := newTestSGList()
+	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1})
 
 	_, cmd := view.Update(keyPress('r'))
@@ -101,21 +101,21 @@ func TestSGList_RefreshReloads(t *testing.T) {
 
 func TestSGList_NarrowTierColumns(t *testing.T) {
 	cols := sgColumns(ui.TierNarrow)
-	assert.Equal(t, 5, len(cols))
+	assert.Len(t, cols, 5)
 	assert.Equal(t, "Group ID", cols[0].Title)
 	assert.Equal(t, "Out", cols[4].Title)
 }
 
 func TestSGList_MediumTierColumns(t *testing.T) {
 	cols := sgColumns(ui.TierMedium)
-	assert.Equal(t, 6, len(cols))
+	assert.Len(t, cols, 6)
 	assert.Equal(t, "Description", cols[3].Title)
 }
 
 // --- findSG ---
 
 func TestSGList_FindSG(t *testing.T) {
-	view, _ := newTestSGList()
+	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1, testSG2})
 
 	found := view.findSG("sg-222")
@@ -128,7 +128,7 @@ func TestSGList_FindSG(t *testing.T) {
 // --- Footer ---
 
 func TestSGList_Footer(t *testing.T) {
-	view, _ := newTestSGList()
+	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1, testSG2})
 
 	assert.Contains(t, view.Footer(), "2/2 security groups")

@@ -8,6 +8,17 @@ linters:
     - errcheck     # Unchecked error returns
     - ineffassign  # Useless variable assignments
     - unused       # Unused code detection
+    - bodyclose    # HTTP response bodies that are not closed
+    - contextcheck # Functions that do not pass their context on
+    - errorlint    # Error checks that do not see wrapped errors
+    - exhaustive   # Enum switches that miss a value
+    - gocritic     # Bugs and style issues, for example os.Exit after defer
+    - modernize    # Code that a newer Go feature makes shorter (fix with: golangci-lint run --fix)
+    - nilerr       # A nil error return after a non-nil error
+    - noctx        # HTTP requests and commands without a context
+    - nolintlint   # nolint comments that are not used or have no reason
+    - testifylint  # Wrong use of testify (fix with: golangci-lint run --fix)
+    - unparam      # Parameters and results that always have the same value
 
   settings:
     errcheck:
@@ -15,6 +26,16 @@ linters:
         - (*os.File).Close
         - (io.ReadCloser).Close
         - os.Remove
+    exhaustive:
+      # A default case covers the values that the switch does not name.
+      default-signifies-exhaustive: true
+    gocritic:
+      disabled-checks:
+        # A type switch with one case is the usual form of a Bubble Tea Update.
+        - singleCaseSwitch
+    nolintlint:
+      require-explanation: true
+      require-specific: true
 
 formatters:
   enable:

@@ -123,17 +123,17 @@ func TestBestFitTier(t *testing.T) {
 	// Wide terminal: gets TierWide columns
 	cols, tier := BestFitTier(200, colsFn)
 	assert.Equal(t, TierWide, tier)
-	assert.Equal(t, 4, len(cols))
+	assert.Len(t, cols, 4)
 
 	// Medium terminal where Wide doesn't fit: cascades to TierMedium
 	cols, tier = BestFitTier(80, colsFn)
 	assert.Equal(t, TierMedium, tier)
-	assert.Equal(t, 3, len(cols))
+	assert.Len(t, cols, 3)
 
 	// Narrow terminal where Medium doesn't fit: cascades to TierNarrow
 	cols, tier = BestFitTier(50, colsFn)
 	assert.Equal(t, TierNarrow, tier)
-	assert.Equal(t, 2, len(cols))
+	assert.Len(t, cols, 2)
 }
 
 func TestColumnsFit(t *testing.T) {

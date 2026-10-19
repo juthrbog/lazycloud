@@ -124,11 +124,11 @@ func (c *CloudAnimation) View(width, height int) string {
 	// Render each pixel
 	var b strings.Builder
 	b.Grow(width * height * 20)
-	for row := 0; row < height; row++ {
+	for row := range height {
 		topY := row * 2
 		botY := topY + 1
 
-		for col := 0; col < width; col++ {
+		for col := range width {
 			topColor := c.pixelColor(float64(col), float64(topY), sky, highlight, body, shadow)
 			botColor := c.pixelColor(float64(col), float64(botY), sky, highlight, body, shadow)
 
@@ -499,10 +499,10 @@ func (s *StormAnimation) View(width, height int) string {
 	// Render
 	var b strings.Builder
 	b.Grow(width * height * 20)
-	for row := 0; row < height; row++ {
+	for row := range height {
 		topY := row * 2
 		botY := topY + 1
-		for col := 0; col < width; col++ {
+		for col := range width {
 			topC := stormPixel(col, topY)
 			botC := stormPixel(col, botY)
 

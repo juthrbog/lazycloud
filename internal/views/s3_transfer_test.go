@@ -73,7 +73,7 @@ func TestS3Objects_CopyAsksBeforeOverwrite(t *testing.T) {
 	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite"})
 	done, ok = firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.NoError(t, done.err)
+	require.NoError(t, done.err)
 	assert.Nil(t, view.pendingOverwrite)
 	m.AssertExpectations(t)
 }
@@ -89,7 +89,7 @@ func TestS3Objects_DeclinedOverwriteCopiesNothing(t *testing.T) {
 
 	assert.Nil(t, cmd)
 	assert.Nil(t, view.pendingOverwrite)
-	assert.Nil(t, view.err, "a declined prompt is not an error")
+	require.NoError(t, view.err, "a declined prompt is not an error")
 	m.AssertNumberOfCalls(t, "CopyObject", 1)
 }
 
@@ -205,7 +205,7 @@ func TestS3Objects_PartialDeleteNamesTheFailedKeys(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, msg.ToastError("x").Level, got[0].Level)
 	assert.Equal(t, "Deleted 2 of 3 object(s). Failed: b.txt (AccessDenied)", got[0].Text)
-	assert.Nil(t, view.err)
+	require.NoError(t, view.err)
 	m.AssertCalled(t, "ListObjectsPage", mock.Anything, "test-bucket", "", mock.Anything)
 }
 
@@ -215,7 +215,7 @@ func TestS3Objects_FailedDeleteCallKeepsTheList(t *testing.T) {
 	_, cmd := view.Update(s3DeleteCompleteMsg{count: 3, err: aws.ErrReadOnly})
 
 	assert.Nil(t, cmd)
-	assert.ErrorIs(t, view.err, aws.ErrReadOnly)
+	require.ErrorIs(t, view.err, aws.ErrReadOnly)
 	assert.Len(t, view.entries, 3)
 }
 

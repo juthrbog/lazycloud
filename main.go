@@ -16,6 +16,12 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+// run starts the app and returns the exit code. The deferred calls of run,
+// for example the close of the log file, run before main exits.
+func run() int {
 	// CLI flags
 	profile := flag.String("profile", "", "AWS profile")
 	region := flag.String("region", "", "AWS region")
@@ -31,7 +37,7 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("lazycloud %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
-		return
+		return 0
 	}
 
 	// Write default config and exit
@@ -42,17 +48,17 @@ func main() {
 		}
 		if err := config.WriteDefault(path); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing config: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 		fmt.Printf("Config written to %s\n", path)
-		return
+		return 0
 	}
 
 	// Load config: file → env → flags (increasing precedence)
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	cfg.ApplyEnv()
 	cfg.ApplyFlags(*profile, *region, *endpoint, *logFile, *theme, *noNerd)
@@ -63,7 +69,7 @@ func main() {
 		ui.RebuildStyles()
 	} else {
 		fmt.Fprintf(os.Stderr, "Unknown theme: %s (available: catppuccin, dracula, nord, tokyonight)\n", cfg.Display.Theme)
-		os.Exit(1)
+		return 1
 	}
 
 	if !cfg.Display.NerdFonts {
@@ -78,7 +84,7 @@ func main() {
 		f, err := os.OpenFile(cfg.Log.File, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error opening log file: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 		defer f.Close()
 		eventlog.SetOutput(f)
@@ -88,6 +94,7 @@ func main() {
 	p := tea.NewProgram(rootModel)
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

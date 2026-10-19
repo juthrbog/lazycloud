@@ -172,12 +172,11 @@ func (svc *SQSServiceImpl) FetchAllQueueAttributes(ctx context.Context, urls []s
 		g.Go(func() error {
 			q, err := svc.GetQueueAttributes(ctx, url)
 			if err != nil {
-				queues[i] = Queue{
+				q = &Queue{
 					URL:  url,
 					Name: QueueNameFromURL(url),
 					Err:  err,
 				}
-				return nil
 			}
 			queues[i] = *q
 			return nil

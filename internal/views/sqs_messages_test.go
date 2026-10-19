@@ -209,7 +209,7 @@ func TestSQSMessages_ResetFailureKeepsMessagesAndWarns(t *testing.T) {
 
 	_, cmd := view.Update(loaded)
 	assert.Len(t, view.messages, 2)
-	assert.Nil(t, view.err)
+	require.NoError(t, view.err)
 	got := toasts(collectMsgs(cmd))
 	require.Len(t, got, 1)
 	assert.Contains(t, got[0].Text, "2 message(s) stay hidden from consumers for up to 30s")

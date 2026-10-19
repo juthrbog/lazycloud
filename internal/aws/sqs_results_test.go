@@ -112,7 +112,7 @@ func TestFetchAllQueueAttributesKeepsErrorPerQueue(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, queues, 2)
-	assert.NoError(t, queues[0].Err)
+	require.NoError(t, queues[0].Err)
 	assert.Equal(t, 7, queues[0].ApproximateMessageCount)
 
 	assert.Equal(t, "secret", queues[1].Name)

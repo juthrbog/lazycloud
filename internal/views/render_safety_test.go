@@ -109,7 +109,7 @@ func TestS3Objects_DeleteAllPromptShowsPrefixSafely(t *testing.T) {
 }
 
 func TestS3Versions_FooterShowsKeySafely(t *testing.T) {
-	view, _ := newTestS3Versions()
+	view := newTestS3Versions()
 	view.key = "k-" + dcs
 	footer := view.Footer()
 	assertSafeOutput(t, footer)
@@ -131,17 +131,17 @@ func TestEC2List_ShowsTagsSafelyAndColorsState(t *testing.T) {
 func TestViews_StateColumnKeepsColor(t *testing.T) {
 	views := map[string]func() tea.Model{
 		"ami_list": func() tea.Model {
-			v, _ := newTestAMIList()
+			v := newTestAMIList()
 			loadAMIs(v, []aws.AMI{{ID: "ami-1", Name: "n" + csi8, State: "available"}})
 			return v
 		},
 		"subnet_list": func() tea.Model {
-			v, _ := newTestSubnetList("vpc-1")
+			v := newTestSubnetList("vpc-1")
 			loadSubnets(v, []aws.Subnet{{ID: "subnet-1", Name: "n" + csi8, State: "available"}})
 			return v
 		},
 		"vpc_list": func() tea.Model {
-			v, _ := newTestVPCList()
+			v := newTestVPCList()
 			loadVPCs(v, []aws.VPC{{ID: "vpc-1", Name: "n" + csi8, State: "available"}})
 			return v
 		},
@@ -178,7 +178,7 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 	now := time.Now()
 	views := map[string]func(t *testing.T) tea.Model{
 		"ami_list": func(*testing.T) tea.Model {
-			v, _ := newTestAMIList()
+			v := newTestAMIList()
 			loadAMIs(v, []aws.AMI{{ID: "ami-1", Name: "al2023", State: "available", CreationDate: "2026-01-01"}})
 			return v
 		},
@@ -196,7 +196,7 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			return v
 		},
 		"s3_versions": func(*testing.T) tea.Model {
-			v, _ := newTestS3Versions()
+			v := newTestS3Versions()
 			v.Update(s3VersionsLoadedMsg{versions: []aws.ObjectVersion{
 				{VersionID: "v2", Size: 10, LastModified: now, IsLatest: true},
 				{VersionID: "v1", IsDeleteMarker: true, LastModified: now},
@@ -219,12 +219,12 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			return v
 		},
 		"subnet_list": func(*testing.T) tea.Model {
-			v, _ := newTestSubnetList("vpc-aaa111")
+			v := newTestSubnetList("vpc-aaa111")
 			loadSubnets(v, []aws.Subnet{testSubnet1})
 			return v
 		},
 		"vpc_list": func(*testing.T) tea.Model {
-			v, _ := newTestVPCList()
+			v := newTestVPCList()
 			loadVPCs(v, []aws.VPC{testVPC1})
 			return v
 		},
@@ -240,16 +240,16 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 
 func TestViews_ShowListErrorSafely(t *testing.T) {
 	views := map[string]func() tea.Model{
-		"ami_list":     func() tea.Model { v, _ := newTestAMIList(); return v },
+		"ami_list":     func() tea.Model { v := newTestAMIList(); return v },
 		"ec2_list":     func() tea.Model { v, _ := newTestEC2List(); return v },
 		"s3_list":      func() tea.Model { v, _ := newTestS3List(); return v },
 		"s3_objects":   func() tea.Model { v, _ := newTestS3Objects(); return v },
-		"s3_versions":  func() tea.Model { v, _ := newTestS3Versions(); return v },
-		"sg_list":      func() tea.Model { v, _ := newTestSGList(); return v },
+		"s3_versions":  func() tea.Model { v := newTestS3Versions(); return v },
+		"sg_list":      func() tea.Model { v := newTestSGList(); return v },
 		"sqs_messages": func() tea.Model { v, _ := newTestSQSMessages(); return v },
 		"sqs_queues":   func() tea.Model { v, _ := newQueueList(); return v },
-		"subnet_list":  func() tea.Model { v, _ := newTestSubnetList("vpc-1"); return v },
-		"vpc_list":     func() tea.Model { v, _ := newTestVPCList(); return v },
+		"subnet_list":  func() tea.Model { v := newTestSubnetList("vpc-1"); return v },
+		"vpc_list":     func() tea.Model { v := newTestVPCList(); return v },
 	}
 	for name, newView := range views {
 		t.Run(name, func(t *testing.T) {
@@ -283,7 +283,7 @@ func TestEventLog_ShowsMessagesSafely(t *testing.T) {
 	assertSafeOutput(t, out)
 	plain := ansi.Strip(out)
 	assert.Contains(t, plain, "Deleted k-␛P$qm␛\\␊fake entry", "one entry stays on one line")
-	for _, line := range strings.Split(plain, "\n") {
+	for line := range strings.SplitSeq(plain, "\n") {
 		assert.False(t, strings.HasPrefix(strings.TrimSpace(line), "fake entry"))
 	}
 }

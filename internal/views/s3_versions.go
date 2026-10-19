@@ -261,11 +261,12 @@ func (s *S3Versions) Footer() string {
 
 func (s *S3Versions) View() tea.View {
 	var content string
-	if s.loading {
+	switch {
+	case s.loading:
 		content = "\n  " + s.spinner.View()
-	} else if s.err != nil {
+	case s.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
-	} else {
+	default:
 		content = s.table.View()
 	}
 	return tea.NewView(content)

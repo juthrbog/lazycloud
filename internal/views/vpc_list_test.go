@@ -13,11 +13,11 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-func newTestVPCList() (*VPCList, *awstest.MockEC2Service) {
+func newTestVPCList() *VPCList {
 	m := new(awstest.MockEC2Service)
 	view := NewVPCList(m)
 	view.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
-	return view, m
+	return view
 }
 
 func loadVPCs(view *VPCList, vpcs []aws.VPC) {
@@ -41,7 +41,7 @@ var testVPC2 = aws.VPC{
 // --- Load ---
 
 func TestVPCList_LoadedVPCsPopulateTable(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1, testVPC2})
 
 	assert.False(t, view.loading)
@@ -53,7 +53,7 @@ func TestVPCList_LoadedVPCsPopulateTable(t *testing.T) {
 // --- Detail ---
 
 func TestVPCList_EnterEmitsDetailPanel(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -70,7 +70,7 @@ func TestVPCList_EnterEmitsDetailPanel(t *testing.T) {
 }
 
 func TestVPCList_DetailIncludesSubnetsLink(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -93,7 +93,7 @@ func TestVPCList_DetailIncludesSubnetsLink(t *testing.T) {
 }
 
 func TestVPCList_DetailHasTagsTab(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1})
 
 	_, cmd := view.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -105,7 +105,7 @@ func TestVPCList_DetailHasTagsTab(t *testing.T) {
 // --- Copy ID ---
 
 func TestVPCList_CopyID(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1})
 
 	_, cmd := view.Update(keyPress('y'))
@@ -115,7 +115,7 @@ func TestVPCList_CopyID(t *testing.T) {
 // --- Navigate to subnets ---
 
 func TestVPCList_NavigateToSubnets(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1})
 
 	_, cmd := view.Update(keyPress('n'))
@@ -131,7 +131,7 @@ func TestVPCList_NavigateToSubnets(t *testing.T) {
 // --- Refresh ---
 
 func TestVPCList_RefreshReloads(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1})
 
 	_, cmd := view.Update(keyPress('r'))
@@ -143,21 +143,21 @@ func TestVPCList_RefreshReloads(t *testing.T) {
 
 func TestVPCList_NarrowTierColumns(t *testing.T) {
 	cols := vpcColumns(ui.TierNarrow)
-	assert.Equal(t, 4, len(cols))
+	assert.Len(t, cols, 4)
 	assert.Equal(t, "VPC ID", cols[0].Title)
 	assert.Equal(t, "State", cols[3].Title)
 }
 
 func TestVPCList_MediumTierColumns(t *testing.T) {
 	cols := vpcColumns(ui.TierMedium)
-	assert.Equal(t, 6, len(cols))
+	assert.Len(t, cols, 6)
 	assert.Equal(t, "Tenancy", cols[5].Title)
 }
 
 // --- Footer ---
 
 func TestVPCList_Footer(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1, testVPC2})
 
 	assert.Contains(t, view.Footer(), "2/2 VPCs")
@@ -166,7 +166,7 @@ func TestVPCList_Footer(t *testing.T) {
 // --- findVPC ---
 
 func TestVPCList_FindVPC(t *testing.T) {
-	view, _ := newTestVPCList()
+	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1, testVPC2})
 
 	found := view.findVPC("vpc-bbb222")

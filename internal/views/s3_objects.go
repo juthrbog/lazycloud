@@ -884,12 +884,13 @@ func (s *S3Objects) Footer() string {
 
 func (s *S3Objects) View() tea.View {
 	var content string
-	if len(s.objects) == 0 && len(s.prefixes) == 0 && s.loading {
+	switch {
+	case len(s.objects) == 0 && len(s.prefixes) == 0 && s.loading:
 		// No data yet, show spinner only
 		content = "\n  " + s.spinner.View()
-	} else if s.err != nil {
+	case s.err != nil:
 		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
-	} else {
+	default:
 		content = s.table.View()
 		if s.filter.Active() {
 			content = s.filter.View() + "\n" + content
