@@ -111,6 +111,16 @@ func TestToastShowsSafeText(t *testing.T) {
 	assert.Contains(t, ansi.Strip(out), "k-␛P$qm␛\\␊Deleted everything", "a key cannot add a line to a toast")
 }
 
+func TestStatusBarShowsSafeError(t *testing.T) {
+	out := RenderStatusBar(StatusBarData{
+		Error: "head s3://b/cr-a\nb-" + dcs + ".txt: NotFound" + csi8,
+		Width: 160,
+	})
+	assertTerminalSafe(t, out)
+	assert.Contains(t, ansi.Strip(out), "cr-a␊b-␛P$qm␛\\.txt: NotFound�7m")
+	assert.Equal(t, 1, lipgloss.Height(out), "a key cannot add a line to the status bar")
+}
+
 func TestConfirmShowsSafeMessageAndKeepsLines(t *testing.T) {
 	c := NewConfirm()
 	c.Show("Delete 1 object(s)?\n  key-"+dcs+"\nA folder is deleted.", "delete_objects", "")

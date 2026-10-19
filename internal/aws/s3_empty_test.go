@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,7 +20,9 @@ import (
 type fakeVersionedBucket struct {
 	mu            sync.Mutex
 	versions      []ObjectVersion
-	failKey       string // DeleteObjects reports an error for this key
+	failKey       string   // DeleteObjects reports an error for this key, and DeleteObject fails
+	keep          bool     // deletes report success but keep the versions
+	singleDeletes []string // "key@version" of each DeleteObject
 	lists         int
 	markerLists   int // lists that sent a key marker
 	deleteBatches []int
@@ -52,9 +55,14 @@ func (f *fakeVersionedBucket) serve(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.Method == http.MethodGet && q.Has("versions"):
 		f.lists++
+		if f.lists > maxLists {
+			writeS3Error(w, http.StatusBadRequest, "TooManyLists")
+			return
+		}
 		if q.Get("key-marker") != "" {
 			f.markerLists++
 		}
+		enc := encodeFor(q)
 		n := min(1000, len(f.versions))
 		var b strings.Builder
 		fmt.Fprintf(&b, `<ListVersionsResult><Name>b</Name><IsTruncated>%t</IsTruncated>`, n < len(f.versions))
@@ -63,7 +71,7 @@ func (f *fakeVersionedBucket) serve(w http.ResponseWriter, r *http.Request) {
 			if v.IsDeleteMarker {
 				tag = "DeleteMarker"
 			}
-			fmt.Fprintf(&b, `<%s><Key>%s</Key><VersionId>%s</VersionId></%s>`, tag, v.Key, v.VersionID, tag)
+			fmt.Fprintf(&b, `<%s><Key>%s</Key><VersionId>%s</VersionId></%s>`, tag, enc(v.Key), v.VersionID, tag)
 		}
 		b.WriteString(`</ListVersionsResult>`)
 		_, _ = w.Write([]byte(b.String()))
@@ -89,14 +97,26 @@ func (f *fakeVersionedBucket) serve(w http.ResponseWriter, r *http.Request) {
 			}
 			gone[o.Key+"\x00"+o.VersionID] = true
 		}
-		kept := f.versions[:0]
-		for _, v := range f.versions {
-			if !gone[v.Key+"\x00"+v.VersionID] {
-				kept = append(kept, v)
-			}
+		if !f.keep {
+			f.versions = slices.DeleteFunc(f.versions, func(v ObjectVersion) bool {
+				return gone[v.Key+"\x00"+v.VersionID]
+			})
 		}
-		f.versions = kept
 		_, _ = w.Write([]byte(`<DeleteResult>` + errs.String() + `</DeleteResult>`))
+
+	case r.Method == http.MethodDelete && q.Has("versionId"):
+		key, id := strings.TrimPrefix(r.URL.Path, "/b/"), q.Get("versionId")
+		f.singleDeletes = append(f.singleDeletes, key+"@"+id)
+		if key == f.failKey {
+			writeS3Error(w, http.StatusForbidden, "AccessDenied")
+			return
+		}
+		if !f.keep {
+			f.versions = slices.DeleteFunc(f.versions, func(v ObjectVersion) bool {
+				return v.Key == key && v.VersionID == id
+			})
+		}
+		w.WriteHeader(http.StatusNoContent)
 
 	case r.Method == http.MethodDelete:
 		if len(f.versions) > 0 {

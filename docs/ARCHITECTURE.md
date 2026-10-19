@@ -67,7 +67,7 @@ AWS text can hold terminal control characters, for example an S3 key, an object 
 
 For this reason, LazyCloud shows AWS text only after `ui.Sanitize` or `ui.SanitizeLines`. `ui.Sanitize` is for text on one line. It shows each control character as a visible symbol, for example ESC as `␛` and a line feed as `␊`. It shows a C1 control character, and a byte that is not valid UTF-8, as `�`. `ui.SanitizeLines` keeps line feeds and tabs, for text with more than one line.
 
-The shared components do this for the text that they get. These components are the table, the content view and the detail panels, toasts, confirm prompts, pickers, the header, and the event log. Call `ui.Sanitize` in view code only for AWS text that the view renders itself, for example:
+The shared components do this for the text that they get. These components are the table, the content view and the detail panels, toasts, the status bar error, confirm prompts, pickers, the header, and the event log. Call `ui.Sanitize` in view code only for AWS text that the view renders itself, for example:
 
 - A footer, such as `s3://bucket/prefix`.
 - An error line, such as `"Error: " + ui.Sanitize(err.Error())`.
