@@ -125,3 +125,34 @@ Exact counts are defined in `cmd/seed/tiers.toml`.
 |------|-------------|
 | `task snapshot` | Build cross-platform binaries locally |
 | `task release -- v0.1.0` | Tag and push a release |
+| `task demo` | Record `demo/demo.gif` with VHS in Docker. LocalStack must run with the seed data |
+
+## Releasing
+
+A tag `v*` starts `.github/workflows/release.yml`. The workflow runs vet, the race tests, and govulncheck. Then GoReleaser publishes these files in a GitHub release:
+
+- An archive for Linux, macOS, and Windows, each for amd64 and arm64. The Windows archives are zip files.
+- An SBOM (a list of the Go modules in the binary) for each archive, in SPDX JSON. syft writes them.
+- `checksums.txt` and `checksums.txt.sigstore.json`. cosign signs `checksums.txt` without a key: the signature holds the identity of the release workflow.
+
+The workflow also stores a provenance attestation for each file in `checksums.txt`, and it updates the Homebrew formula. GitHub writes the release notes from the merged pull requests. `.github/release.yml` puts Dependabot updates in a section of their own. Edit the notes after the release if they need more detail.
+
+The same commit gives the same archives. GoReleaser builds with `-trimpath`, and the file times and the build date come from the commit.
+
+A pull request that changes the release setup runs a snapshot. The snapshot builds all archives and checks the Homebrew formula. Then a job on Linux (amd64 and arm64), macOS, and Windows runs `lazycloud --version`. The snapshot publishes nothing.
+
+### Homebrew
+
+The release workflow writes `Formula/lazycloud.rb` with `scripts/formula.sh` and pushes it to [juthrbog/homebrew-tap](https://github.com/juthrbog/homebrew-tap). A prerelease tag, for example `v0.6.0-rc.1`, does not change the formula.
+
+The push uses a deploy key of the tap. Set it up once:
+
+1. Make an SSH key pair that has no other use:
+   `ssh-keygen -t ed25519 -N "" -C "lazycloud release publisher" -f lazycloud-tap`
+2. Add the public key to the tap, with write access:
+   `gh repo deploy-key add lazycloud-tap.pub --repo juthrbog/homebrew-tap --allow-write --title "lazycloud release publisher"`
+3. Store the private key as an Actions secret of this repository:
+   `gh secret set HOMEBREW_TAP_SSH_KEY --repo juthrbog/lazycloud < lazycloud-tap`
+4. Delete `lazycloud-tap` and `lazycloud-tap.pub`.
+
+Without the secret, the release still publishes, but the workflow shows a warning and does not change the formula.
