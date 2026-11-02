@@ -16,7 +16,35 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
 	"github.com/juthrbog/lazycloud/internal/ui"
+	"github.com/juthrbog/lazycloud/internal/views"
 )
+
+// answerView records the confirm answers it gets.
+type answerView struct {
+	*views.EventLog
+	answers []ui.ConfirmResultMsg
+}
+
+func (v *answerView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	if a, ok := m.(ui.ConfirmResultMsg); ok {
+		v.answers = append(v.answers, a)
+	}
+	return v, nil
+}
+
+// A question that the app does not show counts as a no for its view, so
+// the view forgets the action that waits for the answer.
+func TestSkippedPromptIsANoForItsView(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := &answerView{EventLog: views.NewEventLog()}
+	m.pushView(v)
+	m.confirm.ShowQuick("Quit?", confirmQuit)
+
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Replace it?", Action: "s3_overwrite:1"}})
+	require.Len(t, v.answers, 1)
+	assert.Equal(t, ui.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"}, v.answers[0])
+	assert.Equal(t, confirmQuit, m.confirm.Action())
+}
 
 // These tests cover M3: view contexts, background operations, and the
 // prompts that protect running operations.

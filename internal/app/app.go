@@ -172,16 +172,28 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		return m, m.startOp(r.Origin, inner)
 
 	case appmsg.RequestConfirmMsg:
-		if !m.nav.IsCurrent(r.Origin) {
-			if !m.nav.Contains(r.Origin) {
-				eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
-				return m, nil
-			}
+		if !m.nav.Contains(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
+			return m, nil
+		}
+		var why string
+		switch {
+		case !m.nav.IsCurrent(r.Origin):
 			// A prompt over another view would be confusing, but the
 			// user must learn that the view needs an answer.
-			return m.skippedPrompt(r.Origin.Title() + " needs an answer, but it is not on top: " + inner.Message)
+			why = r.Origin.Title() + " needs an answer, but it is not on top: "
+		case m.confirm.Visible() || m.picker.Visible():
+			// Never replace an open prompt: the key meant for it, such
+			// as y to quit, would then answer this one.
+			why = "Not asked, another prompt is open: "
+		default:
+			return m.Update(inner)
 		}
-		return m.Update(inner)
+		m, toastCmd := m.skippedPrompt(why + inner.Message)
+		// A question that was not asked counts as a no, so the view
+		// forgets the action that waits for the answer.
+		decline := m.nav.UpdateView(r.Origin, ui.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
+		return m, tea.Batch(toastCmd, decline)
 
 	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
 		appmsg.RequestFormMsg, appmsg.FormResultMsg,
@@ -513,9 +525,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case confirmSessionSwitch:
 			change := m.pendingSession
 			m.pendingSession = nil
-			if msg.Confirmed && change != nil {
+			if change == nil {
+				return m, nil
+			}
+			if msg.Confirmed {
 				return m.switchSession(change.profile, change.region, change.kind, change.value)
 			}
+			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", change.kind, change.value)
 			return m, nil
 		}
 		if msg.Action == "theme_switch" {
@@ -1075,7 +1091,6 @@ func (m *Model) showProfilePicker() tea.Cmd {
 }
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
-	eventlog.Infof(eventlog.CatConfig, "Profile changed → %s", profile)
 	return m.requestSessionSwitch(sessionChange{profile, m.config.AWS.Region, "Profile", profile})
 }
 
@@ -1090,8 +1105,20 @@ func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 	m.pendingSession = &c
 	m.confirm.ShowQuick(fmt.Sprintf(
 		"%s running on %s. %s in the background. Switch the %s to %s?",
-		countOps(n), m.sessionLabel(), keepWord(n), strings.ToLower(c.kind), c.value), confirmSessionSwitch)
+		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value), confirmSessionSwitch)
 	return m, nil
+}
+
+// opsSessions names the sessions that the running operations use. After
+// an earlier switch, they can differ from the current session.
+func (m Model) opsSessions() string {
+	var names []string
+	for _, op := range m.ops.Running() {
+		if !slices.Contains(names, op.Session) {
+			names = append(names, op.Session)
+		}
+	}
+	return strings.Join(names, ", ")
 }
 
 // requestQuit quits at once when no operation runs. Otherwise it asks
@@ -1150,6 +1177,7 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 		_, cmd := m.toasts.Add(fmt.Sprintf("Cannot switch %s to %s: %v", strings.ToLower(kind), value, err), ui.ToastError, 0)
 		return m, cmd
 	}
+	eventlog.Infof(eventlog.CatConfig, "%s changed → %s", kind, value)
 	m.config.AWS.Profile = profile
 	m.config.AWS.Region = region
 	m.svc, m.svcErr = svc, nil
@@ -1229,7 +1257,6 @@ func (m *Model) showRegionPicker() {
 }
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
-	eventlog.Infof(eventlog.CatConfig, "Region changed → %s", region)
 	return m.requestSessionSwitch(sessionChange{m.config.AWS.Profile, region, "Region", region})
 }
 

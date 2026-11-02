@@ -172,6 +172,10 @@ func (a *AMIList) fetchSearch(query string) tea.Cmd {
 	ctx := a.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Searching AMIs: %q", query)
+		// No overall limit: SearchAMIs reads at most 20 pages of the public
+		// catalog, which can take longer than listTimeout for a rare name.
+		// The read timeout of the client still stops a stalled page, and
+		// leaving the view cancels the search.
 		amis, err := svc.SearchAMIs(ctx, query)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "searching AMIs"}

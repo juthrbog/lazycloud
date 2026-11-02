@@ -39,7 +39,7 @@ The navigator tags each command that a view returns (`nav.Tag`). The result of t
 - If the origin view is gone, the app drops the message. A view is gone when it was popped, or when a profile, region, theme, or `:home` switch built a new navigator. So results from the old session never reach the new views.
 - A result message that implements `msg.Outcome` is not dropped. When its view is gone, the app writes `Outcome()` to the event log and shows it as a toast. Mutations and background operations use this, so the user always learns their result.
 - `msg.StartOpMsg` starts a background operation, also when its view is gone by now. See [Background Operations](#background-operations).
-- Navigation, overlays, and the side panel (`NavigateMsg`, `RequestConfirmMsg`, `TabbedContentMsg`, and similar) take effect only when the origin view is on top. A late result cannot move the user or open a dialog over another view. A `RequestConfirmMsg` that the app cannot show, because its view is not on top or another prompt is open, becomes a toast. It never replaces an open prompt.
+- Navigation, overlays, and the side panel (`NavigateMsg`, `RequestConfirmMsg`, `TabbedContentMsg`, and similar) take effect only when the origin view is on top. A late result cannot move the user or open a dialog over another view. A `RequestConfirmMsg` that the app cannot show, because its view is not on top or another prompt is open, becomes a toast, and the view gets a `ConfirmResultMsg` with `Confirmed: false`. It never replaces an open prompt. Give each question that can come late its own action, so an answer runs only what it asked about (see `askOverwrite`).
 - Toasts always show.
 - An `ErrorMsg` goes to the origin view. The status bar shows the error only while that view is on top. The app does not show an error that is `context.Canceled`. For a timeout, it shows "no answer from AWS in time".
 
@@ -70,7 +70,7 @@ An SQS peek runs detached, because a peek that stops after the receive, and befo
 
 ### Background Operations
 
-A long operation, such as an S3 download, copy, move, object delete, bucket delete, or the watch of an SQS redrive, runs in the background. It goes on when the user leaves its view or switches the profile or the region.
+A long operation, such as an S3 download, copy, move, object delete, bucket delete, or an SQS redrive (the start and the watch), runs in the background. It goes on when the user leaves its view or switches the profile or the region.
 
 - The view returns `msg.StartOpMsg{Label, Run}`. The app registers the operation in `ops.Registry` on the event loop, then calls `Run` in a command with the operation's context. Because the registration happens before the command runs, the prompts below always see an operation that the user started.
 - The result of `Run` goes back to the view. When the view is gone, the app shows the result's `Outcome()`.

@@ -144,6 +144,7 @@ type s3Transfer struct {
 	mode   string // "copy" or "move"
 	srcKey string
 	dstKey string
+	action string // the confirm action of its question
 }
 
 // s3TableEntry tracks whether a table row is a folder or object.
@@ -207,6 +208,7 @@ type S3Objects struct {
 	copyMode             string    // "copy" or "move", empty when inactive
 	copySrcKey           string    // source key for copy/move
 	pendingOverwrite     *s3Transfer
+	overwriteSeq         int // numbers the replace questions; see askOverwrite
 	loading              bool
 	loadGen              int // generation of the current full load; see startLoad
 	pageNum              int
@@ -507,21 +509,42 @@ func homeRelative(p string) string {
 }
 
 // askOverwrite asks before a copy or move replaces an object that exists.
+//
+// Copies run in the background, so two can end with "exists" while one
+// question is open. Each question has its own action, and an answer runs
+// only the transfer it asked about. A second conflict while a question is
+// open is not asked: it is reported, and nothing is replaced.
 func (s *S3Objects) askOverwrite(mode, srcKey, dstKey string) tea.Cmd {
-	s.pendingOverwrite = &s3Transfer{mode: mode, srcKey: srcKey, dstKey: dstKey}
+	if s.pendingOverwrite != nil {
+		verb := "copied"
+		if mode == "move" {
+			verb = "moved"
+		}
+		text := fmt.Sprintf("Not %s: s3://%s/%s exists (another replace question is open)", verb, s.bucket, dstKey)
+		return func() tea.Msg { return msg.ToastError(text) }
+	}
+	s.overwriteSeq++
+	action := fmt.Sprintf("%s%d", overwriteAction, s.overwriteSeq)
+	s.pendingOverwrite = &s3Transfer{mode: mode, srcKey: srcKey, dstKey: dstKey, action: action}
 	message := fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, ui.Sanitize(dstKey), ui.Sanitize(path.Base(srcKey)))
 	return func() tea.Msg {
-		return msg.RequestConfirmMsg{Message: message, Action: "s3_overwrite"}
+		return msg.RequestConfirmMsg{Message: message, Action: action}
 	}
 }
+
+// overwriteAction is the prefix of the confirm action of a replace question.
+const overwriteAction = "s3_overwrite:"
 
 func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.ConfirmResultMsg:
-		if m.Action == "s3_overwrite" {
+		if strings.HasPrefix(m.Action, overwriteAction) {
 			t := s.pendingOverwrite
+			if t == nil || t.action != m.Action {
+				return s, nil // the answer to a question that is not open
+			}
 			s.pendingOverwrite = nil
-			if m.Confirmed && t != nil {
+			if m.Confirmed {
 				return s, s.transfer(t.mode, t.srcKey, t.dstKey, true)
 			}
 			return s, nil

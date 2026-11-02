@@ -52,6 +52,19 @@ func newHTTPClient(read time.Duration) *awshttp.BuildableClient {
 		WithReadTimeout(read)
 }
 
+// copyClient returns the HTTP client for S3 copy calls. It starts from the
+// client that the SDK resolved, so it keeps settings such as a custom CA
+// bundle (ca_bundle or AWS_CA_BUNDLE), and changes only the timeouts.
+func copyClient(resolved aws.HTTPClient) *awshttp.BuildableClient {
+	bc, ok := resolved.(*awshttp.BuildableClient)
+	if !ok {
+		return newHTTPClient(copyReadTimeout)
+	}
+	return bc.
+		WithTransportOptions(func(t *http.Transport) { t.IdleConnTimeout = copyReadTimeout / 2 }).
+		WithReadTimeout(copyReadTimeout)
+}
+
 // Client holds shared AWS configuration.
 type Client struct {
 	Config  aws.Config
@@ -100,7 +113,7 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 		Profile:  profile,
 		Region:   cfg.Region,
 		Endpoint: endpoint,
-		copyHTTP: newHTTPClient(copyReadTimeout),
+		copyHTTP: copyClient(cfg.HTTPClient),
 	}, nil
 }
 

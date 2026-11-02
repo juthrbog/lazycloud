@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -264,9 +265,22 @@ func TestSQSMessages_RedriveAsksFirst(t *testing.T) {
 	assert.Nil(t, cmd)
 	m.AssertNotCalled(t, "StartMessageMoveTask", mock.Anything, mock.Anything, mock.Anything)
 
+	// One background operation starts the task and follows it to its end.
+	old := redrivePollInterval
+	redrivePollInterval = time.Millisecond
+	defer func() { redrivePollInterval = old }()
+	m.On("ListMessageMoveTasks", mock.Anything, "arn:aws:sqs:us-east-1:123:orders").Return([]aws.MessageMoveTask{
+		{Status: "COMPLETED", ApproximateNumberOfMsgsMoved: 4},
+		{Status: "FAILED"}, // an older task does not decide
+	}, nil)
 	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_redrive"})
-	started, ok := firstOfType[sqsRedriveStartedMsg](collectMsgs(cmd))
+	assert.True(t, view.redriving)
+	done, ok := firstOfType[sqsRedriveDoneMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.Equal(t, "h1", started.taskHandle)
+	assert.Equal(t, "COMPLETED", done.status)
+	assert.Equal(t, int64(4), done.moved)
 	m.AssertNumberOfCalls(t, "StartMessageMoveTask", 1)
+
+	view.Update(done)
+	assert.False(t, view.redriving, "the spinner stops")
 }

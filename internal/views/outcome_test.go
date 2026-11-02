@@ -52,10 +52,13 @@ func TestRedriveEnd(t *testing.T) {
 	_, done := redriveEnd("dlq", []aws.MessageMoveTask{{Status: "RUNNING"}})
 	assert.False(t, done, "a running task goes on")
 
-	end, done := redriveEnd("dlq", []aws.MessageMoveTask{{Status: "CANCELLING"}, {Status: "COMPLETED", ApproximateNumberOfMsgsMoved: 5}})
+	_, done = redriveEnd("dlq", []aws.MessageMoveTask{{Status: "CANCELLING"}, {Status: "COMPLETED", ApproximateNumberOfMsgsMoved: 5}})
+	assert.False(t, done, "only the newest task decides; CANCELLING still runs")
+
+	end, done := redriveEnd("dlq", []aws.MessageMoveTask{{Status: "FAILED", FailureReason: "AccessDenied"}, {Status: "COMPLETED"}})
 	require.True(t, done)
-	assert.Equal(t, "COMPLETED", end.status, "a state that is not known is skipped")
-	assert.Equal(t, int64(5), end.moved)
+	assert.Equal(t, "FAILED", end.status)
+	assert.Equal(t, "AccessDenied", end.reason)
 
 	end, done = redriveEnd("dlq", nil)
 	require.True(t, done, "no task: the watch ends")

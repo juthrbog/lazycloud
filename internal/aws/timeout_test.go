@@ -2,6 +2,8 @@ package aws
 
 import (
 	"context"
+	"encoding/pem"
+	"os"
 
 	"fmt"
 	"io"
@@ -60,6 +62,40 @@ func TestHTTPClientSettings(t *testing.T) {
 		"a pooled connection must leave a new request at least half the read timeout")
 	assert.Equal(t, dialTimeout, c.GetDialer().Timeout)
 	assert.Equal(t, time.Duration(0), c.GetTimeout(), "no limit on the whole request: it would stop long downloads")
+}
+
+// The S3 copy calls use their own HTTP client. It must keep a custom CA
+// bundle, or a copy through a TLS proxy with a private CA fails.
+func TestCopyClientKeepsTheCABundle(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodHead && strings.HasSuffix(r.URL.Path, "/src"):
+			w.Header().Set("Content-Length", "3")
+		case r.Method == http.MethodHead:
+			w.WriteHeader(http.StatusNotFound)
+		case r.Method == http.MethodPut && r.Header.Get("X-Amz-Copy-Source") != "":
+			_, _ = io.WriteString(w, `<CopyObjectResult><ETag>"e"</ETag></CopyObjectResult>`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	dir := t.TempDir()
+	caFile := filepath.Join(dir, "ca.pem")
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	require.NoError(t, os.WriteFile(caFile, pemBytes, 0o600))
+	t.Setenv("AWS_CA_BUNDLE", caFile)
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+
+	c, err := NewClient("", "us-east-1", srv.URL)
+	require.NoError(t, err)
+	require.NoError(t, NewS3Service(c).CopyObject(t.Context(), "b", "src", "b", "dst", false))
 }
 
 func TestReadTimeoutStopsAStalledCall(t *testing.T) {

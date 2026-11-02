@@ -66,31 +66,21 @@ func (m sqsMessageDeletedMsg) Outcome() msg.ToastMsg {
 	return msg.ToastError(text)
 }
 
-type sqsRedriveStartedMsg struct {
-	taskHandle string
-	err        error
-}
-
-// Outcome implements msg.Outcome.
-func (m sqsRedriveStartedMsg) Outcome() msg.ToastMsg {
-	if m.err != nil {
-		return msg.ToastError("Redrive failed: " + m.err.Error())
-	}
-	return msg.ToastSuccess("Redrive started")
-}
-
-// sqsRedriveDoneMsg ends the watch of a redrive (see watchRedrive).
+// sqsRedriveDoneMsg ends a redrive operation (see startRedrive).
 type sqsRedriveDoneMsg struct {
-	queue  string // the DLQ name
-	status string // COMPLETED, FAILED, CANCELLED, or "" when no task is listed
-	moved  int64
-	reason string // why the task failed
-	err    error  // the watch failed; the task itself goes on in SQS
+	queue    string // the DLQ name
+	startErr error  // SQS did not start the task
+	status   string // COMPLETED, FAILED, CANCELLED, or "" when no task is listed
+	moved    int64
+	reason   string // why the task failed
+	err      error  // the watch failed; the task itself goes on in SQS
 }
 
 // Outcome implements msg.Outcome.
 func (m sqsRedriveDoneMsg) Outcome() msg.ToastMsg {
 	switch {
+	case m.startErr != nil:
+		return msg.ToastError("Redrive failed: " + m.startErr.Error())
 	case m.err != nil:
 		return msg.ToastError(fmt.Sprintf("Lost track of the redrive of %s (%v). SQS goes on with it.", m.queue, m.err))
 	case m.status == "COMPLETED":
@@ -102,7 +92,8 @@ func (m sqsRedriveDoneMsg) Outcome() msg.ToastMsg {
 }
 
 // redrivePollInterval is the time between two status reads of a redrive.
-const redrivePollInterval = 2 * time.Second
+// It is a variable so that tests can make it short.
+var redrivePollInterval = 2 * time.Second
 
 // ─── Key map ────────────────────────────────────────────────────────────────
 
@@ -347,28 +338,22 @@ func (s *SQSMessages) peekWarnings(m sqsMessagesLoadedMsg) []tea.Cmd {
 }
 
 // startRedrive moves the messages of this DLQ back to their source queues.
+// One background operation starts the task and follows it until SQS
+// reports an end, so the user learns the result also after leaving the
+// view. The task itself runs in SQS.
 func (s *SQSMessages) startRedrive() tea.Cmd {
-	arn := s.queueARN
-	svc := s.sqs
-	ctx := s.viewContext()
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
-		ctx, cancel := detached(ctx)
-		defer cancel()
-		handle, err := svc.StartMessageMoveTask(ctx, arn, "")
-		return sqsRedriveStartedMsg{taskHandle: handle, err: err}
-	}
-}
-
-// watchRedrive follows a redrive in a background operation until SQS
-// reports an end. The task runs in SQS, so the watch only reports the
-// result, also when the user has left the view.
-func (s *SQSMessages) watchRedrive() tea.Cmd {
 	svc := s.sqs
 	arn := s.queueARN
 	name := s.queueName
 	return func() tea.Msg {
 		return msg.StartOpMsg{Label: "Redrive " + name, Run: func(ctx context.Context) tea.Msg {
+			eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
+			sctx, cancel := context.WithTimeout(ctx, mutateTimeout)
+			_, err := svc.StartMessageMoveTask(sctx, arn, "")
+			cancel()
+			if err != nil {
+				return sqsRedriveDoneMsg{queue: name, startErr: err}
+			}
 			t := time.NewTicker(redrivePollInterval)
 			defer t.Stop()
 			for {
@@ -391,23 +376,25 @@ func (s *SQSMessages) watchRedrive() tea.Cmd {
 	}
 }
 
-// redriveEnd returns the end of a redrive, or false while it runs. The
-// newest task decides; a task in a state that is not known is skipped.
+// redriveEnd returns the end of a redrive, or false while it runs. SQS
+// lists the newest task first, and only that task decides: an older task
+// must not report its result for this one. Any state that is not an end,
+// such as RUNNING or CANCELLING, means the task still runs.
 func redriveEnd(queue string, tasks []aws.MessageMoveTask) (sqsRedriveDoneMsg, bool) {
-	for _, task := range tasks {
-		switch task.Status {
-		case "COMPLETED", "FAILED", "CANCELLED":
-			return sqsRedriveDoneMsg{
-				queue:  queue,
-				status: task.Status,
-				moved:  task.ApproximateNumberOfMsgsMoved,
-				reason: task.FailureReason,
-			}, true
-		case "RUNNING":
-			return sqsRedriveDoneMsg{}, false
-		}
+	if len(tasks) == 0 {
+		return sqsRedriveDoneMsg{queue: queue}, true
 	}
-	return sqsRedriveDoneMsg{queue: queue}, true
+	task := tasks[0]
+	switch task.Status {
+	case "COMPLETED", "FAILED", "CANCELLED":
+		return sqsRedriveDoneMsg{
+			queue:  queue,
+			status: task.Status,
+			moved:  task.ApproximateNumberOfMsgsMoved,
+			reason: task.FailureReason,
+		}, true
+	}
+	return sqsRedriveDoneMsg{}, false
 }
 
 // ─── Update ─────────────────────────────────────────────────────────────────
@@ -447,7 +434,9 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case "sqs_delete_messages":
 			return s, s.deleteSelectedMessages()
 		case "sqs_redrive":
-			return s, s.startRedrive()
+			s.redriving = true
+			s.spinner.Show("Redrive in progress...")
+			return s, tea.Batch(s.spinner.Tick(), s.startRedrive())
 		}
 		return s, nil
 
@@ -513,17 +502,6 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		eventlog.Infof(eventlog.CatAWS, "Deleted %d SQS messages", len(deleted))
 		toast := m.Outcome()
 		return s, func() tea.Msg { return toast }
-
-	case sqsRedriveStartedMsg:
-		toast := m.Outcome()
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "Redrive failed: %v", m.err)
-			return s, func() tea.Msg { return toast }
-		}
-		eventlog.Infof(eventlog.CatAWS, "Redrive started")
-		s.redriving = true
-		s.spinner.Show("Redrive in progress...")
-		return s, tea.Batch(s.spinner.Tick(), s.watchRedrive(), func() tea.Msg { return toast })
 
 	case sqsRedriveDoneMsg:
 		s.redriving = false
