@@ -21,7 +21,11 @@ internal/eventlog/      Thread-safe ring buffer for in-app event logging. See do
 
 ### Navigator (View Stack)
 
-Views are pushed onto a stack when drilling into resources and popped on `esc`. Each view implements the `nav.View` interface (`ID()`, `Title()`, `KeyMap()`). Views are cached by ID so navigating back preserves scroll position and filter state.
+Views are pushed onto a stack when drilling into resources and popped on `esc`. Each view implements the `nav.View` interface (`ID()`, `Title()`, `KeyMap()`). Going back shows the view below, which never left the stack, so it keeps its scroll position and filter state.
+
+A view that leaves the stack is gone. The navigator does not keep it. When the user opens the same resource again, the app builds a new view, which loads its data again.
+
+Each view on the stack has its own context. If the view implements `nav.ContextSetter`, the navigator gives it the context before `Init`. The navigator cancels the context when the view leaves the stack, and `Close()` cancels the contexts of all views when the app replaces the navigator. See [AWS Calls](#aws-calls-time-limits-and-cancel).
 
 ### Message Flow
 
@@ -31,11 +35,13 @@ All side effects (AWS API calls, clipboard, file I/O) happen in `tea.Cmd` gorout
 
 The navigator tags each command that a view returns (`nav.Tag`). The result of the command reaches the app as `nav.Routed{Origin, Msg}`. The app delivers it by these rules:
 
-- A view message, for example a page of results, goes to the origin view. This is also true when the user has navigated away from the view. The view keeps loading in the background and shows its results when the user comes back.
-- If the origin view no longer exists, the app drops the message. A profile, region, theme, or `:home` switch builds a new navigator, so results from the old session never reach the new views.
-- Navigation, overlays, and the side panel (`NavigateMsg`, `RequestConfirmMsg`, `TabbedContentMsg`, and similar) take effect only when the origin view is on top. A late result cannot move the user or open a dialog over another view.
+- A view message, for example a page of results, goes to the origin view while the origin view is on the stack. This is also true when another view is on top of it.
+- If the origin view is gone, the app drops the message. A view is gone when it was popped, or when a profile, region, theme, or `:home` switch built a new navigator. So results from the old session never reach the new views.
+- A result message that implements `msg.Outcome` is not dropped. When its view is gone, the app writes `Outcome()` to the event log and shows it as a toast. Mutations and background operations use this, so the user always learns their result.
+- `msg.StartOpMsg` starts a background operation, also when its view is gone by now. See [Background Operations](#background-operations).
+- Navigation, overlays, and the side panel (`NavigateMsg`, `RequestConfirmMsg`, `TabbedContentMsg`, and similar) take effect only when the origin view is on top. A late result cannot move the user or open a dialog over another view. A `RequestConfirmMsg` that the app cannot show, because its view is not on top or another prompt is open, becomes a toast. It never replaces an open prompt.
 - Toasts always show.
-- An `ErrorMsg` goes to the origin view. The status bar shows the error only while that view is on top.
+- An `ErrorMsg` goes to the origin view. The status bar shows the error only while that view is on top. The app does not show an error that is `context.Canceled`. For a timeout, it shows "no answer from AWS in time".
 
 Bubble Tea runtime messages (batches, exec, clipboard, quit) pass through `nav.Tag` unwrapped, because the runtime must handle them. For a batch, each inner command is tagged.
 
@@ -43,7 +49,33 @@ Follow these rules when you write a view:
 
 - Do not assume that the view on top receives the result of your command. The result goes to the view that started the command.
 - For a paginated list, give each full load a generation. Put the generation in each page message, and drop pages from an older load. See `startLoad` in `internal/views/ec2_list.go`. Without a generation, a refresh during a load duplicates rows.
-- The navigator calls `Init` each time it shows a cached view. If a load is already running, do not start a second one.
+- Give each result message of a mutation or an operation an `Outcome()` that needs no view state. Put the data it needs, for example the bucket name, in the message.
+
+### AWS Calls: Time Limits and Cancel
+
+Each AWS call has a time limit, and a call that the user no longer needs stops.
+
+The HTTP client of each session (`internal/aws/client.go`) fails a connection that cannot connect in 10 seconds, and a read that gets no data for 60 seconds. This is a limit on silence, not on the whole request, so a long download that still receives data goes on. S3 copy calls get 10 minutes of silence, because S3 can work that long before it answers. The retry count is the SDK default (3 attempts), or the user's `max_attempts` or `AWS_MAX_ATTEMPTS`.
+
+Views embed `viewCtx` (`internal/views/context.go`) and choose a context for each call:
+
+| Kind of call | Context | Example |
+|---|---|---|
+| Load or describe | `context.WithTimeout(ctx, callTimeout)` (30 s), or `listTimeout` (2 min) for a call that reads all pages. Leaving the view cancels it. | `ListInstancesPage`, `HeadObject` |
+| Short change | `detached(ctx)`: 1 min, and leaving the view does not cancel it. | Start instances, send a message |
+| Long operation | `msg.StartOpMsg`. No time limit except the silence limit. Only quitting cancels it. | Download, copy, bucket delete |
+| Interactive program | None. The user ends it. | SSM session, `$EDITOR` |
+
+An SQS peek runs detached, because a peek that stops after the receive, and before it makes the messages visible again, would hide them from consumers.
+
+### Background Operations
+
+A long operation, such as an S3 download, copy, move, object delete, bucket delete, or the watch of an SQS redrive, runs in the background. It goes on when the user leaves its view or switches the profile or the region.
+
+- The view returns `msg.StartOpMsg{Label, Run}`. The app registers the operation in `ops.Registry` on the event loop, then calls `Run` in a command with the operation's context. Because the registration happens before the command runs, the prompts below always see an operation that the user started.
+- The result of `Run` goes back to the view. When the view is gone, the app shows the result's `Outcome()`.
+- A profile or region switch while operations run asks first. The operations keep the old session and go on.
+- Quitting while operations run asks first, because it cancels them. A second `ctrl+c` quits without the answer. After the program ends, `main` cancels the operations on every way out and waits up to 5 seconds, so a cancelled download can remove its partial file.
 
 ### Table Rows and Selection
 
@@ -113,8 +145,9 @@ Rules for view code:
 A session is one profile and one region. `aws.NewServices` builds its client and its guarded services into one `aws.Services` value, and the app keeps it in `m.svc`. The app builds every session through this function: at startup and in `switchSession()`, which handles both a profile switch and a region switch.
 
 - If the client cannot be built at startup, for example because the profile does not exist, the app starts without a session. Home shows the error, and the app opens no AWS view until a switch succeeds. The event log still opens.
+- If background operations run, the app asks before it switches. They keep running with the old session after the switch.
 - If a switch fails, nothing changes. The old session, the views, and the configuration stay, and a toast shows the error.
-- If a switch succeeds, `resetNav()` builds a new navigator with a new home view. It closes the panel and clears the stashed panel, the cross-navigation history, and the error. Then the app opens the service view that was on top again. `topLevelViewID()` finds it: the nearest view under the top of the stack that is a service view in the registry.
+- If a switch succeeds, `resetNav()` cancels the contexts of the old views and builds a new navigator with a new home view. It closes the panel and clears the stashed panel, the cross-navigation history, and the error. Then the app opens the service view that was on top again. `topLevelViewID()` finds it: the nearest view under the top of the stack that is a service view in the registry.
 
 A theme switch and `:home` also call `resetNav()`. Each time Home is shown again, the app calls its `Init()`. This starts a new chain of animation ticks with a new generation, and Home ignores the frames of older chains.
 
@@ -286,7 +319,7 @@ The root model collects actions from: global bindings + current view + focused U
 
 - **Lazy loading**: Don't fetch resources for services the user hasn't visited. Only call AWS APIs when a view is first pushed onto the nav stack (via `Init()`)
 - **Pagination**: Continue the existing pattern (S3 fetches 1000/page with progressive UI updates). Apply the same to EC2 DescribeInstances, Lambda ListFunctions, etc.
-- **Cache invalidation**: A profile, region, or theme switch and `:home` build a new navigator in `resetNav()`, so no cached view survives them. Add TTL-based staleness detection: if a cached view is older than 60s, show a subtle "stale" indicator and auto-refresh on focus
+- **Cache invalidation**: A profile, region, or theme switch and `:home` build a new navigator in `resetNav()`, and a popped view is not kept. A view on the stack keeps its data. Add TTL-based staleness detection: if a view on the stack is older than 60s, show a subtle "stale" indicator and auto-refresh on focus
 - **Background refresh**: When a list view regains focus, trigger a non-blocking refresh. Show the cached data immediately, then update when fresh data arrives (optimistic UI)
 
 ### Terminal Size Adaptation

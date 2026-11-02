@@ -58,6 +58,10 @@ func TestFeaturePickerResultNavigatesToView(t *testing.T) {
 
 **When to use:** For flows that span multiple Update cycles — navigation, async data loading, toast dismiss chains, command bar execution.
 
+**Background operations:** a command that starts a long operation returns `msg.StartOpMsg`, not the result. In app tests, `runOp(t, m, cmd)` delivers it as the runtime does and returns the command that runs the operation. In view tests, `collectMsgs` runs the operation at once.
+
+**Contexts:** to test that a call stops or goes on when the user leaves a view, give the mock a `.Run` that records `a.Get(0).(context.Context)`. For a call that must stop, block on `ctx.Done()` and run the command in its own goroutine, because `collectMsgs` in `internal/app` gives up after 300 ms. See `internal/app/ops_test.go`.
+
 **Examples:** `internal/app/app_test.go` (`TestFeaturePickerResultNavigatesToView`, `TestCommandBarResultNavigates`)
 
 ### Tier 3: teatest E2E Tests

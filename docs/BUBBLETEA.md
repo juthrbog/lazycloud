@@ -62,8 +62,8 @@ Navigation uses a stack-based approach via the `nav.Navigator` struct:
 - Navigating into a resource pushes a new model onto the stack
 - Pressing `Esc` or backspace pops the current model, returning to the previous view
 - The top of the stack is the "current" model that receives input and is rendered
-- Models are created dynamically on demand and cached by `ID()` so that going back and forward doesn't re-fetch data unnecessarily
-- `ClearCache()` invalidates cached views when profile or region changes
+- Models are created on demand. Going back shows the view below, which keeps its data; opening a resource again builds a new view
+- Each view gets a context that the navigator cancels when the view leaves the stack (see ARCHITECTURE.md)
 
 All navigable views implement the `nav.View` interface:
 
@@ -93,7 +93,7 @@ lazycloud/
 │   │   └── app.go                 # Root model — message router + layout compositor
 │   │
 │   ├── nav/
-│   │   └── navigator.go           # Model stack with push/pop/cache
+│   │   └── navigator.go           # Model stack with push/pop and view contexts
 │   │
 │   ├── registry/
 │   │   └── registry.go            # Shared service + command registry (single source of truth)
