@@ -75,6 +75,11 @@ func (c *Confirm) Hide() {
 	c.input.Blur()
 }
 
+// Action returns the action of the dialog that is shown or was shown last.
+func (c Confirm) Action() string {
+	return c.action
+}
+
 // Visible returns whether the dialog is showing.
 func (c Confirm) Visible() bool {
 	return c.visible

@@ -1,6 +1,7 @@
 package views
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -40,6 +41,10 @@ func collectMsgs(cmd tea.Cmd) []tea.Msg {
 		return nil
 	}
 	res := cmd()
+	if op, ok := res.(msg.StartOpMsg); ok {
+		// Run a background operation as the app would.
+		return []tea.Msg{op.Run(context.Background())}
+	}
 	batch, ok := res.(tea.BatchMsg)
 	if !ok {
 		return []tea.Msg{res}

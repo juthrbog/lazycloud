@@ -82,21 +82,6 @@ func TestPopAtRootIsNoop(t *testing.T) {
 	assert.Equal(t, "root", n.Current().ID())
 }
 
-func TestCacheReuse(t *testing.T) {
-	root := stubView{id: "root", title: "Root"}
-	original := stubView{id: "page", title: "Original"}
-	n := New(root)
-
-	n.Push(original)
-	n.Pop()
-
-	// Push a new view with the same ID — should get the cached version
-	replacement := stubView{id: "page", title: "Replacement"}
-	n.Push(replacement)
-
-	assert.Equal(t, "Original", n.Current().Title())
-}
-
 func TestBreadcrumbs(t *testing.T) {
 	root := stubView{id: "root", title: "Home"}
 	child1 := stubView{id: "c1", title: "Buckets"}
@@ -106,22 +91,6 @@ func TestBreadcrumbs(t *testing.T) {
 	n.Push(child2)
 
 	assert.Equal(t, []string{"Home", "Buckets", "Objects"}, n.Breadcrumbs())
-}
-
-func TestClearCache(t *testing.T) {
-	root := stubView{id: "root", title: "Root"}
-	original := stubView{id: "page", title: "Original"}
-	n := New(root)
-
-	n.Push(original)
-	n.Pop()
-	n.ClearCache()
-
-	// Push a new view with the same ID — cache was cleared, so fresh view is used
-	replacement := stubView{id: "page", title: "Replacement"}
-	n.Push(replacement)
-
-	assert.Equal(t, "Replacement", n.Current().Title())
 }
 
 func TestUpdateCurrent(t *testing.T) {

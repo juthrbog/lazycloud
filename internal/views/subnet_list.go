@@ -47,6 +47,7 @@ var defaultSubnetListKeyMap = subnetListKeyMap{
 
 // SubnetList displays EC2 subnets, optionally filtered by VPC.
 type SubnetList struct {
+	viewCtx
 	keys         subnetListKeyMap
 	ec2          aws.EC2Service
 	table        ui.Table
@@ -143,11 +144,6 @@ func (s *SubnetList) Init() tea.Cmd {
 	if !s.loading {
 		return nil
 	}
-	if s.loadGen > 0 {
-		// A load is already running. Its pages reach this view even while
-		// it is hidden, so restarting would only duplicate rows.
-		return s.spinner.Tick()
-	}
 	return s.startLoad()
 }
 
@@ -163,12 +159,15 @@ func (s *SubnetList) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := s.ec2
 	vpcID := s.vpcID
 	gen := s.loadGen
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching subnets (page %d)", pageNum)
-		page, err := svc.ListSubnetsPage(context.Background(), token, vpcID)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		page, err := svc.ListSubnetsPage(ctx, token, vpcID)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing subnets"}
 		}

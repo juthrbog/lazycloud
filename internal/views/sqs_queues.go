@@ -52,6 +52,15 @@ type sqsQueuePurgedMsg struct {
 	failed []itemFailure
 }
 
+// Outcome implements msg.Outcome.
+func (m sqsQueuePurgedMsg) Outcome() msg.ToastMsg {
+	text, ok := resultText("Purged", len(m.done)+len(m.failed), "queue(s)", m.failed)
+	if ok {
+		return msg.ToastSuccess(text + " (60s cooldown before the next purge)")
+	}
+	return msg.ToastError(text)
+}
+
 // sqsQueueDeletedMsg reports a delete of several queues. Each queue is
 // tried, also after an earlier one fails.
 type sqsQueueDeletedMsg struct {
@@ -59,8 +68,25 @@ type sqsQueueDeletedMsg struct {
 	failed []itemFailure
 }
 
+// Outcome implements msg.Outcome.
+func (m sqsQueueDeletedMsg) Outcome() msg.ToastMsg {
+	text, ok := resultText("Deleted", len(m.done)+len(m.failed), "queue(s)", m.failed)
+	if ok {
+		return msg.ToastSuccess(text)
+	}
+	return msg.ToastError(text)
+}
+
 type sqsMessageSentMsg struct {
 	err error
+}
+
+// Outcome implements msg.Outcome.
+func (m sqsMessageSentMsg) Outcome() msg.ToastMsg {
+	if m.err != nil {
+		return msg.ToastError("Send failed: " + m.err.Error())
+	}
+	return msg.ToastSuccess("Message sent")
 }
 
 // ─── Key map ────────────────────────────────────────────────────────────────
@@ -97,6 +123,7 @@ var defaultSQSQueuesKeyMap = sqsQueuesKeyMap{
 
 // SQSQueues displays all SQS queues.
 type SQSQueues struct {
+	viewCtx
 	keys             sqsQueuesKeyMap
 	sqs              aws.SQSService
 	table            ui.Table
@@ -185,11 +212,6 @@ func (s *SQSQueues) Init() tea.Cmd {
 	if !s.loading {
 		return nil
 	}
-	if s.loadGen > 0 {
-		// A load is already running. Its results reach this view even while
-		// it is hidden, so restarting would only duplicate rows.
-		return s.spinner.Tick()
-	}
 	return s.startLoad()
 }
 
@@ -208,9 +230,12 @@ func (s *SQSQueues) startLoad() tea.Cmd {
 func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 	svc := s.sqs
 	gen := s.loadGen
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Debugf(eventlog.CatAWS, "Fetching SQS queues (page %d)", pageNum)
-		page, err := svc.ListQueuesPage(context.Background(), token)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		page, err := svc.ListQueuesPage(ctx, token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing SQS queues"}
 		}
@@ -227,9 +252,12 @@ func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 func (s *SQSQueues) fetchAllAttributes(urls []string) tea.Cmd {
 	svc := s.sqs
 	gen := s.loadGen
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching attributes for %d SQS queues", len(urls))
-		queues, err := svc.FetchAllQueueAttributes(context.Background(), urls)
+		ctx, cancel := context.WithTimeout(ctx, listTimeout)
+		defer cancel()
+		queues, err := svc.FetchAllQueueAttributes(ctx, urls)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "fetching SQS queue attributes"}
 		}
@@ -239,21 +267,27 @@ func (s *SQSQueues) fetchAllAttributes(urls []string) tea.Cmd {
 
 func (s *SQSQueues) refreshQueue(queueURL string) tea.Cmd {
 	svc := s.sqs
+	ctx := s.viewContext()
 	return func() tea.Msg {
-		queue, err := svc.GetQueueAttributes(context.Background(), queueURL)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		queue, err := svc.GetQueueAttributes(ctx, queueURL)
 		return sqsQueueRefreshedMsg{queue: queue, err: err}
 	}
 }
 
 func (s *SQSQueues) fetchQueueDetail(queueURL string) tea.Cmd {
 	svc := s.sqs
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching details for queue: %s", queueURL)
-		queue, err := svc.GetQueueAttributes(context.Background(), queueURL)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		queue, err := svc.GetQueueAttributes(ctx, queueURL)
 		if err != nil {
 			return sqsQueueDetailMsg{err: err}
 		}
-		sourceQueues, _ := svc.ListDeadLetterSourceQueues(context.Background(), queueURL)
+		sourceQueues, _ := svc.ListDeadLetterSourceQueues(ctx, queueURL)
 		return sqsQueueDetailMsg{queue: queue, sourceQueues: sourceQueues}
 	}
 }
@@ -396,13 +430,8 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			eventlog.Errorf(eventlog.CatAWS, "Purge of %s failed: %v", f.name, f.err)
 		}
 		eventlog.Infof(eventlog.CatAWS, "Purged %d queue(s)", len(m.done))
-		text, ok := resultText("Purged", len(m.done)+len(m.failed), "queue(s)", m.failed)
-		cmds := []tea.Cmd{func() tea.Msg {
-			if ok {
-				return msg.ToastSuccess(text + " (60s cooldown before the next purge)")
-			}
-			return msg.ToastError(text)
-		}}
+		toast := m.Outcome()
+		cmds := []tea.Cmd{func() tea.Msg { return toast }}
 		// Re-fetch attributes for just the purged queues.
 		for _, url := range m.done {
 			cmds = append(cmds, s.refreshQueue(url))
@@ -438,25 +467,17 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		// Remove only the deleted queues. The failed ones stay in the list.
 		s.removeQueues(m.done)
 		s.table.DeselectAll()
-		text, ok := resultText("Deleted", len(m.done)+len(m.failed), "queue(s)", m.failed)
-		return s, func() tea.Msg {
-			if ok {
-				return msg.ToastSuccess(text)
-			}
-			return msg.ToastError(text)
-		}
+		toast := m.Outcome()
+		return s, func() tea.Msg { return toast }
 
 	case sqsMessageSentMsg:
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "SendMessage failed: %v", m.err)
-			return s, func() tea.Msg {
-				return msg.ToastError("Send failed: " + m.err.Error())
-			}
+		} else {
+			eventlog.Infof(eventlog.CatAWS, "Message sent")
 		}
-		eventlog.Infof(eventlog.CatAWS, "Message sent")
-		return s, func() tea.Msg {
-			return msg.ToastSuccess("Message sent")
-		}
+		toast := m.Outcome()
+		return s, func() tea.Msg { return toast }
 
 	case sqsQueuesPageMsg:
 		if m.gen != s.loadGen {
@@ -740,11 +761,16 @@ func (s *SQSQueues) queueNames(urls []string) map[string]string {
 func (s *SQSQueues) purgeQueues(urls []string) tea.Cmd {
 	svc := s.sqs
 	names := s.queueNames(urls)
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		var res sqsQueuePurgedMsg
 		for _, url := range urls {
 			eventlog.Infof(eventlog.CatAWS, "Purging queue: %s", url)
-			if err := svc.PurgeQueue(context.Background(), url); err != nil {
+			// One limit per queue, so many queues do not share one minute.
+			qctx, cancel := detached(ctx)
+			err := svc.PurgeQueue(qctx, url)
+			cancel()
+			if err != nil {
 				res.failed = append(res.failed, itemFailure{name: names[url], err: err})
 				continue
 			}
@@ -757,11 +783,15 @@ func (s *SQSQueues) purgeQueues(urls []string) tea.Cmd {
 func (s *SQSQueues) deleteQueues(urls []string) tea.Cmd {
 	svc := s.sqs
 	names := s.queueNames(urls)
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		var res sqsQueueDeletedMsg
 		for _, url := range urls {
 			eventlog.Infof(eventlog.CatAWS, "Deleting queue: %s", url)
-			if err := svc.DeleteQueue(context.Background(), url); err != nil {
+			qctx, cancel := detached(ctx)
+			err := svc.DeleteQueue(qctx, url)
+			cancel()
+			if err != nil {
 				res.failed = append(res.failed, itemFailure{name: names[url], err: err})
 				continue
 			}
@@ -782,9 +812,12 @@ func (s *SQSQueues) sendMessage(queueURL string, values map[string]string) tea.C
 	}
 	groupID := values["group_id"]
 	dedupID := values["dedup_id"]
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Sending message to %s", queueURL)
-		err := svc.SendMessage(context.Background(), queueURL, body, delay, groupID, dedupID)
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.SendMessage(ctx, queueURL, body, delay, groupID, dedupID)
 		return sqsMessageSentMsg{err: err}
 	}
 }

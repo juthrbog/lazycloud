@@ -48,32 +48,94 @@ type s3PresignedURLMsg struct {
 	key string
 }
 
-type s3DeleteResolvedMsg struct {
-	bucket string // bucket the keys were resolved in
-	keys   []string
+// s3DeleteCompleteMsg reports an object delete: the folder expansion and
+// the delete itself, which run as one background operation.
+type s3DeleteCompleteMsg struct {
+	bucket string
+	prefix string // the folder the view showed; failed keys are shown without it
+	count  int    // keys found, including the ones in selected folders
+	err    error
 }
 
-type s3DeleteCompleteMsg struct {
-	count int
-	err   error
+// failures returns the keys that were not deleted, without the prefix.
+func (m s3DeleteCompleteMsg) failures() []itemFailure {
+	var delErr *aws.DeleteObjectsError
+	if !errors.As(m.err, &delErr) {
+		return nil
+	}
+	out := make([]itemFailure, 0, len(delErr.Failed))
+	for _, f := range delErr.Failed {
+		out = append(out, itemFailure{name: strings.TrimPrefix(f.Key, m.prefix), err: errors.New(f.Code)})
+	}
+	return out
+}
+
+// Outcome implements msg.Outcome.
+func (m s3DeleteCompleteMsg) Outcome() msg.ToastMsg {
+	var delErr *aws.DeleteObjectsError
+	switch {
+	case m.err != nil && !errors.As(m.err, &delErr):
+		return msg.ToastError(fmt.Sprintf("Delete in s3://%s/%s failed: %v", m.bucket, m.prefix, m.err))
+	case m.count == 0:
+		return msg.ToastError("No objects found to delete")
+	}
+	text, ok := resultText("Deleted", m.count, "object(s)", m.failures())
+	if ok {
+		return msg.ToastSuccess(text)
+	}
+	return msg.ToastError(text)
 }
 
 type s3DownloadCompleteMsg struct {
-	key  string
-	path string
-	err  error
+	bucket string
+	key    string
+	path   string
+	err    error
+}
+
+// Outcome implements msg.Outcome.
+func (m s3DownloadCompleteMsg) Outcome() msg.ToastMsg {
+	if m.err != nil {
+		return msg.ToastError(fmt.Sprintf("Download of s3://%s/%s failed: %v", m.bucket, m.key, m.err))
+	}
+	return msg.ToastSuccess("Downloaded → " + homeRelative(m.path))
 }
 
 type s3CopyCompleteMsg struct {
+	bucket string
 	srcKey string
 	dstKey string
 	err    error
 }
 
+// Outcome implements msg.Outcome.
+func (m s3CopyCompleteMsg) Outcome() msg.ToastMsg {
+	return transferOutcome("Copied", "copied", m.bucket, m.dstKey, m.err)
+}
+
 type s3MoveCompleteMsg struct {
+	bucket string
 	srcKey string
 	dstKey string
 	err    error
+}
+
+// Outcome implements msg.Outcome.
+func (m s3MoveCompleteMsg) Outcome() msg.ToastMsg {
+	return transferOutcome("Moved", "moved", m.bucket, m.dstKey, m.err)
+}
+
+// transferOutcome is the toast of a copy or move whose view is gone. The
+// view asks before it replaces an object; without the view, nothing is
+// replaced.
+func transferOutcome(done, verb, bucket, dstKey string, err error) msg.ToastMsg {
+	switch {
+	case errors.Is(err, aws.ErrDestinationExists):
+		return msg.ToastError(fmt.Sprintf("Not %s: s3://%s/%s exists", verb, bucket, dstKey))
+	case err != nil:
+		return msg.ToastError(fmt.Sprintf("Not %s to s3://%s/%s: %v", verb, bucket, dstKey, err))
+	}
+	return msg.ToastSuccess(done + " → " + dstKey)
 }
 
 // s3Transfer is a copy or move that waits for the user to confirm an
@@ -130,6 +192,7 @@ var defaultS3ObjectsKeyMap = s3ObjectsKeyMap{
 
 // S3Objects displays objects and folders within an S3 bucket.
 type S3Objects struct {
+	viewCtx
 	keys                 s3ObjectsKeyMap
 	s3                   aws.S3Service
 	bucket               string
@@ -226,14 +289,8 @@ func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
 }
 
 func (s *S3Objects) Init() tea.Cmd {
-	// Already loaded — nothing to do (idempotent for navigator cache reuse).
 	if !s.loading {
 		return nil
-	}
-	if s.loadGen > 0 {
-		// A load is already running. Its pages reach this view even while
-		// it is hidden, so restarting would only duplicate rows.
-		return s.spinner.Tick()
 	}
 	return s.startLoad()
 }
@@ -251,12 +308,15 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 	bucket := s.bucket
 	prefix := s.prefix
 	gen := s.loadGen
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching objects in s3://%s/%s (page %d)", bucket, prefix, pageNum)
-		page, err := svc.ListObjectsPage(context.Background(), bucket, prefix, token)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		page, err := svc.ListObjectsPage(ctx, bucket, prefix, token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s/%s", bucket, prefix)}
 		}
@@ -273,44 +333,50 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 	}
 }
 
-// resolveDeleteKeys expands folders into their contained object keys.
-func (s *S3Objects) resolveDeleteKeys(entries []s3TableEntry) tea.Cmd {
+// deleteEntries deletes the entries in one background operation: it expands
+// each folder into the keys under it, then deletes the keys. The bucket is
+// fixed when the operation starts, so the keys cannot reach another bucket.
+func (s *S3Objects) deleteEntries(entries []s3TableEntry) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
+	prefix := s.prefix
+	label := fmt.Sprintf("Delete %d item(s) in s3://%s/%s", len(entries), bucket, prefix)
 	return func() tea.Msg {
-		var keys []string
-		for _, e := range entries {
-			if e.isFolder {
-				folderKeys, err := svc.ListAllKeys(context.Background(), bucket, e.fullPath)
+		return msg.StartOpMsg{Label: label, Run: func(ctx context.Context) tea.Msg {
+			res := s3DeleteCompleteMsg{bucket: bucket, prefix: prefix}
+			var keys []string
+			for _, e := range entries {
+				if !e.isFolder {
+					keys = append(keys, e.fullPath)
+					continue
+				}
+				folderKeys, err := svc.ListAllKeys(ctx, bucket, e.fullPath)
 				if err != nil {
-					return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing objects in %s", e.fullPath)}
+					res.err = fmt.Errorf("listing objects in %s: %w", e.fullPath, err)
+					return res
 				}
 				keys = append(keys, folderKeys...)
-			} else {
-				keys = append(keys, e.fullPath)
 			}
-		}
-		return s3DeleteResolvedMsg{bucket: bucket, keys: keys}
-	}
-}
-
-func (s *S3Objects) deleteObjects(keys []string) tea.Cmd {
-	svc := s.s3
-	bucket := s.bucket
-	count := len(keys)
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Deleting %d objects in s3://%s", count, bucket)
-		err := svc.DeleteObjects(context.Background(), bucket, keys)
-		return s3DeleteCompleteMsg{count: count, err: err}
+			res.count = len(keys)
+			if len(keys) == 0 {
+				return res
+			}
+			eventlog.Infof(eventlog.CatAWS, "Deleting %d objects in s3://%s", len(keys), bucket)
+			res.err = svc.DeleteObjects(ctx, bucket, keys)
+			return res
+		}}
 	}
 }
 
 func (s *S3Objects) previewCheck(key string) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "HeadObject (preview check): s3://%s/%s", bucket, key)
-		meta, err := svc.HeadObject(context.Background(), bucket, key)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		meta, err := svc.HeadObject(ctx, bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("head s3://%s/%s", bucket, key)}
 		}
@@ -321,9 +387,12 @@ func (s *S3Objects) previewCheck(key string) tea.Cmd {
 func (s *S3Objects) fetchObjectContent(key string) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching content: s3://%s/%s", bucket, key)
-		content, err := svc.GetObjectContent(context.Background(), bucket, key, 1<<20)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		content, err := svc.GetObjectContent(ctx, bucket, key, 1<<20)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("reading s3://%s/%s", bucket, key)}
 		}
@@ -334,8 +403,11 @@ func (s *S3Objects) fetchObjectContent(key string) tea.Cmd {
 func (s *S3Objects) presignObject(key string) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
+	ctx := s.viewContext()
 	return func() tea.Msg {
-		url, err := svc.PresignGetObject(context.Background(), bucket, key, time.Hour)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		url, err := svc.PresignGetObject(ctx, bucket, key, time.Hour)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("presigning s3://%s/%s", bucket, key)}
 		}
@@ -355,16 +427,21 @@ func (s *S3Objects) refreshListing() tea.Cmd {
 	return s.startLoad()
 }
 
+// downloadObject, copyObject and moveObject run as background operations:
+// they can take long, so they keep running when the user leaves the view.
+
 func (s *S3Objects) downloadObject(key string) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	destPath := aws.DefaultDownloadPath(key)
 	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Downloading s3://%s/%s → %s", bucket, key, destPath)
-		// The service picks a free name when destPath exists, so the path
-		// it returns is the one to show.
-		path, err := svc.DownloadObject(context.Background(), bucket, key, destPath)
-		return s3DownloadCompleteMsg{key: key, path: path, err: err}
+		return msg.StartOpMsg{Label: "Download " + key, Run: func(ctx context.Context) tea.Msg {
+			eventlog.Infof(eventlog.CatAWS, "Downloading s3://%s/%s → %s", bucket, key, destPath)
+			// The service picks a free name when destPath exists, so the path
+			// it returns is the one to show.
+			path, err := svc.DownloadObject(ctx, bucket, key, destPath)
+			return s3DownloadCompleteMsg{bucket: bucket, key: key, path: path, err: err}
+		}}
 	}
 }
 
@@ -372,9 +449,11 @@ func (s *S3Objects) copyObject(srcKey, dstKey string, overwrite bool) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Copying s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
-		err := svc.CopyObject(context.Background(), bucket, srcKey, bucket, dstKey, overwrite)
-		return s3CopyCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
+		return msg.StartOpMsg{Label: "Copy " + srcKey, Run: func(ctx context.Context) tea.Msg {
+			eventlog.Infof(eventlog.CatAWS, "Copying s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
+			err := svc.CopyObject(ctx, bucket, srcKey, bucket, dstKey, overwrite)
+			return s3CopyCompleteMsg{bucket: bucket, srcKey: srcKey, dstKey: dstKey, err: err}
+		}}
 	}
 }
 
@@ -382,9 +461,11 @@ func (s *S3Objects) moveObject(srcKey, dstKey string, overwrite bool) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Moving s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
-		err := svc.MoveObject(context.Background(), bucket, srcKey, bucket, dstKey, overwrite)
-		return s3MoveCompleteMsg{srcKey: srcKey, dstKey: dstKey, err: err}
+		return msg.StartOpMsg{Label: "Move " + srcKey, Run: func(ctx context.Context) tea.Msg {
+			eventlog.Infof(eventlog.CatAWS, "Moving s3://%s/%s → s3://%s/%s", bucket, srcKey, bucket, dstKey)
+			err := svc.MoveObject(ctx, bucket, srcKey, bucket, dstKey, overwrite)
+			return s3MoveCompleteMsg{bucket: bucket, srcKey: srcKey, dstKey: dstKey, err: err}
+		}}
 	}
 }
 
@@ -448,8 +529,8 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Confirmed && m.Action == "delete_objects" && len(s.pendingDeleteEntries) > 0 {
 			entries := s.pendingDeleteEntries
 			s.pendingDeleteEntries = nil
-			s.spinner.Show("Resolving keys...")
-			return s, tea.Batch(s.spinner.Tick(), s.resolveDeleteKeys(entries))
+			s.spinner.Show("Deleting...")
+			return s, tea.Batch(s.spinner.Tick(), s.deleteEntries(entries))
 		}
 		s.pendingDeleteEntries = nil
 		return s, nil
@@ -464,40 +545,28 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	case s3DeleteResolvedMsg:
-		// Routing delivers this to the view that started the delete. Refuse
-		// keys from another bucket anyway: a wrong-bucket delete is not
-		// recoverable.
-		if m.bucket != s.bucket {
-			eventlog.Errorf(eventlog.CatAWS, "Refused delete: keys resolved in s3://%s reached view for s3://%s", m.bucket, s.bucket)
-			s.spinner.Hide()
-			return s, nil
-		}
-		if len(m.keys) == 0 {
-			s.spinner.Hide()
-			return s, func() tea.Msg {
-				return msg.ToastError("No objects found to delete")
-			}
-		}
-		return s, s.deleteObjects(m.keys)
-
 	case s3DeleteCompleteMsg:
 		// A *DeleteObjectsError means that S3 deleted the other keys, so the
 		// list must load again. Any other error means that nothing ran.
 		var delErr *aws.DeleteObjectsError
 		if m.err != nil && !errors.As(m.err, &delErr) {
-			eventlog.Errorf(eventlog.CatAWS, "Failed to delete objects in s3://%s/%s: %v", s.bucket, s.prefix, m.err)
+			eventlog.Errorf(eventlog.CatAWS, "Failed to delete objects in s3://%s/%s: %v", m.bucket, m.prefix, m.err)
+			s.spinner.Hide()
 			s.err = m.err
 			return s, nil
 		}
-		var failures []itemFailure
+		if m.count == 0 {
+			s.spinner.Hide()
+			toast := m.Outcome()
+			return s, func() tea.Msg { return toast }
+		}
 		if delErr != nil {
 			for _, f := range delErr.Failed {
-				eventlog.Errorf(eventlog.CatAWS, "Delete of s3://%s/%s failed: %s %s", s.bucket, f.Key, f.Code, f.Message)
-				failures = append(failures, itemFailure{name: strings.TrimPrefix(f.Key, s.prefix), err: errors.New(f.Code)})
+				eventlog.Errorf(eventlog.CatAWS, "Delete of s3://%s/%s failed: %s %s", m.bucket, f.Key, f.Code, f.Message)
 			}
 		}
-		eventlog.Infof(eventlog.CatAWS, "Deleted %d objects in s3://%s/%s", m.count-len(failures), s.bucket, s.prefix)
+		failures := m.failures()
+		eventlog.Infof(eventlog.CatAWS, "Deleted %d objects in s3://%s/%s", m.count-len(failures), m.bucket, m.prefix)
 		s.table.DeselectAll()
 		s.objects = nil
 		s.prefixes = nil
@@ -506,13 +575,8 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.loading = true
 		s.spinner.Show("Refreshing...")
 		s.table.SetRows(nil)
-		text, ok := resultText("Deleted", m.count, "object(s)", failures)
-		return s, tea.Batch(s.startLoad(), func() tea.Msg {
-			if ok {
-				return msg.ToastSuccess(text)
-			}
-			return msg.ToastError(text)
-		})
+		toast := m.Outcome()
+		return s, tea.Batch(s.startLoad(), func() tea.Msg { return toast })
 
 	case s3DownloadCompleteMsg:
 		if m.err != nil {
@@ -991,9 +1055,12 @@ func (s *S3Objects) addEntries(prefixes []string, objects []aws.S3Object) []ui.R
 func (s *S3Objects) fetchMetadataAndNavigate(key string) tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "HeadObject: s3://%s/%s", bucket, key)
-		meta, err := svc.HeadObject(context.Background(), bucket, key)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		meta, err := svc.HeadObject(ctx, bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("head s3://%s/%s", bucket, key)}
 		}

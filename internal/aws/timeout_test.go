@@ -92,11 +92,10 @@ type counter struct {
 	n  int
 }
 
-func (c *counter) add() int {
+func (c *counter) add() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.n++
-	return c.n
 }
 
 func (c *counter) get() int {

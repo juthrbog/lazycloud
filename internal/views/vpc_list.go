@@ -49,6 +49,7 @@ var defaultVPCListKeyMap = vpcListKeyMap{
 
 // VPCList displays EC2 VPCs.
 type VPCList struct {
+	viewCtx
 	keys         vpcListKeyMap
 	ec2          aws.EC2Service
 	table        ui.Table
@@ -119,11 +120,6 @@ func (v *VPCList) Init() tea.Cmd {
 	if !v.loading {
 		return nil
 	}
-	if v.loadGen > 0 {
-		// A load is already running. Its pages reach this view even while
-		// it is hidden, so restarting would only duplicate rows.
-		return v.spinner.Tick()
-	}
 	return v.startLoad()
 }
 
@@ -138,12 +134,15 @@ func (v *VPCList) startLoad() tea.Cmd {
 func (v *VPCList) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := v.ec2
 	gen := v.loadGen
+	ctx := v.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching VPCs (page %d)", pageNum)
-		page, err := svc.ListVPCsPage(context.Background(), token)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		page, err := svc.ListVPCsPage(ctx, token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing VPCs"}
 		}

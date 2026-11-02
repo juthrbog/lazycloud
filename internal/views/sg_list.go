@@ -43,6 +43,7 @@ var defaultSGListKeyMap = sgListKeyMap{
 
 // SGList displays EC2 security groups.
 type SGList struct {
+	viewCtx
 	keys         sgListKeyMap
 	ec2          aws.EC2Service
 	table        ui.Table
@@ -117,12 +118,15 @@ func (s *SGList) Init() tea.Cmd {
 
 func (s *SGList) fetchSecurityGroups() tea.Cmd {
 	svc := s.ec2
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching security groups")
-		groups, err := svc.ListSecurityGroups(context.Background())
+		ctx, cancel := context.WithTimeout(ctx, listTimeout)
+		defer cancel()
+		groups, err := svc.ListSecurityGroups(ctx)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing security groups"}
 		}

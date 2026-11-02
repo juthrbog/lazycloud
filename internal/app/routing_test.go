@@ -84,6 +84,16 @@ func update(t *testing.T, m Model, in tea.Msg) (Model, tea.Cmd) {
 	return r.(Model), c
 }
 
+// runOp delivers the StartOpMsg that cmd produces, as the runtime would. It
+// returns the model, with the operation registered, and the command that
+// runs the operation.
+func runOp(t *testing.T, m Model, cmd tea.Cmd) (Model, tea.Cmd) {
+	t.Helper()
+	start := findMsg(collectMsgs(cmd), "msg.StartOpMsg")
+	require.NotNil(t, start, "the command starts a background operation")
+	return update(t, m, start)
+}
+
 func press(s string) tea.KeyPressMsg {
 	if s == "esc" {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
@@ -93,7 +103,8 @@ func press(s string) tea.KeyPressMsg {
 }
 
 // C2: keys resolved for a folder delete in bucket A must never be deleted in
-// bucket B, even when the user opens bucket B before the resolution ends.
+// bucket B, even when the user opens bucket B before the delete ends. The
+// delete runs in the background and reports after its view is gone.
 func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 	ui.SetReadOnly(false)
 	defer func() { ui.SetReadOnly(true) }()
@@ -115,19 +126,26 @@ func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "msg.RequestConfirmMsg"))
 	require.True(t, m.confirm.Visible())
 	m.confirm = ui.NewConfirm()
-	m, resolveCmd := update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "delete_objects"})
+	m, cmd = update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "delete_objects"})
+	m, opCmd := runOp(t, m, cmd)
+	require.Equal(t, 1, m.ops.Count(), "the delete is registered before it runs")
 
-	// While the keys resolve, the user goes back and opens bucket B.
+	// While the delete runs, the user goes back and opens bucket B.
 	m, cmd = update(t, m, press("esc"))
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "msg.NavigateBackMsg"))
 	m, cmd = update(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "bucket-b"}})
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3PageLoadedMsg"))
 	require.Equal(t, "s3_objects:bucket-b:", m.nav.Current().ID())
 
-	resolved := findMsg(collectMsgs(resolveCmd), "views.s3DeleteResolvedMsg")
-	require.IsType(t, nav.Routed{}, resolved, "results must carry their origin view")
-	_, delCmd := update(t, m, resolved)
-	collectMsgs(delCmd)
+	done := findMsg(collectMsgs(opCmd), "views.s3DeleteCompleteMsg")
+	require.IsType(t, nav.Routed{}, done, "results must carry their origin view")
+	assert.Equal(t, 0, m.ops.Count(), "the operation ends with its command")
+	m, toastCmd := update(t, m, done)
+	toast := findMsg(collectMsgs(toastCmd), "msg.ToastMsg")
+	require.NotNil(t, toast, "the result shows although its view is gone")
+	assert.Contains(t, toast.(msg.ToastMsg).Text, "Deleted 2")
+	m, _ = update(t, m, toast)
+	assert.True(t, m.toasts.HasActive())
 
 	s3m.AssertNotCalled(t, "DeleteObjects", mock.Anything, "bucket-b", mock.Anything)
 	s3m.AssertCalled(t, "DeleteObjects", mock.Anything, "bucket-a", []string{"tmp/1", "tmp/2"})
@@ -151,7 +169,9 @@ func TestRouting_StaleRegionPageDropped(t *testing.T) {
 	assert.NotContains(t, m.nav.Current().Footer(), "2/2", "old-region instances shown in the new region")
 }
 
-// H4: reopening a view while its first load runs must not load it twice.
+// H4: reopening a view while the first one still loads builds a new view.
+// The first view is gone, so its late page is dropped and cannot add rows
+// twice.
 func TestRouting_ReenterWhileLoadingNoDuplicates(t *testing.T) {
 	e := new(awstest.MockEC2Service)
 	e.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
@@ -160,22 +180,22 @@ func TestRouting_ReenterWhileLoadingNoDuplicates(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.svc.EC2 = e
 	m, first := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	firstView := m.nav.Current()
 	m, _ = update(t, m, press("q")) // back to home before the load finishes
 	m, second := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	require.NotSame(t, firstView, m.nav.Current(), "the reopened view is new")
 
-	pages := 0
 	for _, c := range []tea.Cmd{first, second} {
-		if p := findMsg(collectMsgs(c), "views.ec2PageLoadedMsg"); p != nil {
-			pages++
-			m, _ = update(t, m, p)
-		}
+		p := findMsg(collectMsgs(c), "views.ec2PageLoadedMsg")
+		require.NotNil(t, p)
+		m, _ = update(t, m, p)
 	}
-	assert.Equal(t, 1, pages, "reopening a loading view must not start a second load")
 	assert.Contains(t, m.nav.Current().Footer(), "2/2 instances")
+	assert.Contains(t, firstView.Footer(), "0/0", "the page of the gone view is dropped")
 }
 
-// H4: the result of a mutation reaches its view after the user leaves it,
-// so the failure is logged and shown.
+// H4: the result of a mutation shows after the user leaves its view: the
+// view is gone, so the app logs and shows the result's Outcome.
 func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	ui.SetReadOnly(false)
 	defer func() { ui.SetReadOnly(true) }()
@@ -282,7 +302,7 @@ func TestRouting_SubnetPagesStayInTheirView(t *testing.T) {
 	_, _ = update(t, m, findMsg(collectMsgs(cmdA), "views.subnetPageLoadedMsg"))
 	assert.NotContains(t, viewB.Footer(), "subnet-A1")
 	assert.Contains(t, viewB.Footer(), "0/0", "vpc-A subnets appended to the vpc-B list")
-	assert.Contains(t, viewA.Footer(), "1/1", "the page reached its own hidden view")
+	assert.False(t, m.nav.Contains(viewA), "a popped view is gone")
 }
 
 func TestRouting_ToastFromStaleSessionStillShows(t *testing.T) {

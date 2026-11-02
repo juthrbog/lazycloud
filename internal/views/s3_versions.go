@@ -40,6 +40,7 @@ var defaultS3VersionsKeyMap = s3VersionsKeyMap{
 
 // S3Versions displays all versions of a specific S3 object.
 type S3Versions struct {
+	viewCtx
 	keys      s3VersionsKeyMap
 	s3        aws.S3Service
 	bucket    string
@@ -114,9 +115,12 @@ func (s *S3Versions) fetchVersions() tea.Cmd {
 	svc := s.s3
 	bucket := s.bucket
 	key := s.key
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Debugf(eventlog.CatAWS, "Fetching versions for s3://%s/%s", bucket, key)
-		versions, err := svc.ListObjectVersions(context.Background(), bucket, key)
+		ctx, cancel := context.WithTimeout(ctx, listTimeout)
+		defer cancel()
+		versions, err := svc.ListObjectVersions(ctx, bucket, key)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: fmt.Sprintf("listing versions of %s", key)}
 		}
