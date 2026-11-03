@@ -70,3 +70,56 @@ func TestWaitAfterRestart(t *testing.T) {
 	op.Done()
 	assert.True(t, r.Wait(time.Second))
 }
+
+func TestCancelOne(t *testing.T) {
+	r := NewRegistry()
+	a := r.Begin("Download a", "")
+	b := r.Begin("Download b", "")
+
+	require.True(t, r.Cancel(a.ID))
+	require.ErrorIs(t, a.Ctx.Err(), context.Canceled)
+	assert.True(t, CanceledByUser(a.Ctx))
+	require.NoError(t, b.Ctx.Err(), "the other operation goes on")
+
+	running := r.Running()
+	require.Len(t, running, 2, "a cancelled operation stays until it calls Done")
+	assert.True(t, running[0].Canceling)
+	assert.False(t, running[1].Canceling)
+
+	a.Done()
+	assert.False(t, r.Cancel(a.ID), "an ended operation cannot be cancelled")
+	b.Done()
+}
+
+func TestQuitIsNotACancelByTheUser(t *testing.T) {
+	r := NewRegistry()
+	op := r.Begin("Redrive dlq", "")
+	r.CancelAll()
+	require.ErrorIs(t, op.Ctx.Err(), context.Canceled)
+	assert.False(t, CanceledByUser(op.Ctx))
+	require.ErrorIs(t, context.Cause(op.Ctx), ErrQuit)
+	op.Done()
+}
+
+// An HTTP body read returns the cause of the context, not ctx.Err(), so
+// the causes must still count as a cancel.
+func TestCausesAreCancels(t *testing.T) {
+	require.ErrorIs(t, ErrCanceledByUser, context.Canceled)
+	require.ErrorIs(t, ErrQuit, context.Canceled)
+}
+
+func TestReport(t *testing.T) {
+	r := NewRegistry()
+	op := r.Begin("Download a", "")
+	Report(op.Ctx, Progress{Done: 5, Total: 10, Bytes: true})
+	assert.Equal(t, Progress{Done: 5, Total: 10, Bytes: true}, r.Running()[0].Progress)
+
+	// A context of no operation is fine, and a derived context still
+	// reaches the operation.
+	Report(context.Background(), Progress{Done: 1})
+	ctx, cancel := context.WithTimeout(op.Ctx, time.Minute)
+	defer cancel()
+	Report(ctx, Progress{Done: 7, Total: 10})
+	assert.Equal(t, int64(7), r.Running()[0].Progress.Done)
+	op.Done()
+}
