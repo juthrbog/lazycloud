@@ -165,12 +165,12 @@ func (svc *SQSServiceImpl) GetQueueAttributes(ctx context.Context, queueURL stri
 // only URL and Name, and its Err field holds the error.
 func (svc *SQSServiceImpl) FetchAllQueueAttributes(ctx context.Context, urls []string) ([]Queue, error) {
 	queues := make([]Queue, len(urls))
-	g, ctx := errgroup.WithContext(ctx)
+	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(10)
 
 	for i, url := range urls {
 		g.Go(func() error {
-			q, err := svc.GetQueueAttributes(ctx, url)
+			q, err := svc.GetQueueAttributes(gctx, url)
 			if err != nil {
 				q = &Queue{
 					URL:  url,
@@ -184,6 +184,11 @@ func (svc *SQSServiceImpl) FetchAllQueueAttributes(ctx context.Context, urls []s
 	}
 
 	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+	// The goroutines keep each error in its queue, so a cancel or timeout
+	// would otherwise come back as a list of failed queues and no error.
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return queues, nil
@@ -250,7 +255,11 @@ func (svc *SQSServiceImpl) ReceiveMessages(ctx context.Context, queueURL string,
 			VisibilityTimeout: 0, // always serialized for batch entries
 		}
 	}
-	res, err := client.ChangeMessageVisibilityBatch(ctx, &sqs.ChangeMessageVisibilityBatchInput{
+	// The reset must run also when ctx ended after the receive, or the
+	// messages stay hidden for the whole visibility timeout.
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), visibilityResetTimeout)
+	defer cancel()
+	res, err := client.ChangeMessageVisibilityBatch(rctx, &sqs.ChangeMessageVisibilityBatchInput{
 		QueueUrl: aws.String(queueURL),
 		Entries:  entries,
 	})
@@ -315,10 +324,28 @@ type DeleteFailure struct {
 // delete. SQS deleted the other messages of the call.
 type BatchDeleteError struct {
 	Failed []DeleteFailure
+	// Err is set when the context ended the delete early. The messages
+	// that were not tried are in Failed with the code "Canceled".
+	Err error
 }
 
 func (e *BatchDeleteError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("DeleteMessageBatch: %d message(s) not deleted: %v", len(e.Failed), e.Err)
+	}
 	return fmt.Sprintf("DeleteMessageBatch: %d message(s) not deleted", len(e.Failed))
+}
+
+// Unwrap returns the context error that ended the delete early, if any.
+func (e *BatchDeleteError) Unwrap() error { return e.Err }
+
+// handlesNotTried returns a failure for each handle with the code "Canceled".
+func handlesNotTried(handles []string, err error) []DeleteFailure {
+	out := make([]DeleteFailure, len(handles))
+	for i, rh := range handles {
+		out[i] = DeleteFailure{ReceiptHandle: rh, Code: "Canceled", Message: err.Error()}
+	}
+	return out
 }
 
 // DeleteMessageBatch deletes the messages in calls of up to 10. When some
@@ -332,6 +359,10 @@ func (svc *SQSServiceImpl) DeleteMessageBatch(ctx context.Context, queueURL stri
 	client := svc.client.SQSClient()
 	var failed []DeleteFailure
 	for i := 0; i < len(receiptHandles); i += 10 {
+		if err := ctx.Err(); err != nil {
+			failed = append(failed, handlesNotTried(receiptHandles[i:], err)...)
+			return &BatchDeleteError{Failed: failed, Err: err}
+		}
 		chunk := receiptHandles[i:min(i+10, len(receiptHandles))]
 
 		// The entry ID is the index into receiptHandles, so a failed entry
@@ -349,6 +380,10 @@ func (svc *SQSServiceImpl) DeleteMessageBatch(ctx context.Context, queueURL stri
 			Entries:  entries,
 		})
 		if err != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				failed = append(failed, handlesNotTried(receiptHandles[i:], cerr)...)
+				return &BatchDeleteError{Failed: failed, Err: cerr}
+			}
 			// The whole call failed, so no message of this chunk was deleted.
 			for _, rh := range chunk {
 				failed = append(failed, DeleteFailure{ReceiptHandle: rh, Code: ErrorCode(err), Message: err.Error()})

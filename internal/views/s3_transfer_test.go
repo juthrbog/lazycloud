@@ -66,11 +66,11 @@ func TestS3Objects_CopyAsksBeforeOverwrite(t *testing.T) {
 	_, cmd := view.Update(done)
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok, "the user decides")
-	assert.Equal(t, "s3_overwrite", req.Action)
+	assert.Equal(t, "s3_overwrite:1", req.Action)
 	assert.False(t, req.Quick, "a replace destroys data, so the user types the phrase")
 	assert.Equal(t, "s3://test-bucket/b.txt exists.\nReplace it with a.txt?", req.Message)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite"})
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: req.Action})
 	done, ok = firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	require.NoError(t, done.err)
@@ -85,12 +85,43 @@ func TestS3Objects_DeclinedOverwriteCopiesNothing(t *testing.T) {
 
 	done, _ := firstOfType[s3CopyCompleteMsg](startTransfer(view, 'c', "b.txt"))
 	view.Update(done)
-	_, cmd := view.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite"})
+	_, cmd := view.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"})
 
 	assert.Nil(t, cmd)
 	assert.Nil(t, view.pendingOverwrite)
 	require.NoError(t, view.err, "a declined prompt is not an error")
 	m.AssertNumberOfCalls(t, "CopyObject", 1)
+}
+
+// Copies run in the background, so a second copy can end with "exists"
+// while the first question is open. The answer must apply only to the
+// question on screen.
+func TestS3Objects_SecondConflictDoesNotTakeTheOpenQuestion(t *testing.T) {
+	view, m := newS3TransferView(t)
+	m.On("CopyObject", mock.Anything, "test-bucket", "a.txt", "test-bucket", "b.txt", true).Return(nil).Once()
+
+	_, cmd := view.Update(s3CopyCompleteMsg{bucket: "test-bucket", srcKey: "a.txt", dstKey: "b.txt", err: aws.ErrDestinationExists})
+	first, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
+	require.True(t, ok)
+
+	_, cmd = view.Update(s3CopyCompleteMsg{bucket: "test-bucket", srcKey: "big", dstKey: "c.txt", err: aws.ErrDestinationExists})
+	msgs := collectMsgs(cmd)
+	_, asked := firstOfType[msg.RequestConfirmMsg](msgs)
+	assert.False(t, asked, "the second conflict is not asked while a question is open")
+	require.Len(t, toasts(msgs), 1)
+	assert.Contains(t, toasts(msgs)[0].Text, "Not copied: s3://test-bucket/c.txt exists")
+
+	// A late answer with another action does nothing.
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite:99"})
+	assert.Nil(t, cmd)
+	require.NotNil(t, view.pendingOverwrite)
+
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: first.Action})
+	done, ok := firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
+	require.True(t, ok)
+	assert.Equal(t, "b.txt", done.dstKey, "yes replaces only the object in the question")
+	m.AssertExpectations(t)
+	m.AssertNotCalled(t, "CopyObject", mock.Anything, mock.Anything, "big", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // MoveObject wraps the copy error. The prompt still comes.
@@ -106,9 +137,9 @@ func TestS3Objects_MoveAsksBeforeOverwrite(t *testing.T) {
 	_, cmd := view.Update(done)
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.Equal(t, "s3_overwrite", req.Action)
+	assert.Equal(t, "s3_overwrite:1", req.Action)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite"})
+	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: req.Action})
 	_, ok = firstOfType[s3MoveCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	m.AssertExpectations(t)

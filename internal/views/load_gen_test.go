@@ -10,6 +10,7 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/aws/awstest"
+	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
 // These tests cover load generations: a full reload supersedes the load in
@@ -52,25 +53,6 @@ func TestEC2List_DoubleRefreshNoDuplicates(t *testing.T) {
 
 	deliverAll(v, p1, p2) // the older load's page arrives first
 	assert.Len(t, v.instances, 2)
-}
-
-func TestEC2List_ReinitWhileLoadingDoesNotRestart(t *testing.T) {
-	svc := new(awstest.MockEC2Service)
-	svc.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
-		Instances: []aws.Instance{{ID: "i-1", State: "running"}},
-	}, nil)
-	v := NewEC2List(svc, nil)
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
-
-	first := collectMsgs(v.Init())
-	again := collectMsgs(v.Init()) // the navigator reopens the cached view
-	_, restarted := firstOfType[ec2PageLoadedMsg](again)
-	assert.False(t, restarted, "Init must not start a second load while one runs")
-
-	p, ok := firstOfType[ec2PageLoadedMsg](first)
-	require.True(t, ok)
-	deliverAll(v, p)
-	assert.Len(t, v.instances, 1)
 }
 
 func TestSQSQueues_DoubleRefreshNoDuplicates(t *testing.T) {
@@ -124,13 +106,20 @@ func TestS3Objects_DoubleRefreshNoDuplicates(t *testing.T) {
 	assert.Len(t, v.objects, 2)
 }
 
-// C2 defense in depth: delete keys resolved in another bucket are refused.
-func TestS3Objects_RefusesDeleteKeysFromOtherBucket(t *testing.T) {
+// C2: the folder expansion and the delete run in one operation, with the
+// bucket fixed when it starts, so keys cannot reach another bucket.
+func TestS3Objects_DeleteStaysInItsBucket(t *testing.T) {
 	svc := new(awstest.MockS3Service)
+	svc.On("ListAllKeys", mock.Anything, "bucket-b", "tmp/").Return([]string{"tmp/1"}, nil)
+	svc.On("DeleteObjects", mock.Anything, "bucket-b", []string{"tmp/1", "x"}).Return(nil)
 	v := NewS3Objects(svc, "bucket-b", "")
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 
-	_, cmd := v.Update(s3DeleteResolvedMsg{bucket: "bucket-a", keys: []string{"tmp/1"}})
-	collectMsgs(cmd)
-	svc.AssertNotCalled(t, "DeleteObjects", mock.Anything, mock.Anything, mock.Anything)
+	start, ok := v.deleteEntries([]s3TableEntry{{isFolder: true, fullPath: "tmp/"}, {fullPath: "x"}})().(msg.StartOpMsg)
+	require.True(t, ok, "the delete runs as a background operation")
+	res, ok := start.Run(t.Context()).(s3DeleteCompleteMsg)
+	require.True(t, ok)
+	require.NoError(t, res.err)
+	assert.Equal(t, "bucket-b", res.bucket)
+	assert.Equal(t, 2, res.count)
+	svc.AssertExpectations(t)
 }

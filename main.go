@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -14,6 +15,11 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 	"github.com/juthrbog/lazycloud/internal/version"
 )
+
+// opsShutdownWait is how long the app waits for cancelled background
+// operations when it quits. A cancelled download removes its partial file
+// within this time.
+const opsShutdownWait = 5 * time.Second
 
 func main() {
 	os.Exit(run())
@@ -92,8 +98,14 @@ func run() int {
 
 	rootModel := app.New(cfg)
 	p := tea.NewProgram(rootModel)
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	_, runErr := p.Run()
+	// On every way out, also a signal or an error, stop the background
+	// operations and give them a moment to clean up, for example to remove
+	// a partial download.
+	rootModel.Ops().CancelAll()
+	rootModel.Ops().Wait(opsShutdownWait)
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", runErr)
 		return 1
 	}
 	return 0

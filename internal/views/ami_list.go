@@ -55,6 +55,7 @@ var defaultAMIListKeyMap = amiListKeyMap{
 
 // AMIList displays EC2 AMIs.
 type AMIList struct {
+	viewCtx
 	keys         amiListKeyMap
 	ec2          aws.EC2Service
 	table        ui.Table
@@ -149,12 +150,15 @@ func (a *AMIList) Init() tea.Cmd {
 
 func (a *AMIList) fetchOwned() tea.Cmd {
 	svc := a.ec2
+	ctx := a.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching owned AMIs")
-		amis, err := svc.ListOwnedAMIs(context.Background())
+		ctx, cancel := context.WithTimeout(ctx, listTimeout)
+		defer cancel()
+		amis, err := svc.ListOwnedAMIs(ctx)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing owned AMIs"}
 		}
@@ -165,9 +169,14 @@ func (a *AMIList) fetchOwned() tea.Cmd {
 
 func (a *AMIList) fetchSearch(query string) tea.Cmd {
 	svc := a.ec2
+	ctx := a.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Searching AMIs: %q", query)
-		amis, err := svc.SearchAMIs(context.Background(), query)
+		// No overall limit: SearchAMIs reads at most 20 pages of the public
+		// catalog, which can take longer than listTimeout for a rare name.
+		// The read timeout of the client still stops a stalled page, and
+		// leaving the view cancels the search.
+		amis, err := svc.SearchAMIs(ctx, query)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "searching AMIs"}
 		}
@@ -387,8 +396,11 @@ func (a *AMIList) selectedAMIIDs() []string {
 
 func (a *AMIList) refreshAMIs(ids []string) tea.Cmd {
 	svc := a.ec2
+	ctx := a.viewContext()
 	return func() tea.Msg {
-		amis, err := svc.RefreshAMIs(context.Background(), ids)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		amis, err := svc.RefreshAMIs(ctx, ids)
 		return amiRefreshedMsg{amis: amis, err: err}
 	}
 }

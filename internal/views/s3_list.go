@@ -26,9 +26,26 @@ type s3BucketDeletedMsg struct {
 	failed []itemFailure
 }
 
+// Outcome implements msg.Outcome.
+func (m s3BucketDeletedMsg) Outcome() msg.ToastMsg {
+	text, ok := resultText("Deleted", len(m.done)+len(m.failed), "bucket(s)", m.failed)
+	if ok {
+		return msg.ToastSuccess(text)
+	}
+	return msg.ToastError(text)
+}
+
 type s3BucketCreatedMsg struct {
 	name string
 	err  error
+}
+
+// Outcome implements msg.Outcome.
+func (m s3BucketCreatedMsg) Outcome() msg.ToastMsg {
+	if m.err != nil {
+		return msg.ToastError("Bucket " + m.name + " not created: " + m.err.Error())
+	}
+	return msg.ToastSuccess("Bucket created: " + m.name)
 }
 
 type s3BucketPropsMsg struct {
@@ -64,6 +81,7 @@ var defaultS3ListKeyMap = s3ListKeyMap{
 
 // S3List displays all S3 buckets.
 type S3List struct {
+	viewCtx
 	keys                 s3ListKeyMap
 	s3                   aws.S3Service
 	defaultRegion        string
@@ -141,12 +159,15 @@ func (s *S3List) Init() tea.Cmd {
 
 func (s *S3List) fetchBuckets() tea.Cmd {
 	svc := s.s3
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching S3 buckets")
-		buckets, err := svc.ListBuckets(context.Background())
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		buckets, err := svc.ListBuckets(ctx)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing S3 buckets"}
 		}
@@ -171,17 +192,12 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		for _, b := range m.done {
 			eventlog.Infof(eventlog.CatAWS, "Deleted bucket: %s", b)
 		}
-		text, ok := resultText("Deleted", len(m.done)+len(m.failed), "bucket(s)", m.failed)
+		toast := m.Outcome()
 		// Reload also after a failure: the list must show which buckets are
 		// left. A failed bucket can be partly emptied.
 		s.loading = true
 		s.spinner.Show("Loading S3 buckets...")
-		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg {
-			if ok {
-				return msg.ToastSuccess(text)
-			}
-			return msg.ToastError(text)
-		})
+		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg { return toast })
 
 	case s3BucketCreatedMsg:
 		if m.err != nil {
@@ -363,9 +379,12 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 func (s *S3List) fetchBucketProperties(bucket string) tea.Cmd {
 	svc := s.s3
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching properties for bucket: %s", bucket)
-		props, err := svc.GetBucketProperties(context.Background(), bucket)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		props, err := svc.GetBucketProperties(ctx, bucket)
 		return s3BucketPropsMsg{props: props, err: err}
 	}
 }
@@ -376,9 +395,12 @@ func (s *S3List) createBucket(name string) tea.Cmd {
 	if region == "" {
 		region = "us-east-1"
 	}
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Creating bucket: %s in %s", name, region)
-		err := svc.CreateBucket(context.Background(), name, region)
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.CreateBucket(ctx, name, region)
 		return s3BucketCreatedMsg{name: name, err: err}
 	}
 }
@@ -403,20 +425,32 @@ func deleteBucketsPrompt(names []string) (message, phrase string) {
 	return message, fmt.Sprintf("delete %d buckets", len(names))
 }
 
+// deleteBuckets empties and deletes the buckets in a background operation.
+// It can take long, so it keeps running when the user leaves the view.
 func (s *S3List) deleteBuckets(buckets []string) tea.Cmd {
 	svc := s.s3
+	label := "Delete bucket " + buckets[0]
+	if len(buckets) > 1 {
+		label = fmt.Sprintf("Delete %d buckets", len(buckets))
+	}
 	return func() tea.Msg {
-		var res s3BucketDeletedMsg
-		for _, bucket := range buckets {
-			eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
-			if err := svc.EmptyAndDeleteBucket(context.Background(), bucket); err != nil {
-				eventlog.Errorf(eventlog.CatAWS, "Failed to delete bucket %s: %v", bucket, err)
-				res.failed = append(res.failed, itemFailure{name: bucket, err: err})
-				continue
+		return msg.StartOpMsg{Label: label, Run: func(ctx context.Context) tea.Msg {
+			var res s3BucketDeletedMsg
+			for _, bucket := range buckets {
+				if err := ctx.Err(); err != nil {
+					res.failed = append(res.failed, itemFailure{name: bucket, err: err})
+					continue
+				}
+				eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
+				if err := svc.EmptyAndDeleteBucket(ctx, bucket); err != nil {
+					eventlog.Errorf(eventlog.CatAWS, "Failed to delete bucket %s: %v", bucket, err)
+					res.failed = append(res.failed, itemFailure{name: bucket, err: err})
+					continue
+				}
+				res.done = append(res.done, bucket)
 			}
-			res.done = append(res.done, bucket)
-		}
-		return res
+			return res
+		}}
 	}
 }
 

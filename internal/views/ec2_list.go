@@ -50,6 +50,18 @@ type ec2InstanceMutatedMsg struct {
 	err        error
 }
 
+// Outcome implements msg.Outcome.
+func (m ec2InstanceMutatedMsg) Outcome() msg.ToastMsg {
+	if m.err != nil {
+		return msg.ToastError(fmt.Sprintf("%s failed for %s: %s", actionName(m.action), m.instanceID, aws.ErrorCode(m.err)))
+	}
+	return msg.ToastSuccess("Instance " + m.action + ": " + m.instanceID)
+}
+
+// ec2RefreshDelay gives AWS time to register a state change before the
+// list loads again.
+const ec2RefreshDelay = 2 * time.Second
+
 type ec2ListKeyMap struct {
 	Esc         key.Binding
 	Details     key.Binding
@@ -80,6 +92,7 @@ var defaultEC2ListKeyMap = ec2ListKeyMap{
 
 // EC2List displays all EC2 instances.
 type EC2List struct {
+	viewCtx
 	keys               ec2ListKeyMap
 	ec2                aws.EC2Service
 	awsClient          *aws.Client
@@ -173,11 +186,6 @@ func (e *EC2List) Init() tea.Cmd {
 	if !e.loading {
 		return nil
 	}
-	if e.loadGen > 0 {
-		// A load is already running. Its pages reach this view even while
-		// it is hidden, so restarting would only duplicate rows.
-		return e.spinner.Tick()
-	}
 	return e.startLoad()
 }
 
@@ -193,12 +201,15 @@ func (e *EC2List) startLoad() tea.Cmd {
 func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 	svc := e.ec2
 	gen := e.loadGen
+	ctx := e.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
 			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching EC2 instances (page %d)", pageNum)
-		page, err := svc.ListInstancesPage(context.Background(), token)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		page, err := svc.ListInstancesPage(ctx, token)
 		if err != nil {
 			return msg.ErrorMsg{Err: err, Context: "listing EC2 instances"}
 		}
@@ -219,9 +230,12 @@ func (e *EC2List) focusAndFetchDetail(instanceID string) tea.Cmd {
 
 func (e *EC2List) fetchDetail(instanceID string) tea.Cmd {
 	svc := e.ec2
+	ctx := e.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Fetching details for instance: %s", instanceID)
-		detail, err := svc.GetInstanceDetail(context.Background(), instanceID)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		detail, err := svc.GetInstanceDetail(ctx, instanceID)
 		return ec2InstanceDetailMsg{detail: detail, err: err}
 	}
 }
@@ -312,15 +326,11 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		// Without this, DescribeInstances may return the old state and
 		// overwrite the optimistic update.
 		e.spinner.Show("Waiting for state change...")
-		action := m.action
-		id := m.instanceID
-		delayedRefresh := func() tea.Msg {
-			time.Sleep(2 * time.Second)
+		toast := m.Outcome()
+		delayedRefresh := tea.Tick(ec2RefreshDelay, func(time.Time) tea.Msg {
 			return ec2DelayedRefreshMsg{}
-		}
-		return e, tea.Batch(e.spinner.Tick(), delayedRefresh, func() tea.Msg {
-			return msg.ToastSuccess("Instance " + action + ": " + id)
 		})
+		return e, tea.Batch(e.spinner.Tick(), delayedRefresh, func() tea.Msg { return toast })
 
 	case ec2DelayedRefreshMsg:
 		e.spinner.Show("Refreshing instances...")
@@ -594,8 +604,11 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 func (e *EC2List) refreshInstances(ids []string) tea.Cmd {
 	svc := e.ec2
+	ctx := e.viewContext()
 	return func() tea.Msg {
-		instances, err := svc.RefreshInstances(context.Background(), ids)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		instances, err := svc.RefreshInstances(ctx, ids)
 		return ec2InstancesRefreshedMsg{instances: instances, err: err}
 	}
 }
@@ -705,36 +718,48 @@ func (e *EC2List) actionsForState(state string) []string {
 
 func (e *EC2List) startInstances(ids []string) tea.Cmd {
 	svc := e.ec2
+	ctx := e.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Starting %d instances", len(ids))
-		err := svc.StartInstances(context.Background(), ids)
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.StartInstances(ctx, ids)
 		return ec2InstanceMutatedMsg{action: "started", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
 func (e *EC2List) stopInstances(ids []string) tea.Cmd {
 	svc := e.ec2
+	ctx := e.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Stopping %d instances", len(ids))
-		err := svc.StopInstances(context.Background(), ids)
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.StopInstances(ctx, ids)
 		return ec2InstanceMutatedMsg{action: "stopped", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
 func (e *EC2List) rebootInstances(ids []string) tea.Cmd {
 	svc := e.ec2
+	ctx := e.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Rebooting %d instances", len(ids))
-		err := svc.RebootInstances(context.Background(), ids)
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.RebootInstances(ctx, ids)
 		return ec2InstanceMutatedMsg{action: "rebooted", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
 func (e *EC2List) terminateInstances(ids []string) tea.Cmd {
 	svc := e.ec2
+	ctx := e.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Terminating %d instances", len(ids))
-		err := svc.TerminateInstances(context.Background(), ids)
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.TerminateInstances(ctx, ids)
 		return ec2InstanceMutatedMsg{action: "terminated", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }

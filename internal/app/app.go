@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/eventlog"
 	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
+	"github.com/juthrbog/lazycloud/internal/ops"
 	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 	"github.com/juthrbog/lazycloud/internal/views"
@@ -72,7 +75,26 @@ type Model struct {
 
 	// Pending theme name awaiting confirmation when nav stack is deep
 	pendingTheme string
+
+	// ops holds the long operations that run in the background (see
+	// appmsg.StartOpMsg). The pointer is shared by every copy of Model.
+	ops *ops.Registry
+	// pendingSession is the profile or region switch that waits for the
+	// user to confirm, because operations are still running.
+	pendingSession *sessionChange
 }
+
+// sessionChange is a profile or region switch. kind and value name the
+// change for the toast, for example "Region" and "eu-west-1".
+type sessionChange struct {
+	profile, region, kind, value string
+}
+
+// Confirm actions that the app handles itself. Views never use them.
+const (
+	confirmQuit          = "app_quit"
+	confirmSessionSwitch = "app_session_switch"
+)
 
 // New creates the root model with the home view as the starting screen.
 func New(cfg config.Config) Model {
@@ -94,6 +116,7 @@ func New(cfg config.Config) Model {
 		toasts:     ui.NewToastManager(),
 		keys:       ui.DefaultAppKeyMap(),
 		isDark:     true,
+		ops:        ops.NewRegistry(),
 	}
 	// Without a session, the app still starts. It shows the error on Home and
 	// opens no AWS view until a profile or region switch succeeds.
@@ -105,6 +128,22 @@ func New(cfg config.Config) Model {
 	}
 	eventlog.Infof(eventlog.CatApp, "LazyCloud started (theme=%s, region=%s)", cfg.Display.Theme, m.activeRegion())
 	return m
+}
+
+// Ops returns the registry of background operations. main cancels them and
+// waits for them after the program ends, so a cancelled download can remove
+// its partial file.
+func (m Model) Ops() *ops.Registry {
+	return m.ops
+}
+
+// sessionLabel names the current session, for example "default/us-east-1".
+func (m Model) sessionLabel() string {
+	profile := m.config.AWS.Profile
+	if profile == "" {
+		profile = "default"
+	}
+	return profile + "/" + m.activeRegion()
 }
 
 // noSessionText explains why the app has no AWS session and how to fix it.
@@ -127,8 +166,37 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		// Feedback is useful even from a view the user has left.
 		return m.Update(inner)
 
+	case appmsg.StartOpMsg:
+		// The user started the operation, so it runs also when its view
+		// is gone by now.
+		return m, m.startOp(r.Origin, inner)
+
+	case appmsg.RequestConfirmMsg:
+		if !m.nav.Contains(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
+			return m, nil
+		}
+		var why string
+		switch {
+		case !m.nav.IsCurrent(r.Origin):
+			// A prompt over another view would be confusing, but the
+			// user must learn that the view needs an answer.
+			why = r.Origin.Title() + " needs an answer, but it is not on top: "
+		case m.confirm.Visible() || m.picker.Visible():
+			// Never replace an open prompt: the key meant for it, such
+			// as y to quit, would then answer this one.
+			why = "Not asked, another prompt is open: "
+		default:
+			return m.Update(inner)
+		}
+		m, toastCmd := m.skippedPrompt(why + inner.Message)
+		// A question that was not asked counts as a no, so the view
+		// forgets the action that waits for the answer.
+		decline := m.nav.UpdateView(r.Origin, ui.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
+		return m, tea.Batch(toastCmd, decline)
+
 	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
-		appmsg.RequestFormMsg, appmsg.FormResultMsg, appmsg.RequestConfirmMsg,
+		appmsg.RequestFormMsg, appmsg.FormResultMsg,
 		appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg,
 		appmsg.RequestFeaturePickerMsg, ui.RequestFormDiscardConfirmMsg,
 		ui.ContentLinkActivatedMsg:
@@ -150,15 +218,69 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 	}
 
 	if !m.nav.Contains(r.Origin) {
+		// The user left the view or switched the session. The result of
+		// a mutation or an operation still matters, so it shows as a toast.
+		if o, ok := r.Msg.(appmsg.Outcome); ok {
+			return m, outcomeCmd(r.Origin, o.Outcome())
+		}
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", r.Msg, r.Origin.ID())
 		return m, nil
 	}
 	if e, ok := r.Msg.(appmsg.ErrorMsg); ok {
+		if errors.Is(e.Err, context.Canceled) {
+			// Only a view that left the stack is cancelled, so this
+			// cannot reach a live view today. Keep it out of the status
+			// bar if it ever does.
+			eventlog.Debugf(eventlog.CatNav, "Dropped cancelled %s from %s", e.Context, r.Origin.ID())
+			return m, nil
+		}
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", e.Context, e.Err)
-		m.err = e.Context + ": " + e.Err.Error()
+		m.err = errorText(e)
 		m.errView = r.Origin
 	}
 	return m, m.nav.UpdateView(r.Origin, r.Msg)
+}
+
+// errorText is the status bar text of an error.
+func errorText(e appmsg.ErrorMsg) string {
+	if aws.IsTimeout(e.Err) {
+		return e.Context + ": no answer from AWS in time"
+	}
+	return e.Context + ": " + e.Err.Error()
+}
+
+// outcomeCmd returns a command that shows the outcome of a result whose
+// view is gone. It also writes the outcome to the event log, as the view
+// would have done.
+func outcomeCmd(origin nav.View, t appmsg.ToastMsg) tea.Cmd {
+	switch ui.ToastLevel(t.Level) {
+	case ui.ToastError:
+		eventlog.Errorf(eventlog.CatApp, "%s: %s", origin.Title(), t.Text)
+	default:
+		eventlog.Infof(eventlog.CatApp, "%s: %s", origin.Title(), t.Text)
+	}
+	return func() tea.Msg { return t }
+}
+
+// startOp registers a background operation and returns the command that
+// runs it. The registration happens here, on the event loop, so the quit
+// and session-switch prompts see the operation at once.
+func (m Model) startOp(origin nav.View, s appmsg.StartOpMsg) tea.Cmd {
+	op := m.ops.Begin(s.Label, m.sessionLabel())
+	eventlog.Infof(eventlog.CatAWS, "Started in the background: %s (%s)", s.Label, op.Session)
+	run := s.Run
+	return nav.Tag(origin, func() tea.Msg {
+		defer op.Done()
+		return run(op.Ctx)
+	})
+}
+
+// skippedPrompt tells the user about a confirmation that the app did not
+// show, because another prompt is open or the view is not on top.
+func (m Model) skippedPrompt(text string) (Model, tea.Cmd) {
+	eventlog.Warnf(eventlog.CatUI, "Prompt skipped: %s", text)
+	_, cmd := m.toasts.Add(text, ui.ToastInfo, 0)
+	return m, cmd
 }
 
 // visibleErr returns the status bar error for the current view. An error
@@ -176,7 +298,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// Overlays intercept key input when visible, but let async data messages
 	// (page loads, spinner ticks, etc.) fall through to normal routing.
-	if _, isKey := teaMsg.(tea.KeyPressMsg); isKey {
+	if k, isKey := teaMsg.(tea.KeyPressMsg); isKey {
+		if m.confirm.Visible() && m.confirm.Action() == confirmQuit && k.String() == "ctrl+c" {
+			// A second ctrl+c quits without the answer.
+			return m.quitNow()
+		}
 		if m.picker.Visible() {
 			var cmd tea.Cmd
 			m.picker, cmd = m.picker.Update(teaMsg)
@@ -295,7 +421,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.ErrorMsg:
-		m.err = msg.Context + ": " + msg.Err.Error()
+		if errors.Is(msg.Err, context.Canceled) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped cancelled %s", msg.Context)
+			return m, nil
+		}
+		m.err = errorText(msg)
 		m.errView = m.nav.Current()
 		eventlog.Errorf(eventlog.CatApp, "%s: %v", msg.Context, msg.Err)
 		cmd := m.nav.UpdateCurrent(teaMsg)
@@ -344,6 +474,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.RequestConfirmMsg:
+		if m.confirm.Visible() || m.picker.Visible() {
+			// Never replace an open prompt: the key meant for it, such
+			// as y to quit, would then answer this one.
+			return m.skippedPrompt("Not asked, another prompt is open: " + msg.Message)
+		}
 		if msg.Quick {
 			m.confirm.ShowQuick(msg.Message, msg.Action)
 			return m, nil
@@ -381,6 +516,24 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case ui.ConfirmResultMsg:
+		switch msg.Action {
+		case confirmQuit:
+			if msg.Confirmed {
+				return m.quitNow()
+			}
+			return m, nil
+		case confirmSessionSwitch:
+			change := m.pendingSession
+			m.pendingSession = nil
+			if change == nil {
+				return m, nil
+			}
+			if msg.Confirmed {
+				return m.switchSession(change.profile, change.region, change.kind, change.value)
+			}
+			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", change.kind, change.value)
+			return m, nil
+		}
 		if msg.Action == "theme_switch" {
 			if msg.Confirmed && m.pendingTheme != "" {
 				name := m.pendingTheme
@@ -487,7 +640,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		// app-wide keys.
 		if m.capturingInput() {
 			if msg.String() == "ctrl+c" {
-				return m, tea.Quit
+				return m.requestQuit()
 			}
 			cmd := m.nav.UpdateCurrent(teaMsg)
 			return m, cmd
@@ -502,7 +655,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global keys — work regardless of focus state
 		switch {
 		case msg.String() == "ctrl+c":
-			return m, tea.Quit
+			return m.requestQuit()
 		case key.Matches(msg, m.keys.Quit.Binding):
 			if m.panelOpen {
 				m.clearStashedPanel()
@@ -510,7 +663,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.nav.Depth() <= 1 {
-				return m, tea.Quit
+				return m.requestQuit()
 			}
 			m.nav.Pop()
 			m.trimCrossNavHistory()
@@ -647,7 +800,7 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 	// Action commands handled individually.
 	switch cmd.Name {
 	case "quit":
-		return m, tea.Quit
+		return m.requestQuit()
 	case "home":
 		return m, m.resetNav()
 	case "mode":
@@ -938,8 +1091,76 @@ func (m *Model) showProfilePicker() tea.Cmd {
 }
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
-	eventlog.Infof(eventlog.CatConfig, "Profile changed → %s", profile)
-	return m.switchSession(profile, m.config.AWS.Region, "Profile", profile)
+	return m.requestSessionSwitch(sessionChange{profile, m.config.AWS.Region, "Profile", profile})
+}
+
+// requestSessionSwitch switches the session at once when no operation runs.
+// Otherwise it asks first: the operations keep running in the background
+// with the old session, and the user should know that.
+func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
+	n := m.ops.Count()
+	if n == 0 {
+		return m.switchSession(c.profile, c.region, c.kind, c.value)
+	}
+	m.pendingSession = &c
+	m.confirm.ShowQuick(fmt.Sprintf(
+		"%s running on %s. %s in the background. Switch the %s to %s?",
+		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value), confirmSessionSwitch)
+	return m, nil
+}
+
+// opsSessions names the sessions that the running operations use. After
+// an earlier switch, they can differ from the current session.
+func (m Model) opsSessions() string {
+	var names []string
+	for _, op := range m.ops.Running() {
+		if !slices.Contains(names, op.Session) {
+			names = append(names, op.Session)
+		}
+	}
+	return strings.Join(names, ", ")
+}
+
+// requestQuit quits at once when no operation runs. Otherwise it asks
+// first, because quitting cancels the operations.
+func (m Model) requestQuit() (Model, tea.Cmd) {
+	n := m.ops.Count()
+	if n == 0 {
+		return m.quitNow()
+	}
+	m.confirm.ShowQuick(fmt.Sprintf("%s running. Quit and cancel %s?", countOps(n), itOrThem(n)), confirmQuit)
+	return m, nil
+}
+
+// quitNow cancels the operations and quits. main waits a short time for
+// them to end, so a cancelled download can remove its partial file.
+func (m Model) quitNow() (Model, tea.Cmd) {
+	if n := m.ops.Count(); n > 0 {
+		eventlog.Warnf(eventlog.CatApp, "Quit: cancelling %d operation(s)", n)
+	}
+	m.ops.CancelAll()
+	return m, tea.Quit
+}
+
+func countOps(n int) string {
+	if n == 1 {
+		return "1 operation is"
+	}
+	return fmt.Sprintf("%d operations are", n)
+}
+
+func keepWord(n int) string {
+	if n == 1 {
+		return "It keeps running"
+	}
+	return "They keep running"
+}
+
+func itOrThem(n int) string {
+	if n == 1 {
+		return "it"
+	}
+	return "them"
 }
 
 // switchSession builds the AWS services for profile and region. kind and
@@ -956,6 +1177,7 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 		_, cmd := m.toasts.Add(fmt.Sprintf("Cannot switch %s to %s: %v", strings.ToLower(kind), value, err), ui.ToastError, 0)
 		return m, cmd
 	}
+	eventlog.Infof(eventlog.CatConfig, "%s changed → %s", kind, value)
 	m.config.AWS.Profile = profile
 	m.config.AWS.Region = region
 	m.svc, m.svcErr = svc, nil
@@ -981,6 +1203,8 @@ func (m *Model) resetNav() tea.Cmd {
 	m.closePanel()
 	m.crossNavHistory = nil
 	m.err, m.errView = "", nil
+	// Stop the loads of the old views. Background operations keep running.
+	m.nav.Close()
 	m.nav = nav.New(views.NewHome())
 	if m.svcErr != nil {
 		m.err, m.errView = noSessionText(m.svcErr), m.nav.Current()
@@ -1033,8 +1257,7 @@ func (m *Model) showRegionPicker() {
 }
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
-	eventlog.Infof(eventlog.CatConfig, "Region changed → %s", region)
-	return m.switchSession(m.config.AWS.Profile, region, "Region", region)
+	return m.requestSessionSwitch(sessionChange{m.config.AWS.Profile, region, "Region", region})
 }
 
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {

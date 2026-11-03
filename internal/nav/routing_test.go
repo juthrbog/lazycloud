@@ -1,6 +1,7 @@
 package nav
 
 import (
+	"context"
 	"os/exec"
 	"testing"
 
@@ -35,6 +36,92 @@ func (v *recView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 type dataMsg struct{ n int }
+
+// ctxView records the context the navigator gives it.
+type ctxView struct {
+	recView
+	ctx       context.Context
+	setBefore bool // SetContext ran before Init
+}
+
+func (v *ctxView) SetContext(ctx context.Context) { v.ctx = ctx }
+func (v *ctxView) Init() tea.Cmd {
+	v.setBefore = v.ctx != nil
+	return nil
+}
+
+func TestPushSetsContextBeforeInit(t *testing.T) {
+	root, a := &ctxView{recView: recView{id: "root"}}, &ctxView{recView: recView{id: "a"}}
+	n := New(root)
+	require.NotNil(t, root.ctx, "the root view gets a context too")
+	n.Push(a)
+	assert.True(t, a.setBefore)
+	require.NoError(t, a.ctx.Err())
+}
+
+func TestPopCancelsTheViewContext(t *testing.T) {
+	root := &ctxView{recView: recView{id: "root"}}
+	a, b, c := &ctxView{recView: recView{id: "a"}}, &ctxView{recView: recView{id: "b"}}, &ctxView{recView: recView{id: "c"}}
+	n := New(root)
+	n.Push(a)
+	n.Push(b)
+	n.Push(c)
+
+	n.Pop()
+	require.ErrorIs(t, c.ctx.Err(), context.Canceled)
+	require.NoError(t, b.ctx.Err())
+
+	n.PopTo(1)
+	require.ErrorIs(t, b.ctx.Err(), context.Canceled)
+	require.ErrorIs(t, a.ctx.Err(), context.Canceled)
+	require.NoError(t, root.ctx.Err(), "the root stays")
+
+	n.Pop()
+	require.NoError(t, root.ctx.Err(), "popping at the root does nothing")
+}
+
+func TestCloseCancelsEveryContext(t *testing.T) {
+	root, a := &ctxView{recView: recView{id: "root"}}, &ctxView{recView: recView{id: "a"}}
+	n := New(root)
+	n.Push(a)
+	n.Close()
+	require.ErrorIs(t, root.ctx.Err(), context.Canceled)
+	require.ErrorIs(t, a.ctx.Err(), context.Canceled)
+}
+
+func TestPushSameIDBuildsNewView(t *testing.T) {
+	n := New(&recView{id: "root"})
+	first := &ctxView{recView: recView{id: "page"}}
+	n.Push(first)
+	n.Pop()
+
+	second := &ctxView{recView: recView{id: "page"}}
+	n.Push(second)
+	assert.True(t, n.IsCurrent(second), "the new instance is pushed, not the popped one")
+	require.ErrorIs(t, first.ctx.Err(), context.Canceled)
+	require.NoError(t, second.ctx.Err())
+}
+
+// swapCtxView returns a new instance from Update and records its context.
+type swapCtxView struct{ ctxView }
+
+func (v *swapCtxView) Update(tea.Msg) (tea.Model, tea.Cmd) {
+	return &swapCtxView{ctxView{recView: recView{id: v.id}}}, nil
+}
+
+func TestSwappedInstanceKeepsTheContext(t *testing.T) {
+	old := &swapCtxView{ctxView{recView: recView{id: "a"}}}
+	n := New(&recView{id: "root"})
+	n.Push(old)
+	n.UpdateCurrent(dataMsg{1})
+
+	next, ok := n.Current().(*swapCtxView)
+	require.True(t, ok)
+	require.NotSame(t, old, next)
+	assert.Same(t, old.ctx, next.ctx, "the new instance gets the same context")
+	n.Pop()
+	require.ErrorIs(t, next.ctx.Err(), context.Canceled)
+}
 
 func TestTagNil(t *testing.T) {
 	assert.Nil(t, Tag(&recView{id: "a"}, nil))
@@ -107,7 +194,7 @@ func TestContainsAndIsCurrent(t *testing.T) {
 
 	n.Pop()
 	assert.False(t, n.IsCurrent(a))
-	assert.True(t, n.Contains(a), "a popped view stays live in the cache")
+	assert.False(t, n.Contains(a), "a popped view is gone")
 
 	// Same ID, different instance (for example after a session switch).
 	other := New(&recView{id: "root"})

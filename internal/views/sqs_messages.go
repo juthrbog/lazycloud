@@ -36,17 +36,64 @@ type sqsMessagesLoadedMsg struct {
 type sqsMessageDeletedMsg struct {
 	ids    []string          // IDs of the messages that the delete tried
 	failed map[string]string // message ID → error code, for the messages SQS did not delete
+	isFIFO bool
 }
 
-type sqsRedriveStartedMsg struct {
-	taskHandle string
-	err        error
+// failures returns the messages that SQS did not delete.
+func (m sqsMessageDeletedMsg) failures() []itemFailure {
+	var out []itemFailure
+	for _, id := range m.ids {
+		if code, ok := m.failed[id]; ok {
+			out = append(out, itemFailure{name: truncateID(id), err: errors.New(code)})
+		}
+	}
+	return out
 }
 
-type sqsRedriveProgressMsg struct {
-	tasks []aws.MessageMoveTask
-	err   error
+// Outcome implements msg.Outcome.
+func (m sqsMessageDeletedMsg) Outcome() msg.ToastMsg {
+	// On a standard queue, SQS also accepts the delete of an old receipt
+	// handle that leaves the message in the queue. Say what SQS
+	// confirmed, not more.
+	verb := "Deleted"
+	if !m.isFIFO {
+		verb = "SQS accepted the delete of"
+	}
+	text, ok := resultText(verb, len(m.ids), "message(s)", m.failures())
+	if ok {
+		return msg.ToastSuccess(text)
+	}
+	return msg.ToastError(text)
 }
+
+// sqsRedriveDoneMsg ends a redrive operation (see startRedrive).
+type sqsRedriveDoneMsg struct {
+	queue    string // the DLQ name
+	startErr error  // SQS did not start the task
+	status   string // COMPLETED, FAILED, CANCELLED, or "" when no task is listed
+	moved    int64
+	reason   string // why the task failed
+	err      error  // the watch failed; the task itself goes on in SQS
+}
+
+// Outcome implements msg.Outcome.
+func (m sqsRedriveDoneMsg) Outcome() msg.ToastMsg {
+	switch {
+	case m.startErr != nil:
+		return msg.ToastError("Redrive failed: " + m.startErr.Error())
+	case m.err != nil:
+		return msg.ToastError(fmt.Sprintf("Lost track of the redrive of %s (%v). SQS goes on with it.", m.queue, m.err))
+	case m.status == "COMPLETED":
+		return msg.ToastSuccess(fmt.Sprintf("Redrive completed: %d messages moved", m.moved))
+	case m.status == "":
+		return msg.ToastInfo("The redrive of " + m.queue + " is no longer listed")
+	}
+	return msg.ToastError(fmt.Sprintf("Redrive %s: %s", strings.ToLower(m.status), m.reason))
+}
+
+// redrivePollInterval is the time between two status reads of a redrive.
+// It is a variable so that tests can make it short.
+var redrivePollInterval = 2 * time.Second
 
 // ─── Key map ────────────────────────────────────────────────────────────────
 
@@ -82,6 +129,7 @@ var defaultSQSMessagesKeyMap = sqsMessagesKeyMap{
 
 // SQSMessages displays messages peeked from an SQS queue.
 type SQSMessages struct {
+	viewCtx
 	keys      sqsMessagesKeyMap
 	sqs       aws.SQSService
 	queueURL  string
@@ -212,9 +260,15 @@ func (s *SQSMessages) peekBlocked() string {
 func (s *SQSMessages) fetchMessages() tea.Cmd {
 	svc := s.sqs
 	queueURL := s.queueURL
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Peeking messages: %s", queueURL)
-		messages, err := svc.ReceiveMessages(context.Background(), queueURL, 10)
+		// Detached: a peek that stops after SQS received the messages, but
+		// before it made them visible again, would hide them from consumers
+		// for the whole visibility timeout.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), callTimeout)
+		defer cancel()
+		messages, err := svc.ReceiveMessages(ctx, queueURL, 10)
 		var resetErr *aws.VisibilityResetError
 		if err != nil && !errors.As(err, &resetErr) {
 			return msg.ErrorMsg{Err: err, Context: "peeking SQS messages"}
@@ -226,8 +280,11 @@ func (s *SQSMessages) fetchMessages() tea.Cmd {
 func (s *SQSMessages) fetchQueueAttrs() tea.Cmd {
 	svc := s.sqs
 	queueURL := s.queueURL
+	ctx := s.viewContext()
 	return func() tea.Msg {
-		q, err := svc.GetQueueAttributes(context.Background(), queueURL)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		q, err := svc.GetQueueAttributes(ctx, queueURL)
 		if err == nil && q == nil {
 			err = errors.New("no queue attributes returned")
 		}
@@ -237,7 +294,7 @@ func (s *SQSMessages) fetchQueueAttrs() tea.Cmd {
 		// A queue is a dead-letter queue when another queue sends its failed
 		// messages to it. A RedriveAllowPolicy is optional, so most DLQs
 		// have none.
-		sources, srcErr := svc.ListDeadLetterSourceQueues(context.Background(), queueURL)
+		sources, srcErr := svc.ListDeadLetterSourceQueues(ctx, queueURL)
 		return sqsQueueAttrsMsg{queue: q, sources: sources, sourcesErr: srcErr}
 	}
 }
@@ -281,24 +338,63 @@ func (s *SQSMessages) peekWarnings(m sqsMessagesLoadedMsg) []tea.Cmd {
 }
 
 // startRedrive moves the messages of this DLQ back to their source queues.
+// One background operation starts the task and follows it until SQS
+// reports an end, so the user learns the result also after leaving the
+// view. The task itself runs in SQS.
 func (s *SQSMessages) startRedrive() tea.Cmd {
-	arn := s.queueARN
 	svc := s.sqs
+	arn := s.queueARN
+	name := s.queueName
 	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
-		handle, err := svc.StartMessageMoveTask(context.Background(), arn, "")
-		return sqsRedriveStartedMsg{taskHandle: handle, err: err}
+		return msg.StartOpMsg{Label: "Redrive " + name, Run: func(ctx context.Context) tea.Msg {
+			eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
+			sctx, cancel := context.WithTimeout(ctx, mutateTimeout)
+			_, err := svc.StartMessageMoveTask(sctx, arn, "")
+			cancel()
+			if err != nil {
+				return sqsRedriveDoneMsg{queue: name, startErr: err}
+			}
+			t := time.NewTicker(redrivePollInterval)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return sqsRedriveDoneMsg{queue: name, err: ctx.Err()}
+				case <-t.C:
+				}
+				pctx, cancel := context.WithTimeout(ctx, callTimeout)
+				tasks, err := svc.ListMessageMoveTasks(pctx, arn)
+				cancel()
+				if err != nil {
+					return sqsRedriveDoneMsg{queue: name, err: err}
+				}
+				if done, ok := redriveEnd(name, tasks); ok {
+					return done
+				}
+			}
+		}}
 	}
 }
 
-func (s *SQSMessages) pollRedrive() tea.Cmd {
-	svc := s.sqs
-	arn := s.queueARN
-	return func() tea.Msg {
-		time.Sleep(2 * time.Second)
-		tasks, err := svc.ListMessageMoveTasks(context.Background(), arn)
-		return sqsRedriveProgressMsg{tasks: tasks, err: err}
+// redriveEnd returns the end of a redrive, or false while it runs. SQS
+// lists the newest task first, and only that task decides: an older task
+// must not report its result for this one. Any state that is not an end,
+// such as RUNNING or CANCELLING, means the task still runs.
+func redriveEnd(queue string, tasks []aws.MessageMoveTask) (sqsRedriveDoneMsg, bool) {
+	if len(tasks) == 0 {
+		return sqsRedriveDoneMsg{queue: queue}, true
 	}
+	task := tasks[0]
+	switch task.Status {
+	case "COMPLETED", "FAILED", "CANCELLED":
+		return sqsRedriveDoneMsg{
+			queue:  queue,
+			status: task.Status,
+			moved:  task.ApproximateNumberOfMsgsMoved,
+			reason: task.FailureReason,
+		}, true
+	}
+	return sqsRedriveDoneMsg{}, false
 }
 
 // ─── Update ─────────────────────────────────────────────────────────────────
@@ -338,7 +434,9 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case "sqs_delete_messages":
 			return s, s.deleteSelectedMessages()
 		case "sqs_redrive":
-			return s, s.startRedrive()
+			s.redriving = true
+			s.spinner.Show("Redrive in progress...")
+			return s, tea.Batch(s.spinner.Tick(), s.startRedrive())
 		}
 		return s, nil
 
@@ -390,11 +488,9 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case sqsMessageDeletedMsg:
 		// Only the messages that SQS deleted leave the list. A failed one
 		// stays, so the user can see it and try again.
-		var failures []itemFailure
 		deleted := make(map[string]bool, len(m.ids))
 		for _, id := range m.ids {
-			if code, ok := m.failed[id]; ok {
-				failures = append(failures, itemFailure{name: truncateID(id), err: errors.New(code)})
+			if _, failed := m.failed[id]; failed {
 				continue
 			}
 			deleted[id] = true
@@ -404,69 +500,19 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.table.DeselectAll()
 		s.rebuildRows()
 		eventlog.Infof(eventlog.CatAWS, "Deleted %d SQS messages", len(deleted))
-		// On a standard queue, SQS also accepts the delete of an old receipt
-		// handle that leaves the message in the queue. Say what SQS
-		// confirmed, not more.
-		verb := "Deleted"
-		if !s.isFIFO {
-			verb = "SQS accepted the delete of"
-		}
-		text, ok := resultText(verb, len(m.ids), "message(s)", failures)
-		return s, func() tea.Msg {
-			if ok {
-				return msg.ToastSuccess(text)
-			}
-			return msg.ToastError(text)
-		}
+		toast := m.Outcome()
+		return s, func() tea.Msg { return toast }
 
-	case sqsRedriveStartedMsg:
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "Redrive failed: %v", m.err)
-			return s, func() tea.Msg {
-				return msg.ToastError("Redrive failed: " + m.err.Error())
-			}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Redrive started")
-		s.redriving = true
-		s.spinner.Show("Redrive in progress...")
-		return s, tea.Batch(s.spinner.Tick(), s.pollRedrive(), func() tea.Msg {
-			return msg.ToastSuccess("Redrive started")
-		})
-
-	case sqsRedriveProgressMsg:
-		if m.err != nil || !s.redriving {
-			return s, nil
-		}
-		for _, task := range m.tasks {
-			switch task.Status {
-			case "COMPLETED":
-				s.redriving = false
-				s.spinner.Hide()
-				moved := task.ApproximateNumberOfMsgsMoved
-				eventlog.Infof(eventlog.CatAWS, "Redrive completed: %d messages moved", moved)
-				return s, func() tea.Msg {
-					return msg.ToastSuccess(fmt.Sprintf("Redrive completed: %d messages moved", moved))
-				}
-			case "FAILED", "CANCELLED":
-				s.redriving = false
-				s.spinner.Hide()
-				status := task.Status
-				reason := task.FailureReason
-				eventlog.Errorf(eventlog.CatAWS, "Redrive %s: %s", strings.ToLower(status), reason)
-				return s, func() tea.Msg {
-					return msg.ToastError(fmt.Sprintf("Redrive %s: %s", strings.ToLower(status), reason))
-				}
-			case "RUNNING":
-				moved := task.ApproximateNumberOfMsgsMoved
-				total := task.ApproximateNumberOfMessages
-				s.spinner.Show(fmt.Sprintf("Redrive: %d/%d messages moved...", moved, total))
-				return s, tea.Batch(s.spinner.Tick(), s.pollRedrive())
-			}
-		}
-		// No matching tasks found — stop polling
+	case sqsRedriveDoneMsg:
 		s.redriving = false
 		s.spinner.Hide()
-		return s, nil
+		toast := m.Outcome()
+		if ui.ToastLevel(toast.Level) == ui.ToastError {
+			eventlog.Errorf(eventlog.CatAWS, "%s", toast.Text)
+		} else {
+			eventlog.Infof(eventlog.CatAWS, "%s", toast.Text)
+		}
+		return s, func() tea.Msg { return toast }
 
 	case msg.ErrorMsg:
 		s.loading = false
@@ -695,10 +741,14 @@ func (s *SQSMessages) deleteSelectedMessages() tea.Cmd {
 	}
 	svc := s.sqs
 	queueURL := s.queueURL
+	isFIFO := s.isFIFO
+	ctx := s.viewContext()
 	return func() tea.Msg {
 		eventlog.Infof(eventlog.CatAWS, "Deleting %d messages from %s", len(handles), queueURL)
-		err := svc.DeleteMessageBatch(context.Background(), queueURL, handles)
-		res := sqsMessageDeletedMsg{failed: map[string]string{}}
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := svc.DeleteMessageBatch(ctx, queueURL, handles)
+		res := sqsMessageDeletedMsg{failed: map[string]string{}, isFIFO: isFIFO}
 		for _, h := range handles {
 			res.ids = append(res.ids, idByHandle[h])
 		}

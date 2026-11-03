@@ -1,5 +1,11 @@
 package msg
 
+import (
+	"context"
+
+	tea "charm.land/bubbletea/v2"
+)
+
 // NavigateMsg tells the root model to push a new view.
 type NavigateMsg struct {
 	ViewID string
@@ -143,4 +149,25 @@ type TabContent struct {
 type TabbedContentMsg struct {
 	PanelTitle string       // overall title for logging/breadcrumbs
 	Tabs       []TabContent // one or more tabs to display
+}
+
+// ─── Background operations ──────────────────────────────────────────────────
+
+// StartOpMsg asks the app to run a long operation, such as a download or a
+// bucket delete, in the background. The app registers the operation before
+// it starts, then calls Run in a command with a context that a view close or
+// a session switch does not cancel. Only quitting the app cancels it. The
+// message that Run returns goes back to the view that sent StartOpMsg. When
+// that view is gone, the app shows the message's Outcome (see Outcome).
+type StartOpMsg struct {
+	Label string // what the operation does, for example "Download a/b.txt"
+	Run   func(ctx context.Context) tea.Msg
+}
+
+// Outcome is implemented by result messages of mutations and operations
+// that can finish after their view is gone. When the app cannot deliver
+// such a message, because the user left the view or switched the session,
+// it shows Outcome as a toast, so the user still learns the result.
+type Outcome interface {
+	Outcome() ToastMsg
 }

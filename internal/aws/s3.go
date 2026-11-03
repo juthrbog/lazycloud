@@ -74,6 +74,13 @@ func (c *Client) S3ClientForRegion(region string) *s3.Client {
 	})
 }
 
+// longCopy gives one S3 copy call the HTTP client with copyReadTimeout.
+func (c *Client) longCopy(o *s3.Options) {
+	if c.copyHTTP != nil {
+		o.HTTPClient = c.copyHTTP
+	}
+}
+
 // GetBucketRegion resolves the region a bucket lives in.
 func (svc *S3ServiceImpl) GetBucketRegion(ctx context.Context, bucket string) (string, error) {
 	// LocalStack doesn't support GetBucketLocation properly
@@ -380,16 +387,36 @@ type KeyFailure struct {
 // deleted the other keys.
 type DeleteObjectsError struct {
 	Failed []KeyFailure
+	// Err is set when the context ended the delete early. The keys that
+	// were not tried are in Failed with the code "Canceled".
+	Err error
 }
 
 func (e *DeleteObjectsError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("DeleteObjects: %d key(s) not deleted: %v", len(e.Failed), e.Err)
+	}
 	return fmt.Sprintf("DeleteObjects: %d key(s) not deleted", len(e.Failed))
+}
+
+// Unwrap returns the context error that ended the delete early, if any. A
+// normal partial failure unwraps to nil.
+func (e *DeleteObjectsError) Unwrap() error { return e.Err }
+
+// notTried returns a failure for each key with the code "Canceled".
+func notTried(keys []string, err error) []KeyFailure {
+	out := make([]KeyFailure, len(keys))
+	for i, key := range keys {
+		out[i] = KeyFailure{Key: key, Code: "Canceled", Message: err.Error()}
+	}
+	return out
 }
 
 // DeleteObjects deletes multiple S3 objects in batches of up to 1000. When
 // some keys are not deleted, it returns a *DeleteObjectsError that lists
-// them. A batch call that fails does not stop the other batches. A key that
-// the XML body cannot carry (see xmlSafe) is deleted with its own call.
+// them. A batch call that fails does not stop the other batches, but the end
+// of ctx does. A key that the XML body cannot carry (see xmlSafe) is deleted
+// with its own call.
 func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys []string) error {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
@@ -398,7 +425,12 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 
 	var failed []KeyFailure
 	var batchKeys []string
-	for _, key := range keys {
+	for i, key := range keys {
+		if err := ctx.Err(); err != nil {
+			failed = append(failed, notTried(keys[i:], err)...)
+			failed = append(failed, notTried(batchKeys, err)...)
+			return &DeleteObjectsError{Failed: failed, Err: err}
+		}
 		if xmlSafe(key) {
 			batchKeys = append(batchKeys, key)
 			continue
@@ -414,6 +446,10 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 
 	const batchSize = 1000
 	for i := 0; i < len(batchKeys); i += batchSize {
+		if err := ctx.Err(); err != nil {
+			failed = append(failed, notTried(batchKeys[i:], err)...)
+			return &DeleteObjectsError{Failed: failed, Err: err}
+		}
 		batch := batchKeys[i:min(i+batchSize, len(batchKeys))]
 
 		objects := make([]s3types.ObjectIdentifier, len(batch))
@@ -430,6 +466,12 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 			},
 		})
 		if err != nil {
+			if cerr := ctx.Err(); cerr != nil {
+				// The call failed because ctx ended. S3 may or may not
+				// have deleted this batch, so it counts as not deleted.
+				failed = append(failed, notTried(batchKeys[i:], cerr)...)
+				return &DeleteObjectsError{Failed: failed, Err: cerr}
+			}
 			for _, key := range batch {
 				failed = append(failed, KeyFailure{Key: key, Code: ErrorCode(err), Message: err.Error()})
 			}
@@ -714,7 +756,7 @@ func (svc *S3ServiceImpl) CopyObject(ctx context.Context, srcBucket, srcKey, dst
 	}
 
 	if aws.ToInt64(head.ContentLength) > multipartCopyThreshold {
-		err = multipartCopy(ctx, dstClient, srcBucket, srcKey, dstBucket, dstKey, head, ifNoneMatch)
+		err = multipartCopy(ctx, dstClient, svc.client.longCopy, srcBucket, srcKey, dstBucket, dstKey, head, ifNoneMatch)
 	} else {
 		_, err = dstClient.CopyObject(ctx, &s3.CopyObjectInput{
 			Bucket:       aws.String(dstBucket),
@@ -722,7 +764,7 @@ func (svc *S3ServiceImpl) CopyObject(ctx context.Context, srcBucket, srcKey, dst
 			CopySource:   aws.String(copySource(srcBucket, srcKey)),
 			StorageClass: head.StorageClass,
 			IfNoneMatch:  ifNoneMatch,
-		})
+		}, svc.client.longCopy)
 	}
 	if isPreconditionFailed(err) {
 		return ErrDestinationExists
@@ -747,7 +789,7 @@ func (svc *S3ServiceImpl) MoveObject(ctx context.Context, srcBucket, srcKey, dst
 // It copies byte ranges with UploadPartCopy. A multipart upload does not copy
 // the metadata, so it sets the metadata and content headers of the source.
 // After an error, it aborts the upload, so no incomplete parts stay.
-func multipartCopy(ctx context.Context, c *s3.Client, srcBucket, srcKey, dstBucket, dstKey string,
+func multipartCopy(ctx context.Context, c *s3.Client, long func(*s3.Options), srcBucket, srcKey, dstBucket, dstKey string,
 	head *s3.HeadObjectOutput, ifNoneMatch *string) error {
 	created, err := c.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 		Bucket:             aws.String(dstBucket),
@@ -764,8 +806,10 @@ func multipartCopy(ctx context.Context, c *s3.Client, srcBucket, srcKey, dstBuck
 		return fmt.Errorf("starting the multipart copy: %w", err)
 	}
 	abort := func(cause error) error {
-		// The abort runs also when ctx was canceled.
-		_, _ = c.AbortMultipartUpload(context.WithoutCancel(ctx), &s3.AbortMultipartUploadInput{
+		// The abort runs also when ctx was canceled, but not forever.
+		actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+		defer cancel()
+		_, _ = c.AbortMultipartUpload(actx, &s3.AbortMultipartUploadInput{
 			Bucket:   aws.String(dstBucket),
 			Key:      aws.String(dstKey),
 			UploadId: created.UploadId,
@@ -785,7 +829,7 @@ func multipartCopy(ctx context.Context, c *s3.Client, srcBucket, srcKey, dstBuck
 			PartNumber:      aws.Int32(n),
 			CopySource:      aws.String(copySource(srcBucket, srcKey)),
 			CopySourceRange: aws.String(fmt.Sprintf("bytes=%d-%d", start, end)),
-		})
+		}, long)
 		if err != nil {
 			return abort(fmt.Errorf("copying part %d: %w", n, err))
 		}
@@ -802,7 +846,7 @@ func multipartCopy(ctx context.Context, c *s3.Client, srcBucket, srcKey, dstBuck
 		UploadId:        created.UploadId,
 		MultipartUpload: &s3types.CompletedMultipartUpload{Parts: parts},
 		IfNoneMatch:     ifNoneMatch,
-	})
+	}, long)
 	if err != nil {
 		return abort(err)
 	}
@@ -984,6 +1028,11 @@ func (svc *S3ServiceImpl) GetBucketProperties(ctx context.Context, bucket string
 			aws.ToBool(cfg.RestrictPublicBuckets)
 	}
 
+	// The calls above ignore their errors, so a cancel or timeout would
+	// otherwise return empty fields as if they were the bucket's settings.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return props, nil
 }
 
