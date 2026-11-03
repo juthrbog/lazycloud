@@ -28,6 +28,7 @@ type Picker struct {
 	filtered []int          // indices into options that match the filter
 	cursor   int            // position within filtered list
 	filter   string         // current search text
+	hint     string         // key hint under the options; "" for the default
 	visible  bool
 }
 
@@ -42,6 +43,7 @@ func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) 
 	p.title = title
 	p.options = options
 	p.filter = ""
+	p.hint = ""
 	p.visible = true
 	p.rebuildFiltered()
 
@@ -53,6 +55,11 @@ func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) 
 			break
 		}
 	}
+}
+
+// SetHint replaces the key hint under the options until the next Show.
+func (p *Picker) SetHint(hint string) {
+	p.hint = hint
 }
 
 // Hide dismisses the picker.
@@ -211,7 +218,11 @@ func (p Picker) View() string {
 		}
 	}
 
-	b.WriteString("\n" + hintStyle.Render("↑↓ navigate  enter select  ctrl+x clear  esc cancel"))
+	hint := p.hint
+	if hint == "" {
+		hint = "↑↓ navigate  enter select  ctrl+x clear  esc cancel"
+	}
+	b.WriteString("\n" + hintStyle.Render(hint))
 
 	return s.DialogBorder.Render(b.String())
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ops"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
@@ -73,6 +74,7 @@ type sqsRedriveDoneMsg struct {
 	status   string // COMPLETED, FAILED, CANCELLED, or "" when no task is listed
 	moved    int64
 	reason   string // why the task failed
+	canceled bool   // the user cancelled the redrive; err tells if SQS did not stop it
 	err      error  // the watch failed; the task itself goes on in SQS
 }
 
@@ -81,6 +83,10 @@ func (m sqsRedriveDoneMsg) Outcome() msg.ToastMsg {
 	switch {
 	case m.startErr != nil:
 		return msg.ToastError("Redrive failed: " + m.startErr.Error())
+	case m.canceled && m.err != nil:
+		return msg.ToastError(fmt.Sprintf("Could not stop the redrive of %s (%v). SQS goes on with it.", m.queue, m.err))
+	case m.canceled:
+		return msg.ToastInfo("Redrive of " + m.queue + " stopped. The moved messages stay in the source queue.")
 	case m.err != nil:
 		return msg.ToastError(fmt.Sprintf("Lost track of the redrive of %s (%v). SQS goes on with it.", m.queue, m.err))
 	case m.status == "COMPLETED":
@@ -348,8 +354,11 @@ func (s *SQSMessages) startRedrive() tea.Cmd {
 	return func() tea.Msg {
 		return msg.StartOpMsg{Label: "Redrive " + name, Run: func(ctx context.Context) tea.Msg {
 			eventlog.Infof(eventlog.CatAWS, "Starting redrive from: %s", arn)
-			sctx, cancel := context.WithTimeout(ctx, mutateTimeout)
-			_, err := svc.StartMessageMoveTask(sctx, arn, "")
+			// The start runs to its end also after a cancel. Otherwise SQS
+			// could start a task whose handle the app never learns, so the
+			// task could not be stopped.
+			sctx, cancel := detached(ctx)
+			handle, err := svc.StartMessageMoveTask(sctx, arn, "")
 			cancel()
 			if err != nil {
 				return sqsRedriveDoneMsg{queue: name, startErr: err}
@@ -359,21 +368,53 @@ func (s *SQSMessages) startRedrive() tea.Cmd {
 			for {
 				select {
 				case <-ctx.Done():
-					return sqsRedriveDoneMsg{queue: name, err: ctx.Err()}
+					return stopRedrive(ctx, svc, arn, name, handle)
 				case <-t.C:
 				}
 				pctx, cancel := context.WithTimeout(ctx, callTimeout)
 				tasks, err := svc.ListMessageMoveTasks(pctx, arn)
 				cancel()
+				// A task that ended wins over a cancel that came later.
+				if err == nil {
+					if done, ok := redriveEnd(name, tasks); ok {
+						return done
+					}
+				}
+				if ctx.Err() != nil {
+					return stopRedrive(ctx, svc, arn, name, handle)
+				}
 				if err != nil {
 					return sqsRedriveDoneMsg{queue: name, err: err}
 				}
-				if done, ok := redriveEnd(name, tasks); ok {
-					return done
-				}
+				ops.Report(ctx, ops.Progress{
+					Done:  tasks[0].ApproximateNumberOfMsgsMoved,
+					Total: tasks[0].ApproximateNumberOfMessages,
+				})
 			}
 		}}
 	}
+}
+
+// stopRedrive ends the watch of a redrive whose operation ended. When the
+// user cancelled the operation, it also cancels the task in SQS. When the
+// app quits, the task goes on in SQS. When SQS refuses the cancel because
+// the task ended in the meantime, the end of the task is the result.
+func stopRedrive(ctx context.Context, svc aws.SQSService, arn, queue, handle string) sqsRedriveDoneMsg {
+	if !ops.CanceledByUser(ctx) {
+		return sqsRedriveDoneMsg{queue: queue, err: ctx.Err()}
+	}
+	eventlog.Infof(eventlog.CatAWS, "Cancelling the redrive of %s", queue)
+	cctx, cancel := detached(ctx)
+	defer cancel()
+	err := svc.CancelMessageMoveTask(cctx, handle)
+	if err != nil {
+		if tasks, lerr := svc.ListMessageMoveTasks(cctx, arn); lerr == nil {
+			if done, ok := redriveEnd(queue, tasks); ok && done.status != "" {
+				return done
+			}
+		}
+	}
+	return sqsRedriveDoneMsg{queue: queue, canceled: true, err: err}
 }
 
 // redriveEnd returns the end of a redrive, or false while it runs. SQS

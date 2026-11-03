@@ -73,8 +73,23 @@ func (m s3DeleteCompleteMsg) failures() []itemFailure {
 // Outcome implements msg.Outcome.
 func (m s3DeleteCompleteMsg) Outcome() msg.ToastMsg {
 	var delErr *aws.DeleteObjectsError
+	isDelErr := errors.As(m.err, &delErr)
 	switch {
-	case m.err != nil && !errors.As(m.err, &delErr):
+	case canceled(m.err) && !isDelErr:
+		return msg.ToastInfo(fmt.Sprintf("Delete in s3://%s/%s cancelled. No object was deleted.", m.bucket, m.prefix))
+	case canceled(m.err):
+		text := fmt.Sprintf("Delete cancelled: deleted %d of %d object(s)", m.count-len(delErr.Failed), m.count)
+		var real []itemFailure
+		for _, f := range m.failures() {
+			if f.err.Error() != "Canceled" {
+				real = append(real, f)
+			}
+		}
+		if len(real) > 0 {
+			return msg.ToastError(text + ". Failed: " + failureText(real))
+		}
+		return msg.ToastInfo(text)
+	case m.err != nil && !isDelErr:
 		return msg.ToastError(fmt.Sprintf("Delete in s3://%s/%s failed: %v", m.bucket, m.prefix, m.err))
 	case m.count == 0:
 		return msg.ToastError("No objects found to delete")
@@ -95,7 +110,10 @@ type s3DownloadCompleteMsg struct {
 
 // Outcome implements msg.Outcome.
 func (m s3DownloadCompleteMsg) Outcome() msg.ToastMsg {
-	if m.err != nil {
+	switch {
+	case canceled(m.err):
+		return msg.ToastInfo(fmt.Sprintf("Download of s3://%s/%s cancelled", m.bucket, m.key))
+	case m.err != nil:
 		return msg.ToastError(fmt.Sprintf("Download of s3://%s/%s failed: %v", m.bucket, m.key, m.err))
 	}
 	return msg.ToastSuccess("Downloaded → " + homeRelative(m.path))
@@ -132,6 +150,8 @@ func transferOutcome(done, verb, bucket, dstKey string, err error) msg.ToastMsg 
 	switch {
 	case errors.Is(err, aws.ErrDestinationExists):
 		return msg.ToastError(fmt.Sprintf("Not %s: s3://%s/%s exists", verb, bucket, dstKey))
+	case canceled(err):
+		return msg.ToastInfo(fmt.Sprintf("Not %s to s3://%s/%s: cancelled", verb, bucket, dstKey))
 	case err != nil:
 		return msg.ToastError(fmt.Sprintf("Not %s to s3://%s/%s: %v", verb, bucket, dstKey, err))
 	}
@@ -572,6 +592,12 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		// A *DeleteObjectsError means that S3 deleted the other keys, so the
 		// list must load again. Any other error means that nothing ran.
 		var delErr *aws.DeleteObjectsError
+		if canceled(m.err) && !errors.As(m.err, &delErr) {
+			s.spinner.Hide()
+			toast := m.Outcome()
+			eventlog.Infof(eventlog.CatAWS, "%s", toast.Text)
+			return s, func() tea.Msg { return toast }
+		}
 		if m.err != nil && !errors.As(m.err, &delErr) {
 			eventlog.Errorf(eventlog.CatAWS, "Failed to delete objects in s3://%s/%s: %v", m.bucket, m.prefix, m.err)
 			s.spinner.Hide()
@@ -585,6 +611,9 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if delErr != nil {
 			for _, f := range delErr.Failed {
+				if f.Code == "Canceled" {
+					continue // the toast says how many were not tried
+				}
 				eventlog.Errorf(eventlog.CatAWS, "Delete of s3://%s/%s failed: %s %s", m.bucket, f.Key, f.Code, f.Message)
 			}
 		}
@@ -602,6 +631,11 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, tea.Batch(s.startLoad(), func() tea.Msg { return toast })
 
 	case s3DownloadCompleteMsg:
+		if canceled(m.err) {
+			toast := m.Outcome()
+			eventlog.Infof(eventlog.CatAWS, "%s", toast.Text)
+			return s, func() tea.Msg { return toast }
+		}
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "Download failed: %v", m.err)
 			s.err = m.err
@@ -617,6 +651,13 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if errors.Is(m.err, aws.ErrDestinationExists) {
 			return s, s.askOverwrite("copy", m.srcKey, m.dstKey)
 		}
+		if canceled(m.err) {
+			// S3 can finish a copy that the app stopped waiting for, so
+			// the list loads again.
+			toast := m.Outcome()
+			eventlog.Infof(eventlog.CatAWS, "%s", toast.Text)
+			return s, tea.Batch(s.refreshListing(), func() tea.Msg { return toast })
+		}
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "Copy failed: %v", m.err)
 			s.err = m.err
@@ -631,6 +672,11 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case s3MoveCompleteMsg:
 		if errors.Is(m.err, aws.ErrDestinationExists) {
 			return s, s.askOverwrite("move", m.srcKey, m.dstKey)
+		}
+		if canceled(m.err) {
+			toast := m.Outcome()
+			eventlog.Infof(eventlog.CatAWS, "%s", toast.Text)
+			return s, tea.Batch(s.refreshListing(), func() tea.Msg { return toast })
 		}
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "Move failed: %v", m.err)

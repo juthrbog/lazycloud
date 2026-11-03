@@ -72,6 +72,7 @@ type AppKeyMap struct {
 	PanelReset    HintBinding
 	CrossNavBack  HintBinding
 	ServicePicker HintBinding
+	CancelOp      HintBinding
 }
 
 // DefaultAppKeyMap returns the default app-level keybindings.
@@ -93,6 +94,7 @@ func DefaultAppKeyMap() AppKeyMap {
 		PanelReset:    NewHintBinding([]string{"="}, "=", "reset panel"),
 		CrossNavBack:  NewHintBinding([]string{"backspace"}, "bksp", "cross-nav back"),
 		ServicePicker: NewHintBinding([]string{"s"}, "s", "services"),
+		CancelOp:      NewHintBinding([]string{"ctrl+x"}, "ctrl+x", "cancel an operation"),
 	}
 }
 

@@ -1,11 +1,19 @@
 package views
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 )
+
+// canceled reports whether err comes from a cancel: the user cancelled
+// the operation with ctrl+x, or the app quits.
+func canceled(err error) bool {
+	return errors.Is(err, context.Canceled)
+}
 
 // itemFailure is one item that an action on several items could not change.
 type itemFailure struct {
