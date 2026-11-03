@@ -22,8 +22,9 @@ type FormView struct {
 	title         string
 	formID        string // echoed back in FormResultMsg
 	form          *huh.Form
-	keys          []msg.FormField   // field specs for value extraction
-	initialValues map[string]string // snapshot of field values at construction
+	keys          []msg.FormField // field specs, in the order of fields
+	fields        []huh.Field     // the fields of the form, one for each key
+	initialValues []string        // the value of each field when the form opened
 	done          bool
 	width         int
 	height        int
@@ -40,9 +41,11 @@ func NewFormView(req msg.RequestFormMsg) *FormView {
 		WithTheme(HuhTheme()).
 		WithShowHelp(false)
 
-	initVals := make(map[string]string, len(req.Fields))
-	for _, f := range req.Fields {
-		initVals[f.Key] = form.GetString(f.Key)
+	// A select field holds its first option, or its default, from the
+	// start, so this is the value that the user sees.
+	initVals := make([]string, len(fields))
+	for i, fld := range fields {
+		initVals[i] = fieldValue(fld)
 	}
 
 	return &FormView{
@@ -51,6 +54,7 @@ func NewFormView(req msg.RequestFormMsg) *FormView {
 		formID:        req.ID,
 		form:          form,
 		keys:          req.Fields,
+		fields:        fields,
 		initialValues: initVals,
 	}
 }
@@ -59,22 +63,17 @@ func (f *FormView) ID() string     { return f.id }
 func (f *FormView) Title() string  { return f.title }
 func (f *FormView) FormID() string { return f.formID }
 
+// fieldValue returns the current value of a field as text. A field
+// updates its value on each key press. The form itself stores a value only
+// when the focus moves forward, so form.GetString can be out of date.
+func fieldValue(fld huh.Field) string {
+	return fmt.Sprint(fld.GetValue())
+}
+
 // isDirty reports whether any field value differs from its initial value.
 func (f *FormView) isDirty() bool {
-	// The focused field's live value is only in its accessor (updated per
-	// keystroke), not yet committed to form.results which GetString reads.
-	var focusedKey string
-	if ff := f.form.GetFocusedField(); ff != nil {
-		focusedKey = ff.GetKey()
-		if fmt.Sprintf("%v", ff.GetValue()) != f.initialValues[focusedKey] {
-			return true
-		}
-	}
-	for _, k := range f.keys {
-		if k.Key == focusedKey {
-			continue // already checked via live accessor above
-		}
-		if f.form.GetString(k.Key) != f.initialValues[k.Key] {
+	for i, fld := range f.fields {
+		if fieldValue(fld) != f.initialValues[i] {
 			return true
 		}
 	}
@@ -137,8 +136,8 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case huh.StateCompleted:
 		f.done = true
 		values := make(map[string]string, len(f.keys))
-		for _, k := range f.keys {
-			values[k.Key] = f.form.GetString(k.Key)
+		for i, k := range f.keys {
+			values[k.Key] = fieldValue(f.fields[i])
 		}
 		formID := f.formID
 		return f, func() tea.Msg {
