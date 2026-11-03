@@ -79,6 +79,11 @@ type Model struct {
 	// ops holds the long operations that run in the background (see
 	// appmsg.StartOpMsg). The pointer is shared by every copy of Model.
 	ops *ops.Registry
+	// opsTicking is true while a tick redraws the operations line.
+	opsTicking bool
+	// opsShown is true while the layout has the operations line. It
+	// changes only in syncOpsLine, which also resizes the views.
+	opsShown bool
 	// pendingSession is the profile or region switch that waits for the
 	// user to confirm, because operations are still running.
 	pendingSession *sessionChange
@@ -161,6 +166,9 @@ func (m Model) Init() tea.Cmd {
 // handleRouted delivers the result of a command that a view issued.
 // See nav.Routed for why results carry their origin view.
 func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
+	// The result of an operation comes after the operation ended, so the
+	// operations line can go away now.
+	m.syncOpsLine()
 	switch inner := r.Msg.(type) {
 	case appmsg.ToastMsg:
 		// Feedback is useful even from a view the user has left.
@@ -169,7 +177,13 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 	case appmsg.StartOpMsg:
 		// The user started the operation, so it runs also when its view
 		// is gone by now.
-		return m, m.startOp(r.Origin, inner)
+		cmd := m.startOp(r.Origin, inner)
+		m.syncOpsLine()
+		if !m.opsTicking {
+			m.opsTicking = true
+			cmd = tea.Batch(cmd, opsTick())
+		}
+		return m, cmd
 
 	case appmsg.RequestConfirmMsg:
 		if !m.nav.Contains(r.Origin) {
@@ -558,7 +572,20 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
+	case opsTickMsg:
+		// The tick stops when no operation runs, and the next
+		// operation starts it again.
+		m.syncOpsLine()
+		if m.ops.Count() == 0 {
+			m.opsTicking = false
+			return m, nil
+		}
+		return m, opsTick()
+
 	case ui.PickerResultMsg:
+		if msg.ID == cancelPickerID {
+			return m.cancelOp(msg)
+		}
 		// Service picker: navigate to selected service (or show feature picker for multi-feature)
 		if msg.ID == "service" {
 			if msg.Selected < 0 {
@@ -656,6 +683,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case msg.String() == "ctrl+c":
 			return m.requestQuit()
+		case key.Matches(msg, m.keys.CancelOp.Binding):
+			return m.showCancelPicker()
 		case key.Matches(msg, m.keys.Quit.Binding):
 			if m.panelOpen {
 				m.clearStashedPanel()
@@ -1000,6 +1029,9 @@ func (m Model) chromeHeight() int {
 	if m.nav.Current().Footer() != "" {
 		h += 2 // gradient line + footer text
 	}
+	if m.opsShown {
+		h++ // operations line
+	}
 	return h
 }
 
@@ -1320,19 +1352,40 @@ func (m Model) View() tea.View {
 		footer = gradLine + "\n" + ui.S.StatusDesc.Render(" "+footerText)
 	}
 
+	// The running operations show on their own line above the status bar.
+	// The line follows opsShown, not the registry, so it matches the size
+	// that the views got (see syncOpsLine).
+	var opsLine string
+	if m.opsShown {
+		opsLine = renderOpsLine(m.ops.Running(), m.sessionLabel(), m.width, time.Now())
+		if opsLine == "" {
+			opsLine = ui.S.StatusBarBase.Width(m.width).Render("")
+		}
+	}
+
 	headerHeight := lipgloss.Height(header)
 	statusHeight := lipgloss.Height(statusBar)
 	footerHeight := lipgloss.Height(footer)
-	contentHeight := m.height - headerHeight - statusHeight - footerHeight
+	opsHeight := 0
+	if opsLine != "" {
+		opsHeight = lipgloss.Height(opsLine)
+	}
+	contentHeight := m.height - headerHeight - statusHeight - footerHeight - opsHeight
 
 	// Ensure minimum table height by hiding chrome
 	minContent := ui.MinTableRows + 2 // +2 for border
 	if contentHeight < minContent && headerHeight > 0 {
 		header = ""
+		contentHeight = m.height - statusHeight - footerHeight - opsHeight
+	}
+	if contentHeight < minContent && opsHeight > 0 {
+		opsLine = ""
+		opsHeight = 0
 		contentHeight = m.height - statusHeight - footerHeight
 	}
 	if contentHeight < minContent && statusHeight > 0 {
 		statusBar = ""
+		statusHeight = 0
 		contentHeight = m.height - footerHeight
 	}
 	if contentHeight < 0 {
@@ -1394,7 +1447,11 @@ func (m Model) View() tea.View {
 	}
 	contentStr = rendered
 
-	body := lipgloss.JoinVertical(lipgloss.Left, header, contentStr, footer, statusBar)
+	parts := []string{header, contentStr, footer}
+	if opsLine != "" {
+		parts = append(parts, opsLine)
+	}
+	body := lipgloss.JoinVertical(lipgloss.Left, append(parts, statusBar)...)
 
 	// Help overlay
 	if m.help.Visible() {
@@ -1431,7 +1488,7 @@ func (m Model) View() tea.View {
 		toastW := lipgloss.Width(toastView)
 		toastH := lipgloss.Height(toastView)
 		x := m.width - toastW - 2
-		y := m.height - toastH - footerHeight - statusHeight - 1
+		y := m.height - toastH - footerHeight - statusHeight - opsHeight - 1
 		if x < 0 {
 			x = 0
 		}
@@ -1650,6 +1707,7 @@ func (m Model) collectAllKeyHints() []ui.HintBinding {
 		m.keys.ThemePicker.WithCategory("Global"),
 		m.keys.CommandBar.WithCategory("Global"),
 		m.keys.Help.WithCategory("Global"),
+		m.keys.CancelOp.WithCategory("Global"),
 	}
 	if m.nav.Depth() <= 1 {
 		globalHints = append(globalHints, m.keys.Quit.WithCategory("Global"))

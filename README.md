@@ -139,6 +139,7 @@ task dev               # run against LocalStack
 | `tab` | Toggle panel focus |
 | `:` | Command bar |
 | `?` | Help overlay (full keybinding reference) |
+| `ctrl+x` | Cancel a running operation, such as a download |
 | `q` | Quit / back |
 
 Press `?` in-app for the complete list including view-specific and panel keybindings. See [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md) for the keybinding system architecture.

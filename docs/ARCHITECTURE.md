@@ -76,6 +76,11 @@ A long operation, such as an S3 download, copy, move, object delete, bucket dele
 - The result of `Run` goes back to the view. When the view is gone, the app shows the result's `Outcome()`.
 - A profile or region switch while operations run asks first. The operations keep the old session and go on.
 - Quitting while operations run asks first, because it cancels them. A second `ctrl+c` quits without the answer. After the program ends, `main` cancels the operations on every way out and waits up to 5 seconds, so a cancelled download can remove its partial file.
+- While operations run, a line above the status bar shows the oldest one, its progress, and how many more run. A tick redraws the line every 500 ms and stops when no operation runs. The line takes one row from the views. `syncOpsLine` shows or hides it when the first operation starts and after the last one ends, and it resizes the views at the same time, so a view never draws a row that the box cuts off.
+- `ctrl+x` opens a picker with the running operations. The picked one is cancelled with the cause `ops.ErrCanceledByUser`. Quitting uses `ops.ErrQuit`. Both causes wrap `context.Canceled`, because some calls, such as a read of an HTTP body, return the cause instead of `ctx.Err()`. Check a cancel with `errors.Is(err, context.Canceled)`. Result messages show a cancel as information, not as an error.
+- An operation reports its progress with `ops.Report(ctx, ops.Progress{Done, Total, Bytes})`. The call does nothing when `ctx` belongs to no operation, so the AWS layer can call it everywhere. Downloads report bytes, object deletes report keys, multipart copies report bytes, bucket deletes report buckets, and the redrive reports moved messages. An operation without progress shows the time since it started.
+- `ops.CanceledByUser(ctx)` tells a cancel by the user from a quit. A redrive uses it: a cancel by the user also cancels the move task in SQS, but a quit leaves the task running in SQS. The start of the task runs to its end also after a cancel, so the app always has the handle to stop it. A task that ended before the cancel reports its end.
+- A move that is cancelled after its copy finished still deletes the source, so the object is never in both places.
 
 ### Table Rows and Selection
 

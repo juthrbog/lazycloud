@@ -17,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+
+	"github.com/juthrbog/lazycloud/internal/ops"
 )
 
 // S3Service defines all S3 operations that views depend on.
@@ -425,6 +427,11 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 
 	var failed []KeyFailure
 	var batchKeys []string
+	tried := 0
+	report := func(n int) {
+		tried += n
+		ops.Report(ctx, ops.Progress{Done: int64(tried), Total: int64(len(keys))})
+	}
 	for i, key := range keys {
 		if err := ctx.Err(); err != nil {
 			failed = append(failed, notTried(keys[i:], err)...)
@@ -442,6 +449,7 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 		if err != nil {
 			failed = append(failed, KeyFailure{Key: key, Code: ErrorCode(err), Message: err.Error()})
 		}
+		report(1)
 	}
 
 	const batchSize = 1000
@@ -475,6 +483,7 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 			for _, key := range batch {
 				failed = append(failed, KeyFailure{Key: key, Code: ErrorCode(err), Message: err.Error()})
 			}
+			report(len(batch))
 			continue
 		}
 		for _, e := range out.Errors {
@@ -484,6 +493,7 @@ func (svc *S3ServiceImpl) DeleteObjects(ctx context.Context, bucket string, keys
 				Message: aws.ToString(e.Message),
 			})
 		}
+		report(len(batch))
 	}
 	if len(failed) > 0 {
 		return &DeleteObjectsError{Failed: failed}
@@ -653,7 +663,8 @@ func (svc *S3ServiceImpl) DownloadObject(ctx context.Context, bucket, key, destP
 	if err != nil {
 		return "", err
 	}
-	if _, err := io.Copy(f, output.Body); err != nil {
+	w := &progressWriter{ctx: ctx, w: f, total: aws.ToInt64(output.ContentLength)}
+	if _, err := io.Copy(w, output.Body); err != nil {
 		_ = f.Close()
 		_ = os.Remove(path)
 		return "", fmt.Errorf("writing file: %w", err)
@@ -663,6 +674,22 @@ func (svc *S3ServiceImpl) DownloadObject(ctx context.Context, bucket, key, destP
 		return "", fmt.Errorf("writing file: %w", err)
 	}
 	return path, nil
+}
+
+// progressWriter reports the bytes written so far as the progress of the
+// operation that runs with ctx (see ops.Report).
+type progressWriter struct {
+	ctx   context.Context
+	w     io.Writer
+	done  int64
+	total int64
+}
+
+func (p *progressWriter) Write(b []byte) (int, error) {
+	n, err := p.w.Write(b)
+	p.done += int64(n)
+	ops.Report(p.ctx, ops.Progress{Done: p.done, Total: p.total, Bytes: true})
+	return n, err
 }
 
 // maxNameTries limits the search for a free download name.
@@ -779,7 +806,11 @@ func (svc *S3ServiceImpl) MoveObject(ctx context.Context, srcBucket, srcKey, dst
 	if err := svc.CopyObject(ctx, srcBucket, srcKey, dstBucket, dstKey, overwrite); err != nil {
 		return fmt.Errorf("copy: %w", err)
 	}
-	if err := svc.DeleteObject(ctx, srcBucket, srcKey); err != nil {
+	// After the copy, a cancel must not leave the object in both places,
+	// so the delete runs to its end.
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+	defer cancel()
+	if err := svc.DeleteObject(dctx, srcBucket, srcKey); err != nil {
 		return fmt.Errorf("delete source: %w", err)
 	}
 	return nil
@@ -838,6 +869,7 @@ func multipartCopy(ctx context.Context, c *s3.Client, long func(*s3.Options), sr
 			etag = out.CopyPartResult.ETag
 		}
 		parts = append(parts, s3types.CompletedPart{ETag: etag, PartNumber: aws.Int32(n)})
+		ops.Report(ctx, ops.Progress{Done: end + 1, Total: size, Bytes: true})
 	}
 
 	_, err = c.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{

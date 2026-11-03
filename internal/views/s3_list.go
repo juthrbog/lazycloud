@@ -12,6 +12,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ops"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
@@ -22,13 +23,22 @@ type s3BucketsLoadedMsg struct {
 // s3BucketDeletedMsg reports a delete of several buckets. Each bucket is
 // tried, also after an earlier one fails.
 type s3BucketDeletedMsg struct {
-	done   []string // names of the deleted buckets
-	failed []itemFailure
+	done     []string // names of the deleted buckets
+	failed   []itemFailure
+	canceled int // buckets not deleted because the user cancelled or the app quits
 }
 
 // Outcome implements msg.Outcome.
 func (m s3BucketDeletedMsg) Outcome() msg.ToastMsg {
-	text, ok := resultText("Deleted", len(m.done)+len(m.failed), "bucket(s)", m.failed)
+	total := len(m.done) + len(m.failed) + m.canceled
+	if m.canceled > 0 {
+		text := fmt.Sprintf("Bucket delete cancelled: deleted %d of %d bucket(s)", len(m.done), total)
+		if len(m.failed) > 0 {
+			return msg.ToastError(text + ". Failed: " + failureText(m.failed))
+		}
+		return msg.ToastInfo(text)
+	}
+	text, ok := resultText("Deleted", total, "bucket(s)", m.failed)
 	if ok {
 		return msg.ToastSuccess(text)
 	}
@@ -436,13 +446,20 @@ func (s *S3List) deleteBuckets(buckets []string) tea.Cmd {
 	return func() tea.Msg {
 		return msg.StartOpMsg{Label: label, Run: func(ctx context.Context) tea.Msg {
 			var res s3BucketDeletedMsg
-			for _, bucket := range buckets {
-				if err := ctx.Err(); err != nil {
-					res.failed = append(res.failed, itemFailure{name: bucket, err: err})
+			for i, bucket := range buckets {
+				ops.Report(ctx, ops.Progress{Done: int64(i), Total: int64(len(buckets))})
+				if ctx.Err() != nil {
+					res.canceled++
 					continue
 				}
 				eventlog.Infof(eventlog.CatAWS, "Emptying and deleting bucket: %s", bucket)
 				if err := svc.EmptyAndDeleteBucket(ctx, bucket); err != nil {
+					if canceled(err) {
+						// The bucket can be partly emptied; the list reloads.
+						eventlog.Infof(eventlog.CatAWS, "Delete of bucket %s cancelled", bucket)
+						res.canceled++
+						continue
+					}
 					eventlog.Errorf(eventlog.CatAWS, "Failed to delete bucket %s: %v", bucket, err)
 					res.failed = append(res.failed, itemFailure{name: bucket, err: err})
 					continue

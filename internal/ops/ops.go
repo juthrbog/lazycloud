@@ -10,10 +10,29 @@ package ops
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"sync"
 	"time"
 )
+
+// ErrCanceledByUser is the cause of the context of an operation that the
+// user cancelled (see Registry.Cancel). Some calls, such as a read of an
+// HTTP body, return the cause instead of context.Canceled, so the cause
+// wraps context.Canceled: errors.Is(err, context.Canceled) is true for both.
+var ErrCanceledByUser = fmt.Errorf("cancelled by the user: %w", context.Canceled)
+
+// ErrQuit is the cause of the context of an operation that ended because
+// the app quits (see Registry.CancelAll). It wraps context.Canceled too.
+var ErrQuit = fmt.Errorf("the app quits: %w", context.Canceled)
+
+// Progress tells how far an operation is. Total is 0 when it is not known.
+type Progress struct {
+	Done  int64
+	Total int64
+	Bytes bool // Done and Total count bytes, not items
+}
 
 // Op is one running operation.
 type Op struct {
@@ -24,16 +43,47 @@ type Op struct {
 
 	// Ctx is the context the operation must use. It is cancelled when the
 	// user quits, never when a view closes or the session changes.
+	// Report and CanceledByUser find the operation through it.
 	Ctx context.Context
 
-	cancel context.CancelFunc
+	// Progress is the last progress that the operation reported. It is
+	// zero until the operation calls Report.
+	Progress Progress
+
+	// Canceling is true after the user cancelled the operation and before
+	// it ends.
+	Canceling bool
+
+	cancel context.CancelCauseFunc
 	reg    *Registry
+}
+
+type opKey struct{}
+
+// Report records the progress of the operation that runs with ctx. It does
+// nothing when ctx belongs to no operation, so the code that reports
+// progress also works outside an operation, for example in tests.
+func Report(ctx context.Context, p Progress) {
+	op, ok := ctx.Value(opKey{}).(*Op)
+	if !ok {
+		return
+	}
+	op.reg.mu.Lock()
+	defer op.reg.mu.Unlock()
+	op.Progress = p
+}
+
+// CanceledByUser reports whether the user cancelled the operation that
+// runs with ctx. An operation can then undo work that goes on without it,
+// such as an SQS move task. Quitting is not a cancel by the user.
+func CanceledByUser(ctx context.Context) bool {
+	return errors.Is(context.Cause(ctx), ErrCanceledByUser)
 }
 
 // Done removes the operation from the registry. Call it once when the
 // operation ends, also after an error. A second call does nothing.
 func (o *Op) Done() {
-	o.cancel()
+	o.cancel(nil)
 	o.reg.remove(o.ID)
 }
 
@@ -57,13 +107,14 @@ func NewRegistry() *Registry {
 // returns an operation whose context is already cancelled and does not
 // register it, so nothing starts while the app quits.
 func (r *Registry) Begin(label, session string) *Op {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancelCause(context.Background())
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.next++
-	op := &Op{ID: r.next, Label: label, Session: session, Started: time.Now(), Ctx: ctx, cancel: cancel, reg: r}
+	op := &Op{ID: r.next, Label: label, Session: session, Started: time.Now(), cancel: cancel, reg: r}
+	op.Ctx = context.WithValue(ctx, opKey{}, op)
 	if r.closed {
-		cancel()
+		cancel(ErrQuit)
 		return op
 	}
 	if len(r.ops) == 0 {
@@ -104,6 +155,21 @@ func (r *Registry) Count() int {
 	return len(r.ops)
 }
 
+// Cancel cancels the running operation with the given ID, because the user
+// asked for it. The operation stays registered until it calls Done. Cancel
+// reports false when no such operation runs.
+func (r *Registry) Cancel(id int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	op, ok := r.ops[id]
+	if !ok {
+		return false
+	}
+	op.Canceling = true
+	op.cancel(ErrCanceledByUser)
+	return true
+}
+
 // CancelAll cancels every running operation and closes the registry, so
 // that Begin starts nothing new. The operations stay registered until they
 // call Done.
@@ -112,7 +178,7 @@ func (r *Registry) CancelAll() {
 	defer r.mu.Unlock()
 	r.closed = true
 	for _, op := range r.ops {
-		op.cancel()
+		op.cancel(ErrQuit)
 	}
 }
 

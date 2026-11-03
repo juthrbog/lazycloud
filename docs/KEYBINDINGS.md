@@ -24,7 +24,7 @@ type HintBinding struct {
 
 ### `AppKeyMap` (`internal/ui/keys.go`)
 
-Global/panel keybindings owned by the app model. Includes quit, pickers (theme/profile/region/mode), command bar, help, tab toggle, and panel controls (close/editor/resize).
+Global/panel keybindings owned by the app model. Includes quit, pickers (theme/profile/region/mode), command bar, help, the cancel of a running operation (`ctrl+x`), tab toggle, and panel controls (close/editor/resize).
 
 ### `ContentViewKeyMap` (`internal/ui/keys.go`)
 
