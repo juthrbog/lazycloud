@@ -209,3 +209,10 @@ func (g guardedSQS) StartMessageMoveTask(ctx context.Context, sourceArn, destArn
 	}
 	return g.SQSService.StartMessageMoveTask(ctx, sourceArn, destArn)
 }
+
+func (g guardedSQS) CancelMessageMoveTask(ctx context.Context, taskHandle string) error {
+	if g.readOnly() {
+		return readOnlyErr("CancelMessageMoveTask")
+	}
+	return g.SQSService.CancelMessageMoveTask(ctx, taskHandle)
+}

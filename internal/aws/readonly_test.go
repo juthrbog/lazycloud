@@ -71,7 +71,7 @@ var guardCases = []guardCase{
 		},
 		mutations: []string{
 			"SendMessage", "DeleteMessage", "DeleteMessageBatch", "PurgeQueue",
-			"DeleteQueue", "StartMessageMoveTask",
+			"DeleteQueue", "StartMessageMoveTask", "CancelMessageMoveTask",
 		},
 		guard: func(readOnly func() bool) (any, *mock.Mock) {
 			m := new(awstest.MockSQSService)

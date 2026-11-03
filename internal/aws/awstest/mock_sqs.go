@@ -75,6 +75,11 @@ func (m *MockSQSService) StartMessageMoveTask(ctx context.Context, sourceArn, de
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockSQSService) CancelMessageMoveTask(ctx context.Context, taskHandle string) error {
+	args := m.Called(ctx, taskHandle)
+	return args.Error(0)
+}
+
 func (m *MockSQSService) ListMessageMoveTasks(ctx context.Context, sourceArn string) ([]aws.MessageMoveTask, error) {
 	args := m.Called(ctx, sourceArn)
 	val, _ := args.Get(0).([]aws.MessageMoveTask)

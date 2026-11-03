@@ -28,6 +28,7 @@ type SQSService interface {
 	ListDeadLetterSourceQueues(ctx context.Context, queueURL string) ([]string, error)
 	StartMessageMoveTask(ctx context.Context, sourceArn, destArn string) (string, error)
 	ListMessageMoveTasks(ctx context.Context, sourceArn string) ([]MessageMoveTask, error)
+	CancelMessageMoveTask(ctx context.Context, taskHandle string) error
 }
 
 // SQSServiceImpl is the real AWS-backed implementation of SQSService.
@@ -467,6 +468,19 @@ func (svc *SQSServiceImpl) StartMessageMoveTask(ctx context.Context, sourceArn, 
 		return "", fmt.Errorf("StartMessageMoveTask: %w", err)
 	}
 	return aws.ToString(out.TaskHandle), nil
+}
+
+// CancelMessageMoveTask stops a running DLQ redrive. The messages that it
+// moved stay in their new queue.
+func (svc *SQSServiceImpl) CancelMessageMoveTask(ctx context.Context, taskHandle string) error {
+	client := svc.client.SQSClient()
+	_, err := client.CancelMessageMoveTask(ctx, &sqs.CancelMessageMoveTaskInput{
+		TaskHandle: aws.String(taskHandle),
+	})
+	if err != nil {
+		return fmt.Errorf("CancelMessageMoveTask: %w", err)
+	}
+	return nil
 }
 
 // ListMessageMoveTasks returns active and recent move tasks for a source queue.
