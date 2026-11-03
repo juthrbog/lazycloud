@@ -50,7 +50,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done in #214, with T3, T5, D3, D4, and D14.
 - [x] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3. Done in #215, with L5 and D8.
 - [x] Phase 6, CI and release: H10, H11, H12, I1 to I9. I1, I3, I4, and I6 are done in #216. I5 is done in #226. I7 is done in #227.
-- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233.
+- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233. M21 is done in #PRNUM.
 - [ ] Phase 8, generic resource list (A10).
 - [ ] Phase 9, product roadmap. See [`market-research.md`](market-research.md).
 
@@ -206,7 +206,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [ ] M20. The app does not support NO_COLOR or light terminals. Evidence: traced, not run. The selected table row (`table.go:53`) and the content cursor use only a background color. With NO_COLOR, no row looks selected. The app sets `isDark` (`app.go:149`) but never reads it. All four themes are dark. The filter text is `#ffffff` (`filter.go:592`), so it is invisible on a white background. Fix: also use reverse or bold, or a gutter marker. Add light theme variants.
 
-- [ ] M21. AWS errors show as raw SDK strings. Evidence: traced. No code uses `smithy.APIError`. Expired SSO sessions and AccessDenied errors show the full SDK text. Fix: map common error codes to hints, for example "run `aws sso login --profile X`".
+- [x] M21. Fixed in #PRNUM: `aws.ErrorText` turns an SDK error into a short text that names the failed call, the AWS code, and the message, with hints for an expired SSO session (`aws sso login --profile <name>`), expired, bad, or missing credentials, a denied call, throttling, a missing profile, and network errors. Each client adds the profile of its session to its errors with a middleware. Every toast, error line, and the status bar use it; the event log keeps the full error. AWS errors show as raw SDK strings. Evidence: traced. No code uses `smithy.APIError`. Expired SSO sessions and AccessDenied errors show the full SDK text. Fix: map common error codes to hints, for example "run `aws sso login --profile X`".
 
 - [x] M22. SQS queue attribute errors are swallowed, and DLQ detection is wrong. Fixed in #218. `Queue.Err` keeps the error of each queue. The list shows `?` counts and a toast names the queues. The messages view uses `ListDeadLetterSourceQueues`. Evidence: traced and nilerr. `FetchAllQueueAttributes` (`internal/aws/sqs.go:174`) drops `GetQueueAttributes` errors, so a denied or throttled queue shows 0 messages. The messages view decides "is a DLQ" from `RedriveAllowPolicy != nil` (`sqs_messages.go:182`), so most DLQs cannot start a redrive. Fix: return the error per queue. Use `ListDeadLetterSourceQueues`.
 

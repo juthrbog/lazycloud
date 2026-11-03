@@ -68,6 +68,22 @@ Views embed `viewCtx` (`internal/views/context.go`) and choose a context for eac
 
 An SQS peek runs detached, because a peek that stops after the receive, and before it makes the messages visible again, would hide them from consumers.
 
+### AWS Error Text
+
+The text of an SDK error is long. It names the request ID, the HTTP status, and every layer of the call. Show `aws.ErrorText(err)` to the user instead, in a toast, an error line, or the status bar. Log the full error with `eventlog`, because `ErrorText` leaves details out.
+
+`ErrorText` keeps the AWS error code and message and names the call that failed, for example `S3 ListBuckets: access denied (AccessDenied)`. When a call fails inside another call, such as the STS call that gets the credentials for an S3 call, it names the inner call. It adds a hint for common problems:
+
+- An SSO session that has expired, is missing, or cannot be refreshed: `aws sso login --profile <name>`.
+- Credentials that have expired, that AWS does not accept, or that are missing.
+- A denied call and throttling.
+- A profile that is not in the AWS config files, a host that DNS cannot find, and a refused connection.
+- A cancel (`cancelled`) and a timeout (`no answer from AWS in time`).
+
+Each client adds the profile of its session to the errors of its calls (`aws.ProfileError`, added by a middleware). So the hint names the right profile, also for an operation that still runs in an earlier session. The error text does not change.
+
+To give a short list of failed items, use `aws.ErrorCode(err)` instead, for example `orders (AccessDenied), billing (QueueDoesNotExist)`.
+
 ### Background Operations
 
 A long operation, such as an S3 download, copy, move, object delete, bucket delete, or an SQS redrive (the start and the watch), runs in the background. It goes on when the user leaves its view or switches the profile or the region.
