@@ -347,6 +347,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.picker.SetMaxHeight(msg.Height)
 		if m.panelOpen && !m.canShowPanel() {
 			m.stashPanel()
 			m.closePanel()
@@ -1301,6 +1302,7 @@ func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	cmd := m.resetNav()
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
+	m.picker.SetMaxHeight(m.height)
 	_, toastCmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
 	return m, tea.Batch(cmd, toastCmd)
 }
@@ -1421,11 +1423,12 @@ func (m Model) View() tea.View {
 
 		mainContent := contentStr
 		panelContent := m.panel.View()
-		faint := lipgloss.NewStyle().Faint(true)
+		// ui.Dim keeps the text faint after each styled token, not only up
+		// to the first reset.
 		if m.panelFocused {
-			mainContent = faint.Render(mainContent)
+			mainContent = ui.Dim(mainContent)
 		} else {
-			panelContent = faint.Render(panelContent)
+			panelContent = ui.Dim(panelContent)
 		}
 
 		rendered = lipgloss.JoinHorizontal(lipgloss.Top,
