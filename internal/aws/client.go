@@ -107,6 +107,8 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 	if cfg.Region == "" {
 		cfg.Region = FallbackRegion
 	}
+	// ErrorText names the profile in its hints (see ProfileError).
+	cfg.APIOptions = append(cfg.APIOptions, profileMiddleware(profile))
 
 	return &Client{
 		Config:   cfg,

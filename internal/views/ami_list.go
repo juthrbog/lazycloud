@@ -217,7 +217,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "AMI refresh failed: %v", m.err)
 			return a, func() tea.Msg {
-				return msg.ToastError("Refresh failed: " + m.err.Error())
+				return msg.ToastError("Refresh failed: " + aws.ErrorText(m.err))
 			}
 		}
 		eventlog.Infof(eventlog.CatAWS, "Refreshed %d AMIs", len(m.amis))
@@ -487,7 +487,7 @@ func (a *AMIList) View() tea.View {
 	case a.loading && len(a.amis) == 0:
 		content = "\n  " + a.spinner.View()
 	case a.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(a.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(a.err)))
 	default:
 		content = a.table.View()
 		if a.search.Active() {

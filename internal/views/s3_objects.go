@@ -90,7 +90,7 @@ func (m s3DeleteCompleteMsg) Outcome() msg.ToastMsg {
 		}
 		return msg.ToastInfo(text)
 	case m.err != nil && !isDelErr:
-		return msg.ToastError(fmt.Sprintf("Delete in s3://%s/%s failed: %v", m.bucket, m.prefix, m.err))
+		return msg.ToastError(fmt.Sprintf("Delete in s3://%s/%s failed: %s", m.bucket, m.prefix, aws.ErrorText(m.err)))
 	case m.count == 0:
 		return msg.ToastError("No objects found to delete")
 	}
@@ -114,7 +114,7 @@ func (m s3DownloadCompleteMsg) Outcome() msg.ToastMsg {
 	case canceled(m.err):
 		return msg.ToastInfo(fmt.Sprintf("Download of s3://%s/%s cancelled", m.bucket, m.key))
 	case m.err != nil:
-		return msg.ToastError(fmt.Sprintf("Download of s3://%s/%s failed: %v", m.bucket, m.key, m.err))
+		return msg.ToastError(fmt.Sprintf("Download of s3://%s/%s failed: %s", m.bucket, m.key, aws.ErrorText(m.err)))
 	}
 	return msg.ToastSuccess("Downloaded → " + homeRelative(m.path))
 }
@@ -153,7 +153,7 @@ func transferOutcome(done, verb, bucket, dstKey string, err error) msg.ToastMsg 
 	case canceled(err):
 		return msg.ToastInfo(fmt.Sprintf("Not %s to s3://%s/%s: cancelled", verb, bucket, dstKey))
 	case err != nil:
-		return msg.ToastError(fmt.Sprintf("Not %s to s3://%s/%s: %v", verb, bucket, dstKey, err))
+		return msg.ToastError(fmt.Sprintf("Not %s to s3://%s/%s: %s", verb, bucket, dstKey, aws.ErrorText(err)))
 	}
 	return msg.ToastSuccess(done + " → " + dstKey)
 }
@@ -1022,7 +1022,7 @@ func (s *S3Objects) View() tea.View {
 		// No data yet, show spinner only
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	default:
 		content = s.table.View()
 		if s.filter.Active() {
