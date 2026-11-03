@@ -84,7 +84,7 @@ type sqsMessageSentMsg struct {
 // Outcome implements msg.Outcome.
 func (m sqsMessageSentMsg) Outcome() msg.ToastMsg {
 	if m.err != nil {
-		return msg.ToastError("Send failed: " + m.err.Error())
+		return msg.ToastError("Send failed: " + aws.ErrorText(m.err))
 	}
 	return msg.ToastSuccess("Message sent")
 }
@@ -1080,7 +1080,7 @@ func (s *SQSQueues) View() tea.View {
 	case s.loading && len(s.queues) == 0:
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	default:
 		content = s.table.View()
 		if s.filter.Active() {

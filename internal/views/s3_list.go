@@ -53,7 +53,7 @@ type s3BucketCreatedMsg struct {
 // Outcome implements msg.Outcome.
 func (m s3BucketCreatedMsg) Outcome() msg.ToastMsg {
 	if m.err != nil {
-		return msg.ToastError("Bucket " + m.name + " not created: " + m.err.Error())
+		return msg.ToastError("Bucket " + m.name + " not created: " + aws.ErrorText(m.err))
 	}
 	return msg.ToastSuccess("Bucket created: " + m.name)
 }
@@ -499,7 +499,7 @@ func (s *S3List) View() tea.View {
 	case s.loading:
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	default:
 		content = s.table.View()
 		if s.filter.Active() {

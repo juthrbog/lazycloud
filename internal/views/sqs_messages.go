@@ -82,13 +82,13 @@ type sqsRedriveDoneMsg struct {
 func (m sqsRedriveDoneMsg) Outcome() msg.ToastMsg {
 	switch {
 	case m.startErr != nil:
-		return msg.ToastError("Redrive failed: " + m.startErr.Error())
+		return msg.ToastError("Redrive failed: " + aws.ErrorText(m.startErr))
 	case m.canceled && m.err != nil:
-		return msg.ToastError(fmt.Sprintf("Could not stop the redrive of %s (%v). SQS goes on with it.", m.queue, m.err))
+		return msg.ToastError(fmt.Sprintf("Could not stop the redrive of %s (%s). SQS goes on with it.", m.queue, aws.ErrorText(m.err)))
 	case m.canceled:
 		return msg.ToastInfo("Redrive of " + m.queue + " stopped. The moved messages stay in the source queue.")
 	case m.err != nil:
-		return msg.ToastError(fmt.Sprintf("Lost track of the redrive of %s (%v). SQS goes on with it.", m.queue, m.err))
+		return msg.ToastError(fmt.Sprintf("Lost track of the redrive of %s (%s). SQS goes on with it.", m.queue, aws.ErrorText(m.err)))
 	case m.status == "COMPLETED":
 		return msg.ToastSuccess(fmt.Sprintf("Redrive completed: %d messages moved", m.moved))
 	case m.status == "":
@@ -903,7 +903,7 @@ func (s *SQSMessages) View() tea.View {
 	case s.loading && len(s.messages) == 0:
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(s.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	case len(s.messages) == 0 && s.fetched:
 		content = "\n  No messages in queue. Press l to peek again."
 	case len(s.messages) == 0 && s.attrsLoaded && s.peekBlocked() != "":

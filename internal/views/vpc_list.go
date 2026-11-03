@@ -421,7 +421,7 @@ func (v *VPCList) View() tea.View {
 	case v.loading && len(v.vpcs) == 0:
 		content = "\n  " + v.spinner.View()
 	case v.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(v.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(v.err)))
 	default:
 		content = v.table.View()
 		if v.filter.Active() {

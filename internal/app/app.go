@@ -153,7 +153,7 @@ func (m Model) sessionLabel() string {
 
 // noSessionText explains why the app has no AWS session and how to fix it.
 func noSessionText(err error) string {
-	return "No AWS session (press P for a profile or R for a region): " + err.Error()
+	return "No AWS session (press P for a profile or R for a region): " + aws.ErrorText(err)
 }
 
 func (m Model) Init() tea.Cmd {
@@ -257,10 +257,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 
 // errorText is the status bar text of an error.
 func errorText(e appmsg.ErrorMsg) string {
-	if aws.IsTimeout(e.Err) {
-		return e.Context + ": no answer from AWS in time"
-	}
-	return e.Context + ": " + e.Err.Error()
+	return e.Context + ": " + aws.ErrorText(e.Err)
 }
 
 // outcomeCmd returns a command that shows the outcome of a result whose
@@ -1206,7 +1203,7 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 	svc, err := aws.NewServices(profile, region, m.config.AWS.Endpoint, ui.IsReadOnly)
 	if err != nil {
 		eventlog.Errorf(eventlog.CatAWS, "Cannot switch %s to %s: %v", strings.ToLower(kind), value, err)
-		_, cmd := m.toasts.Add(fmt.Sprintf("Cannot switch %s to %s: %v", strings.ToLower(kind), value, err), ui.ToastError, 0)
+		_, cmd := m.toasts.Add(fmt.Sprintf("Cannot switch %s to %s: %s", strings.ToLower(kind), value, aws.ErrorText(err)), ui.ToastError, 0)
 		return m, cmd
 	}
 	eventlog.Infof(eventlog.CatConfig, "%s changed → %s", kind, value)

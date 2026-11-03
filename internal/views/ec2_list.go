@@ -340,7 +340,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "SSM session failed for %s: %v", m.instanceID, m.err)
 			return e, func() tea.Msg {
-				return msg.ToastError("SSM session failed: " + m.err.Error())
+				return msg.ToastError("SSM session failed: " + aws.ErrorText(m.err))
 			}
 		}
 		label := m.instanceID
@@ -386,7 +386,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.err != nil {
 			eventlog.Errorf(eventlog.CatAWS, "EC2 refresh failed: %v", m.err)
 			return e, func() tea.Msg {
-				return msg.ToastError("Refresh failed: " + m.err.Error())
+				return msg.ToastError("Refresh failed: " + aws.ErrorText(m.err))
 			}
 		}
 		eventlog.Infof(eventlog.CatAWS, "Refreshed %d EC2 instances", len(m.instances))
@@ -898,7 +898,7 @@ func (e *EC2List) View() tea.View {
 		// Initial load — spinner only
 		content = "\n  " + e.spinner.View()
 	case e.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(e.err.Error()))
+		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(e.err)))
 	default:
 		content = e.table.View()
 		if e.filter.Active() {
