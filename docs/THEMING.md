@@ -39,7 +39,7 @@ EC2 and ECS resource states should map to semantic roles:
 ## Focus and Dimming
 
 - **Focused panel**: Full-brightness colors, highlighted border using theme accent color
-- **Unfocused panel**: Slightly dimmed text (use lipgloss `Faint(true)` or reduce foreground alpha). Borders use the theme's muted/surface color
+- **Unfocused panel**: Slightly dimmed text with `ui.Dim`. Do not use lipgloss `Faint(true)` on highlighted text: chroma ends each token with a reset, which also ends the faint style, so only the first token would be dim. `ui.Dim` and `ui.ReapplyAfterResets` set the style again after each reset. The cursor line and the selection of the content view use the same helper for their background. Borders use the theme's muted/surface color
 - **Active breadcrumb segment**: Bold text; inactive segments use muted foreground
 - **Active tab**: Theme accent color background or underline; inactive tabs use muted foreground
 

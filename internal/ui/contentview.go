@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -78,6 +80,49 @@ type ContentView struct {
 	yankMsg     string // transient "yanked N lines" feedback
 	embedded    bool   // true when inside TabbedPanel; hides footer
 	wrapOff     bool   // when true, disable word wrap and enable horizontal scroll
+
+	// hlLines is the chroma output, one entry for each line. hlStyle is the
+	// chroma style it was made with. A key press does not highlight again.
+	hlLines []string
+	hlStyle string
+	layout  contentLayout
+	screen  contentScreen
+}
+
+// contentScreen is the rows that the viewport shows: the gutter, the link
+// prefix, and the text of each row.
+//
+// plain is made again only when the layout, the gutter, the links, or the
+// theme changes. A key press only paints the cursor or selection rows in
+// shown, and puts back the rows it painted before. So a key press costs
+// the rows that change, not all the rows of the text.
+type contentScreen struct {
+	valid bool
+	theme string
+	plain []string // rows without the cursor or selection background
+	// shown is the slice the viewport holds. SetContentLines keeps the
+	// slice and does not copy it, so a change to a row here shows on the
+	// screen without a new SetContentLines call. That call measures each
+	// row, which is slow for a long text.
+	shown    []string
+	from, to int // rows in shown that have a background now
+}
+
+// contentLayout is the highlighted text cut into screen rows. With wrap on,
+// a long line takes more than one row. With wrap off, each line is one row.
+//
+// The scroll model: the cursor is on a line, and the viewport offset counts
+// rows. So yank, links, and visual mode work on whole lines, but the user
+// can still scroll through a line that is taller than the screen.
+//
+// renderContent makes the layout again only when the text, the width, or
+// the wrap setting changes. This keeps a key press on a long line fast.
+type contentLayout struct {
+	valid     bool
+	lineWidth int
+	wrap      bool
+	rows      []string // text of each row, without the gutter
+	lineStart []int    // first row of each line; the last entry is the row count
 }
 
 // NewContentView creates a content viewer with the given title, content, and format.
@@ -123,14 +168,16 @@ func (cv *ContentView) SetSize(w, h int) {
 	cv.height = h
 	cv.viewport.SetWidth(w)
 	cv.viewport.SetHeight(h - cv.chromeLines())
-	cv.renderContent()
+	cv.relayout()
 }
 
 // SetLinks sets navigable line links. Lines with links show a visual indicator
 // and emit NavigateMsg when Enter is pressed on them.
 func (cv *ContentView) SetLinks(links map[int]ContentLink) {
 	cv.links = links
-	cv.renderContent()
+	cv.screen.valid = false
+	// The link prefix makes the text narrower, so the wrap can change.
+	cv.relayout()
 }
 
 // HasLinkAtCursor reports whether the current cursor line has a navigation link.
@@ -148,6 +195,8 @@ func (cv *ContentView) SetContent(title, content string, format ContentFormat) {
 	cv.raw = content
 	cv.text = SanitizeLines(content)
 	cv.rawLines = strings.Split(content, "\n")
+	cv.hlLines = nil
+	cv.layout.valid = false
 	cv.cursor = 0
 	cv.visualMode = false
 	if format == FormatAuto {
@@ -156,19 +205,47 @@ func (cv *ContentView) SetContent(title, content string, format ContentFormat) {
 		cv.format = format
 	}
 	cv.renderContent()
+	// The cursor is on the first line, so show the top of the new text.
+	cv.viewport.GotoTop()
 }
 
 // ToggleWrap toggles word wrapping. When off, the viewport enables
 // horizontal scrolling via h/l keys and ANSI-aware line clipping.
 func (cv *ContentView) ToggleWrap() {
 	cv.wrapOff = !cv.wrapOff
-	cv.renderContent()
+	if !cv.wrapOff {
+		// With wrap on, all the text fits the width.
+		cv.viewport.SetXOffset(0)
+	}
+	cv.relayout()
 }
 
 // ToggleLineNumbers toggles line number display.
 func (cv *ContentView) ToggleLineNumbers() {
 	cv.lineNumbers = !cv.lineNumbers
+	cv.screen.valid = false
+	// The gutter width changes, so the wrap can change.
+	cv.relayout()
+}
+
+// relayout draws the content again after a change that can wrap the lines
+// in a different way: the size, the wrap, the gutter, or the links. Then a
+// line can start at a different row, so the old row offset can point at
+// other lines. relayout keeps the line at the top of the screen at the top,
+// and then makes sure that the cursor line is on the screen.
+func (cv *ContentView) relayout() {
+	top, inner := -1, 0
+	if cv.layout.valid {
+		off := cv.viewport.YOffset()
+		top = cv.lineAtRow(off)
+		inner = off - cv.layout.lineStart[top]
+	}
 	cv.renderContent()
+	if top >= 0 {
+		start, end := cv.lineRows(top)
+		cv.viewport.SetYOffset(start + min(max(inner, 0), end-start-1))
+	}
+	cv.ensureCursorVisible()
 }
 
 // Raw returns the original unhighlighted content.
@@ -256,15 +333,69 @@ func (cv *ContentView) yankSelection() tea.Cmd {
 	)
 }
 
-func (cv *ContentView) ensureCursorVisible() {
-	vpHeight := cv.viewport.Height()
-	yOffset := cv.viewport.YOffset()
+// lineRows returns the rows of line i: from start up to, but not
+// including, end.
+func (cv *ContentView) lineRows(i int) (start, end int) {
+	return cv.layout.lineStart[i], cv.layout.lineStart[i+1]
+}
 
-	if cv.cursor < yOffset {
-		cv.viewport.SetYOffset(cv.cursor)
-	} else if cv.cursor >= yOffset+vpHeight {
-		cv.viewport.SetYOffset(cv.cursor - vpHeight + 1)
+// lineAtRow returns the line that holds the given row. A row after the end
+// gives the last line.
+func (cv *ContentView) lineAtRow(row int) int {
+	n := cv.lineCount()
+	i := sort.Search(n, func(i int) bool { return cv.layout.lineStart[i+1] > row })
+	return min(i, n-1)
+}
+
+// ensureCursorVisible scrolls so that the cursor line is on the screen. A
+// line that fits is shown in full. A line taller than the screen fills the
+// screen, and the offset stays inside that line.
+func (cv *ContentView) ensureCursorVisible() {
+	h := max(cv.viewport.Height(), 1)
+	off := cv.viewport.YOffset()
+	start, end := cv.lineRows(cv.cursor)
+
+	if end-start <= h {
+		if start < off {
+			off = start
+		} else if end > off+h {
+			off = end - h
+		}
+	} else {
+		off = min(max(off, start), end-h)
 	}
+	cv.viewport.SetYOffset(off)
+}
+
+// scrollInCursorLine scrolls by delta rows when the cursor line has rows
+// off the screen in that direction. It does not scroll past the cursor
+// line. It returns false when there is nothing to scroll, so the caller
+// moves the cursor to the next line.
+func (cv *ContentView) scrollInCursorLine(delta int) bool {
+	if cv.wrapOff || delta == 0 {
+		return false
+	}
+	h := max(cv.viewport.Height(), 1)
+	off := cv.viewport.YOffset()
+	start, end := cv.lineRows(cv.cursor)
+
+	switch {
+	case delta > 0 && end > off+h:
+		cv.viewport.SetYOffset(min(off+delta, end-h))
+		return true
+	case delta < 0 && start < off:
+		cv.viewport.SetYOffset(max(off+delta, start))
+		return true
+	}
+	return false
+}
+
+// moveCursorTo puts the cursor on line i and scrolls to it.
+func (cv *ContentView) moveCursorTo(i int) {
+	cv.cursor = i
+	cv.clampCursor()
+	cv.renderContent()
+	cv.ensureCursorVisible()
 }
 
 // Update handles cursor movement, visual selection, yank, and viewport scrolling.
@@ -273,39 +404,47 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 	case tea.KeyPressMsg:
 		k := cv.keys
 		switch {
+		// With wrap on, a line can be taller than the screen. Then j, k,
+		// ctrl+d, and ctrl+u first scroll through that line, and move the
+		// cursor only when the end of the line is on the screen.
 		case key.Matches(msg, k.CursorDown):
-			cv.cursor++
-			cv.clampCursor()
-			cv.renderContent()
-			cv.ensureCursorVisible()
+			if !cv.scrollInCursorLine(1) {
+				cv.moveCursorTo(cv.cursor + 1)
+			}
 			return cv, nil
 		case key.Matches(msg, k.CursorUp):
-			cv.cursor--
-			cv.clampCursor()
-			cv.renderContent()
-			cv.ensureCursorVisible()
+			if !cv.scrollInCursorLine(-1) {
+				cv.moveCursorTo(cv.cursor - 1)
+			}
 			return cv, nil
 		case key.Matches(msg, k.GotoTop):
-			cv.cursor = 0
-			cv.renderContent()
-			cv.ensureCursorVisible()
+			cv.moveCursorTo(0)
+			cv.viewport.GotoTop()
 			return cv, nil
 		case key.Matches(msg, k.GotoBottom):
-			cv.cursor = cv.lineCount() - 1
-			cv.renderContent()
-			cv.ensureCursorVisible()
+			// Show the last row, also when the last line is taller than
+			// the screen.
+			cv.moveCursorTo(cv.lineCount() - 1)
+			cv.viewport.GotoBottom()
 			return cv, nil
 		case key.Matches(msg, k.HalfPageDown):
-			cv.cursor += cv.viewport.Height() / 2
-			cv.clampCursor()
-			cv.renderContent()
-			cv.ensureCursorVisible()
+			half := cv.viewport.Height() / 2
+			if !cv.scrollInCursorLine(half) {
+				start, _ := cv.lineRows(cv.cursor)
+				next := cv.lineAtRow(start + half)
+				if next == cv.cursor && half > 0 {
+					// The jump stays in the cursor line, so go one line on.
+					next++
+				}
+				cv.moveCursorTo(next)
+			}
 			return cv, nil
 		case key.Matches(msg, k.HalfPageUp):
-			cv.cursor -= cv.viewport.Height() / 2
-			cv.clampCursor()
-			cv.renderContent()
-			cv.ensureCursorVisible()
+			half := cv.viewport.Height() / 2
+			if !cv.scrollInCursorLine(-half) {
+				start, _ := cv.lineRows(cv.cursor)
+				cv.moveCursorTo(cv.lineAtRow(max(start-half, 0)))
+			}
 			return cv, nil
 		case key.Matches(msg, k.VisualToggle):
 			if cv.visualMode {
@@ -340,6 +479,8 @@ func (cv ContentView) Update(msg tea.Msg) (ContentView, tea.Cmd) {
 			if cv.wrapOff {
 				var cmd tea.Cmd
 				cv.viewport, cmd = cv.viewport.Update(msg)
+				// The cursor background must reach the new right edge.
+				cv.renderContent()
 				return cv, cmd
 			}
 			return cv, nil
@@ -407,21 +548,16 @@ func (cv ContentView) View() string {
 	return header + "\n" + cv.viewport.View() + "\n" + footer
 }
 
+// renderContent draws the rows into the viewport. It runs on each key press,
+// so the slow parts (chroma, the wrap, and the gutter) come from caches.
 func (cv *ContentView) renderContent() {
 	width := cv.width
 	if width <= 0 {
 		width = 80
 	}
 
-	// Highlight each line individually so we can apply cursor/selection styling
-	// Highlight the safe text: AWS content can hold terminal control
-	// sequences, and chroma keeps them.
-	highlighted := syntaxHighlight(cv.text, string(cv.format))
-	hLines := strings.Split(highlighted, "\n")
-
-	t := ActiveTheme
-	numStyle := S.LineNumber
-	numWidth := len(fmt.Sprintf("%d", len(hLines)))
+	cv.highlight()
+	numWidth := len(fmt.Sprintf("%d", len(cv.hlLines)))
 
 	// Calculate the width available for line content (full width minus gutter)
 	gutterWidth := 0
@@ -430,60 +566,195 @@ func (cv *ContentView) renderContent() {
 	}
 	lineWidth := max(width-gutterWidth-2, 10)
 
-	linkPrefix := S.LinkIndicator.Render("→ ")
-	linkPrefixWidth := lipgloss.Width(linkPrefix)
-	linkSpacer := strings.Repeat(" ", linkPrefixWidth)
-
 	// In panels that have links, the link prefix takes part of the line.
 	hasLinks := len(cv.links) > 0
 	if hasLinks {
-		lineWidth = max(lineWidth-linkPrefixWidth, 10)
+		prefixWidth := lipgloss.Width(S.LinkIndicator.Render("→ "))
+		gutterWidth += prefixWidth
+		lineWidth = max(lineWidth-prefixWidth, 10)
 	}
-	cursorStyle := lipgloss.NewStyle().Background(t.Overlay).Width(lineWidth)
-	selectStyle := lipgloss.NewStyle().Background(t.Secondary).Width(lineWidth)
+	cv.buildLayout(lineWidth)
 
+	if !cv.screen.valid || cv.screen.theme != ActiveTheme.Name {
+		cv.decorate(numWidth, hasLinks)
+	}
+
+	padTo := lineWidth
+	if cv.wrapOff {
+		// With wrap off, the viewport cuts each row at the X offset. Fill
+		// the background up to the right edge of the screen, so it shows
+		// at any offset.
+		padTo = max(padTo, cv.viewport.XOffset()+cv.viewport.Width()-gutterWidth)
+	}
+	cv.paintHighlight(padTo)
+}
+
+// decorate makes the plain rows: the gutter, the link prefix, and the text
+// of each row. It gives them to the viewport.
+func (cv *ContentView) decorate(numWidth int, hasLinks bool) {
+	numStyle := S.LineNumber
+	linkPrefix := S.LinkIndicator.Render("→ ")
+	linkSpacer := strings.Repeat(" ", lipgloss.Width(linkPrefix))
+	// A wrapped row after the first row of a line gets an empty gutter.
+	blankNum := numStyle.Render(fmt.Sprintf("%*s │ ", numWidth, ""))
+
+	plain := make([]string, 0, len(cv.layout.rows))
+	var b strings.Builder
+	for i := range cv.lineCount() {
+		_, isLinked := cv.links[i]
+		start, end := cv.lineRows(i)
+		for r := start; r < end; r++ {
+			b.Reset()
+			first := r == start
+
+			// Line number
+			if cv.lineNumbers {
+				if first {
+					b.WriteString(numStyle.Render(fmt.Sprintf("%*d │ ", numWidth, i+1)))
+				} else {
+					b.WriteString(blankNum)
+				}
+			}
+
+			// Link indicator prefix (or spacer for alignment)
+			if isLinked && first {
+				b.WriteString(linkPrefix)
+			} else if hasLinks {
+				b.WriteString(linkSpacer)
+			}
+
+			b.WriteString(cv.layout.rows[r])
+			plain = append(plain, b.String())
+		}
+	}
+
+	cv.screen = contentScreen{
+		valid: true,
+		theme: ActiveTheme.Name,
+		plain: plain,
+		shown: slices.Clone(plain),
+	}
+	// The layout already cut the rows to the width, so the viewport must
+	// not wrap them again. Then one viewport line is one row, and the
+	// offset counts rows.
+	cv.viewport.SoftWrap = false
+	cv.viewport.SetContentLines(cv.screen.shown)
+}
+
+// paintHighlight puts the cursor or the selection background on its rows
+// in shown, and puts back the plain rows that had it before. It fills each
+// painted row with the background up to padTo cells of text.
+func (cv *ContentView) paintHighlight(padTo int) {
+	s := &cv.screen
+	copy(s.shown[s.from:s.to], s.plain[s.from:s.to])
+
+	t := ActiveTheme
+	bg := ansi.NewStyle().BackgroundColor(t.Overlay).String()
+	if cv.visualMode {
+		bg = ansi.NewStyle().BackgroundColor(t.Secondary).String()
+	}
 	lo, hi := cv.selectionRange()
+	s.from, _ = cv.lineRows(lo)
+	_, s.to = cv.lineRows(hi)
 
 	var b strings.Builder
-	for i, line := range hLines {
-		// Line number
-		if cv.lineNumbers {
-			num := numStyle.Render(fmt.Sprintf("%*d │ ", numWidth, i+1))
-			b.WriteString(num)
-		}
+	for r := s.from; r < s.to; r++ {
+		row := cv.layout.rows[r]
+		// The plain row is the gutter and prefix, then the text.
+		head := s.plain[r][:len(s.plain[r])-len(row)]
 
-		// Link indicator prefix (or spacer for alignment)
-		_, isLinked := cv.links[i]
-		if isLinked && cv.links != nil {
-			b.WriteString(linkPrefix)
-		} else if hasLinks {
-			b.WriteString(linkSpacer)
+		b.Reset()
+		b.WriteString(head)
+		// Chroma ends each token with a reset, which also removes the
+		// background. Set the background again after each reset, and fill
+		// the rest of the row with it.
+		b.WriteString(bg)
+		b.WriteString(ReapplyAfterResets(row, bg))
+		if pad := padTo - ansi.StringWidth(row); pad > 0 {
+			b.WriteString(strings.Repeat(" ", pad))
 		}
-
-		// Apply cursor/selection highlight
-		switch {
-		case cv.visualMode && i >= lo && i <= hi:
-			b.WriteString(selectStyle.Render(line))
-		case i == cv.cursor:
-			b.WriteString(cursorStyle.Render(line))
-		default:
-			b.WriteString(line)
-		}
-
-		if i < len(hLines)-1 {
-			b.WriteByte('\n')
-		}
+		b.WriteString(ansi.ResetStyle)
+		s.shown[r] = b.String()
 	}
 
-	content := b.String()
+	// The viewport keeps no rows for one empty row, so it does not hold
+	// shown. Then give it the painted row.
+	if len(s.plain) == 1 && ansi.StringWidth(s.plain[0]) == 0 {
+		cv.viewport.SetContentLines(s.shown)
+	}
+}
 
-	// ANSI-aware word wrap (skip when wrap is off — viewport handles horizontal scroll)
-	if width > 0 && !cv.wrapOff {
-		content = ansi.Wordwrap(content, width-2, "")
+// highlight runs chroma on the text when the text or the chroma style
+// changed. It makes one entry in hlLines for each line of the text.
+func (cv *ContentView) highlight() {
+	style := ActiveTheme.ChromaStyle
+	if cv.hlLines != nil && cv.hlStyle == style {
+		return
 	}
 
-	cv.viewport.SoftWrap = !cv.wrapOff
-	cv.viewport.SetContent(content)
+	// Highlight the safe text: AWS content can hold terminal control
+	// sequences, and chroma keeps them.
+	hl := strings.Split(syntaxHighlight(cv.text, string(cv.format)), "\n")
+
+	// Some lexers add a line feed at the end. Keep one entry for each line,
+	// so that the line numbers agree with the cursor and with yank.
+	n := cv.lineCount()
+	if len(hl) > n {
+		hl = hl[:n]
+	}
+	for len(hl) < n {
+		hl = append(hl, "")
+	}
+
+	cv.hlLines = hl
+	cv.hlStyle = style
+	cv.layout.valid = false
+}
+
+// buildLayout cuts the highlighted lines into rows of lineWidth cells when
+// wrap is on. It does nothing when the layout is still good.
+func (cv *ContentView) buildLayout(lineWidth int) {
+	wrap := !cv.wrapOff
+	l := &cv.layout
+	if l.valid && l.lineWidth == lineWidth && l.wrap == wrap {
+		return
+	}
+
+	rows := make([]string, 0, len(cv.hlLines))
+	lineStart := make([]int, 0, len(cv.hlLines)+1)
+	for _, line := range cv.hlLines {
+		lineStart = append(lineStart, len(rows))
+		if !wrap {
+			rows = append(rows, endRow(line))
+			continue
+		}
+		// Wrap also cuts a word that is longer than the row, so no row
+		// is wider than lineWidth.
+		for row := range strings.SplitSeq(ansi.Wrap(line, lineWidth, ""), "\n") {
+			rows = append(rows, endRow(row))
+		}
+	}
+	lineStart = append(lineStart, len(rows))
+
+	*l = contentLayout{
+		valid:     true,
+		lineWidth: lineWidth,
+		wrap:      wrap,
+		rows:      rows,
+		lineStart: lineStart,
+	}
+	// The screen rows come from the layout rows.
+	cv.screen.valid = false
+}
+
+// endRow adds a reset at the end of a row that has escape sequences. The
+// wrap can cut a token in two, and then the token color would go on into
+// the gutter of the next row.
+func endRow(row string) string {
+	if strings.Contains(row, "\x1b") {
+		return row + ansi.ResetStyle
+	}
+	return row
 }
 
 // syntaxHighlight applies chroma syntax highlighting to content.

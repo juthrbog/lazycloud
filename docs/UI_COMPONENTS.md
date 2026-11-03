@@ -197,6 +197,7 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 - RoundedBorder with Primary (or Error for destructive)
 - Padding(0, 1) inside border
 - Title in Bold+Primary
+- The picker fits the terminal height. The app passes the height with `SetMaxHeight`. When the options do not fit, the picker shows a window of them, keeps the cursor in it, and shows `↑ N more` and `↓ N more` lines. The width stays the same while the window scrolls.
 
 ### Toasts
 - Bottom-right overlay via Compositor
