@@ -46,11 +46,11 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and in #200.
 - [x] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199. M5 and M22 are done in #218, with M7, M9, and L25.
 - [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201. The stash parts of M12 are done in #238.
-- [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
+- [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213. The AMI part of M10 is done in #PRNUM. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
 - [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done in #214, with T3, T5, D3, D4, and D14.
 - [x] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3. Done in #215, with L5 and D8.
 - [x] Phase 6, CI and release: H10, H11, H12, I1 to I9. I1, I3, I4, and I6 are done in #216. I5 is done in #226. I7 is done in #227.
-- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233. M21 is done in #234. M15, M16, and M19 are done in #235. M18 is done in #236. M4 is done in #237. M12 is done in #238.
+- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233. M21 is done in #234. M15, M16, and M19 are done in #235. M18 is done in #236. M4 is done in #237. M12 is done in #238. M10 is done in #PRNUM.
 - [ ] Phase 8, generic resource list (A10).
 - [ ] Phase 9, product roadmap. See [`market-research.md`](market-research.md).
 
@@ -176,7 +176,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [x] M9. SQS Send Message uses the cursor queue, but Purge and Delete use the selection. Fixed in #218: Send uses the same target, and the menu offers it only for one queue. Evidence: reproduced. Where: `internal/views/sqs_queues.go:243`.
 
-- [ ] M10. Cross-resource focus lands on the wrong row. Evidence: reproduced. The first two points are fixed in #213: focus uses `SetCursorByKey`, `sqs_queues` handles `FocusResourceMsg`, and a link to the view on top does not push it again. The AMI point is open.
+- [x] M10. Cross-resource focus lands on the wrong row. Evidence: reproduced. The first two points are fixed in #213: focus uses `SetCursorByKey`, `sqs_queues` handles `FocusResourceMsg`, and a link to the view on top does not push it again. The AMI point is fixed in #PRNUM: an AMI that is not in the list is fetched by ID and gets a row, the cursor, and its panel. If the fetch finds nothing, a toast says so.
   - `SetCursor(i)` uses the unsorted index. When the list is sorted, the panel shows `sg-a` while the cursor is on `sg-c`. In EC2, a following `m` acts on the cursor row.
   - `sqs_queues` emits focus links to itself, but it has no `FocusResourceMsg` handler. A link also pushes a second copy of the view on the stack.
   - AMI focus does nothing for AMIs that the account does not own. Most instances use such AMIs.
