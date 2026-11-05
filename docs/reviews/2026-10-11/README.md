@@ -45,12 +45,12 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 - [x] Phase 0, small isolated fixes: C1, H9, H7, H8, M14, L21, L22. Done in #199 and in #200.
 - [x] Phase 1, SQS peek: H1, M5, M22. H1 is done in #199. M5 and M22 are done in #218, with M7, M9, and L25.
-- [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201, except the stash parts of M12 (A6).
+- [x] Phase 2, addressed messages (A1): C2, H3, H4, H5, M12, M13. Done in #201. The stash parts of M12 are done in #PRNUM.
 - [x] Phase 3, table keyed by resource ID (A2): C3, C4, M8, M10, M17, P2. Done in #213, except the AMI part of M10. The manual checks in LocalStack found L23 and L24, and the branch fixes them too.
 - [x] Phase 4, input capture and central ReadOnly guard (A3): H2, M27. Done in #214, with T3, T5, D3, D4, and D14.
 - [x] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3. Done in #215, with L5 and D8.
 - [x] Phase 6, CI and release: H10, H11, H12, I1 to I9. I1, I3, I4, and I6 are done in #216. I5 is done in #226. I7 is done in #227.
-- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233. M21 is done in #234. M15, M16, and M19 are done in #235. M18 is done in #236. M4 is done in #237.
+- [ ] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233. M21 is done in #234. M15, M16, and M19 are done in #235. M18 is done in #236. M4 is done in #237. M12 is done in #PRNUM.
 - [ ] Phase 8, generic resource list (A10).
 - [ ] Phase 9, product roadmap. See [`market-research.md`](market-research.md).
 
@@ -181,11 +181,11 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
   - `sqs_queues` emits focus links to itself, but it has no `FocusResourceMsg` handler. A link also pushes a second copy of the view on the stack.
   - AMI focus does nothing for AMIs that the account does not own. Most instances use such AMIs.
 
-- [x] M11. Cross-navigation history restores a panel into the wrong view. Evidence: reproduced. Fixed in #215. Back traversal pops to the saved depth. `resetNav()` clears the panel, the stash, and the history for a session switch, a theme switch, and `:home`. The stash case of M12 (A6) is still open.
+- [x] M11. Cross-navigation history restores a panel into the wrong view. Evidence: reproduced. Fixed in #215. Back traversal pops to the saved depth. `resetNav()` clears the panel, the stash, and the history for a session switch, a theme switch, and `:home`. The stash case of M12 is fixed in #PRNUM.
   - `popCrossNavBack` (`app.go:727-741`) pops only one level. For EC2, then a link to VPCs, then Subnets, `backspace` opens the EC2 instance panel over the VPC list.
   - `:home` (`app.go:560-564`) keeps the panel open and keeps the history. `applyTheme` (`app.go:987-1015`) keeps the history. In both cases, `backspace` on Home restores an old resource panel.
 
-- [ ] M12. Panel state leaks across views. Evidence: reproduced. The late `TabbedContentMsg` case is fixed in #201. The stash and `L` cases are open (A6).
+- [x] M12. Panel state leaks across views. Evidence: reproduced. The late `TabbedContentMsg` case is fixed in #201. The stash and `L` cases are fixed in #PRNUM: `dismissPanel()` closes an open panel and always drops a stashed one, and `L` closes the panel as other navigation does. Back traversal in a narrow terminal stashes the panel that it restores. The `panelController` refactor (A6) is still open.
   - The app clears the stashed panel only when `panelOpen` is true (`app.go:174`, `:264`, `:443`). Make the terminal narrow, navigate, then make it wide. The old panel opens over the new view.
   - The `L` key pushes the event log with the panel still open (`app.go:470`).
   - `fetchMetadataAndNavigate` returns `TabbedContentMsg` directly (`s3_objects.go:861-882`). A late result opens and focuses a panel over an unrelated view.

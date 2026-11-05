@@ -184,6 +184,8 @@ When a view gets a filter or another text input, add the input to `CapturingInpu
 
 When the terminal is at least 120 columns wide, pressing `d` (describe) or `enter` (preview) opens a side panel alongside the main view. The panel supports **tabbed views** — EC2 instance detail shows Info, JSON, Security Groups, and Tags tabs (press `1-4` to switch). Lines marked with `→` are navigable: press `enter` to follow a cross-resource link (e.g., from an EC2 instance to its security group). Press `tab` to toggle focus between the main view and panel. On narrow terminals, content opens full-screen.
 
+If the terminal gets too narrow while a panel is open, the app stashes the panel and opens it again when the terminal is wide enough. A stashed panel follows the same rules as an open one: navigation, a form, and leaving the view drop it. Use `dismissPanel()` for these cases, so that the old panel cannot open over another view.
+
 When the panel is open, the header breadcrumbs append the panel title (e.g., `Services › EC2 Instances › web-server-1 (i-abc123)`) so it's always clear which resource is being viewed.
 
 ### Selective Refresh
