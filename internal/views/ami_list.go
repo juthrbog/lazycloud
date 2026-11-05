@@ -3,7 +3,9 @@ package views
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -23,6 +25,14 @@ type amiListLoadedMsg struct {
 }
 
 type amiRefreshedMsg struct {
+	amis []aws.AMI
+	err  error
+}
+
+// amiFocusLoadedMsg holds the result of a fetch by ID for a focus link to an
+// AMI that is not in the list.
+type amiFocusLoadedMsg struct {
+	id   string
 	amis []aws.AMI
 	err  error
 }
@@ -71,6 +81,7 @@ type AMIList struct {
 	height       int
 	widthTier    ui.WidthTier
 	pendingFocus string // AMI ID to auto-open after data loads
+	linkedAMIs   int    // rows that a focus link added to the list
 }
 
 func (a *AMIList) ID() string    { return "ami_list" }
@@ -201,6 +212,7 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		a.loading = false
 		a.spinner.Hide()
 		a.amis = m.amis
+		a.linkedAMIs = 0
 		a.ownedMode = m.owned
 		a.lastQuery = m.query
 		rows := buildAMIRows(m.amis, a.widthTier)
@@ -232,6 +244,10 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		rows := buildAMIRows(a.amis, a.widthTier)
 		a.table.SetRows(rows)
 		return a, nil
+
+	case amiFocusLoadedMsg:
+		a.spinner.Hide()
+		return a, a.showFocusedAMI(m)
 
 	case msg.FocusResourceMsg:
 		if a.loading {
@@ -405,13 +421,52 @@ func (a *AMIList) refreshAMIs(ids []string) tea.Cmd {
 	}
 }
 
+// focusAndOpenDetail moves the cursor to an AMI and opens its panel. The list
+// holds only the owned AMIs or a search result, and most instances use an AMI
+// of another account, so an AMI that is not in the list is fetched by ID.
 func (a *AMIList) focusAndOpenDetail(id string) tea.Cmd {
-	a.table.SetCursorByKey(id)
 	ami := a.findAMI(id)
 	if ami == nil {
+		a.spinner.Show("Loading AMI...")
+		return tea.Batch(a.spinner.Tick(), a.fetchFocusedAMI(id))
+	}
+	a.table.SetCursorByKey(id)
+	return a.openDetailCmd(ami)
+}
+
+func (a *AMIList) fetchFocusedAMI(id string) tea.Cmd {
+	svc := a.ec2
+	ctx := a.viewContext()
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		amis, err := svc.RefreshAMIs(ctx, []string{id})
+		return amiFocusLoadedMsg{id: id, amis: amis, err: err}
+	}
+}
+
+// showFocusedAMI adds a fetched AMI to the list and opens it. When the fetch
+// finds nothing, a toast says so and the list stays as it is.
+func (a *AMIList) showFocusedAMI(m amiFocusLoadedMsg) tea.Cmd {
+	if errors.Is(m.err, context.Canceled) {
 		return nil
 	}
-	return a.openDetailCmd(ami)
+	if m.err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "AMI %s: %v", m.id, m.err)
+		text := fmt.Sprintf("Could not load AMI %s: %s", m.id, aws.ErrorText(m.err))
+		return func() tea.Msg { return msg.ToastError(text) }
+	}
+	i := slices.IndexFunc(m.amis, func(ami aws.AMI) bool { return ami.ID == m.id })
+	if i < 0 {
+		text := fmt.Sprintf("AMI %s not found or not visible to this account", m.id)
+		return func() tea.Msg { return msg.ToastError(text) }
+	}
+	if a.findAMI(m.id) == nil {
+		a.amis = append(a.amis, m.amis[i])
+		a.linkedAMIs++
+		a.table.SetRows(buildAMIRows(a.amis, a.widthTier))
+	}
+	return a.focusAndOpenDetail(m.id)
 }
 
 func (a *AMIList) openDetailCmd(ami *aws.AMI) tea.Cmd {
@@ -469,6 +524,9 @@ func (a *AMIList) Footer() string {
 	var footer string
 	if a.ownedMode {
 		footer = fmt.Sprintf("%d/%d AMIs (owned)", filtered, total)
+		if a.linkedAMIs > 0 {
+			footer = fmt.Sprintf("%d/%d AMIs (owned + %d linked)", filtered, total, a.linkedAMIs)
+		}
 	} else {
 		footer = fmt.Sprintf("%d/%d results for %q", filtered, total, a.lastQuery)
 	}
