@@ -367,10 +367,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Non-content navigation closes the panel
-		if m.panelOpen {
-			m.clearStashedPanel()
-			m.closePanel()
-		}
+		m.dismissPanel()
 		if focusID := msg.Params["focus"]; focusID != "" && m.nav.Current().ID() == msg.ViewID {
 			// A link to another row of the view on top only moves its
 			// cursor. Pushing would put the same view on the stack twice.
@@ -396,11 +393,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.NavigateBackMsg:
-		if m.panelOpen {
-			m.clearStashedPanel()
-			m.closePanel()
-		}
-		m.clearStashedPanel()
+		m.dismissPanel()
 		if m.nav.Depth() > 1 {
 			m.nav.Pop()
 			m.trimCrossNavHistory()
@@ -465,10 +458,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.RequestFormMsg:
 		formView := ui.NewFormView(msg)
-		if m.panelOpen {
-			m.clearStashedPanel()
-			m.closePanel()
-		}
+		m.dismissPanel()
 		cmd := m.pushView(formView)
 		return m, cmd
 
@@ -685,13 +675,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.showCancelPicker()
 		case key.Matches(msg, m.keys.Quit.Binding):
 			if m.panelOpen {
-				m.clearStashedPanel()
-				m.closePanel()
+				m.dismissPanel()
 				return m, nil
 			}
 			if m.nav.Depth() <= 1 {
 				return m.requestQuit()
 			}
+			m.dismissPanel()
 			m.nav.Pop()
 			m.trimCrossNavHistory()
 			m.resizeViews()
@@ -713,6 +703,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.EventLog.Binding):
 			eventlog.Debug(eventlog.CatUI, "Event log opened")
+			m.dismissPanel()
 			cmd := m.pushView(views.NewEventLog())
 			return m, cmd
 		case key.Matches(msg, m.keys.CommandBar.Binding):
@@ -739,8 +730,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.panelOpen && m.panelFocused && m.panel != nil {
 			switch {
 			case key.Matches(msg, m.keys.PanelClose.Binding):
-				m.clearStashedPanel()
-				m.closePanel()
+				m.dismissPanel()
 				return m, nil
 			case key.Matches(msg, m.keys.PanelEditor.Binding):
 				return m, m.panel.OpenInEditorCmd()
@@ -935,6 +925,16 @@ func (m *Model) closePanel() {
 	m.resizeViews()
 }
 
+// dismissPanel closes the panel for good: it closes an open panel and drops a
+// stashed one. Use it when the panel no longer belongs on screen. A stashed
+// panel has panelOpen false, so do not guard this call with panelOpen.
+func (m *Model) dismissPanel() {
+	m.clearStashedPanel()
+	if m.panelOpen {
+		m.closePanel()
+	}
+}
+
 // savePanelState extracts the current panel's title and tabs for saving.
 func (m *Model) savePanelState() (string, []appmsg.TabContent) {
 	if m.panel == nil {
@@ -997,12 +997,16 @@ func (m *Model) popCrossNavBack() {
 	entry := m.crossNavHistory[n-1]
 	m.crossNavHistory = m.crossNavHistory[:n-1]
 
-	if m.panelOpen {
-		m.closePanel()
-	}
+	m.dismissPanel()
 	m.nav.PopTo(entry.navDepth)
 	m.resizeViews()
 
+	if !m.canShowPanel() {
+		// The terminal got narrow after the link. The panel opens when the
+		// terminal is wide again.
+		m.stashedPanelTitle, m.stashedPanelTabs = entry.panelTitle, entry.panelTabs
+		return
+	}
 	m.openTabbedPanel(entry.panelTitle, entry.panelTabs)
 }
 
@@ -1229,8 +1233,7 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 // so nothing of the old views comes back. It returns the commands that start
 // the home animation and size the new view.
 func (m *Model) resetNav() tea.Cmd {
-	m.clearStashedPanel()
-	m.closePanel()
+	m.dismissPanel()
 	m.crossNavHistory = nil
 	m.err, m.errView = "", nil
 	// Stop the loads of the old views. Background operations keep running.
