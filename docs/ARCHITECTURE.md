@@ -170,6 +170,8 @@ A session is one profile and one region. `aws.NewServices` builds its client and
 - If a switch fails, nothing changes. The old session, the views, and the configuration stay, and a toast shows the error.
 - If a switch succeeds, `resetNav()` cancels the contexts of the old views and builds a new navigator with a new home view. It closes the panel and clears the stashed panel, the cross-navigation history, and the error. Then the app opens the service view that was on top again. `topLevelViewID()` finds it: the nearest view under the top of the stack that is a service view in the registry.
 
+An S3 call must go to the region of its bucket. The S3 service of a session keeps the region of each bucket that it knows, and one client for each region (`internal/aws/s3_region.go`). `ListBuckets` reads pages with `MaxBuckets`, so S3 returns the region of each bucket, and the service remembers them. A bucket that the service does not know is looked up once with `HeadBucket`, which gives the region also in the `x-amz-bucket-region` header of a redirect or a denied call. `GetBucketLocation` is only the last resort, and its old value `EU` means `eu-west-1`. Creating a bucket adds its region, and deleting it removes the region. A new session starts with an empty cache. With an endpoint override (LocalStack), every bucket is in the region of the session, and nothing is looked up.
+
 A theme switch and `:home` also call `resetNav()`. Each time Home is shown again, the app calls its `Init()`. This starts a new chain of animation ticks with a new generation, and Home ignores the frames of older chains.
 
 ### Input Capture

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -46,6 +47,10 @@ type S3Service interface {
 // S3ServiceImpl is the real AWS-backed implementation of S3Service.
 type S3ServiceImpl struct {
 	client *Client
+
+	mu      sync.Mutex
+	regions map[string]string     // bucket name -> region (see s3_region.go)
+	clients map[string]*s3.Client // region -> client for that region
 }
 
 // NewS3Service creates a real S3 service backed by the given AWS client.
@@ -83,41 +88,6 @@ func (c *Client) longCopy(o *s3.Options) {
 	}
 }
 
-// GetBucketRegion resolves the region a bucket lives in.
-func (svc *S3ServiceImpl) GetBucketRegion(ctx context.Context, bucket string) (string, error) {
-	// LocalStack doesn't support GetBucketLocation properly
-	if svc.client.Endpoint != "" {
-		if svc.client.Region != "" {
-			return svc.client.Region, nil
-		}
-		return "us-east-1", nil
-	}
-
-	s3c := svc.client.S3Client()
-	output, err := s3c.GetBucketLocation(ctx, &s3.GetBucketLocationInput{
-		Bucket: aws.String(bucket),
-	})
-	if err != nil {
-		return "", err
-	}
-
-	// GetBucketLocation returns "" for us-east-1 (legacy behavior)
-	region := string(output.LocationConstraint)
-	if region == "" {
-		region = "us-east-1"
-	}
-	return region, nil
-}
-
-// s3ClientForBucket resolves the bucket's region and returns a properly configured client.
-func (svc *S3ServiceImpl) s3ClientForBucket(ctx context.Context, bucket string) (*s3.Client, error) {
-	region, err := svc.GetBucketRegion(ctx, bucket)
-	if err != nil {
-		return nil, fmt.Errorf("resolving bucket region: %w", err)
-	}
-	return svc.client.S3ClientForRegion(region), nil
-}
-
 // Bucket represents an S3 bucket.
 type Bucket struct {
 	Name         string
@@ -143,23 +113,31 @@ type ObjectMeta struct {
 	Metadata     map[string]string
 }
 
+// listBucketsPageSize is the MaxBuckets of each ListBuckets page. With
+// MaxBuckets set, S3 pages the result and returns the region of each
+// bucket. Without it, an account with a bucket quota over 10,000 gets an
+// error.
+var listBucketsPageSize int32 = 1000
+
 // ListBuckets returns all S3 buckets accessible to the current credentials.
+// It also remembers the region of each bucket for later calls.
 func (svc *S3ServiceImpl) ListBuckets(ctx context.Context) ([]Bucket, error) {
 	s3c := svc.client.S3Client()
-	output, err := s3c.ListBuckets(ctx, &s3.ListBucketsInput{})
-	if err != nil {
-		return nil, err
-	}
-
-	buckets := make([]Bucket, 0, len(output.Buckets))
-	for _, b := range output.Buckets {
-		bucket := Bucket{
-			Name: aws.ToString(b.Name),
+	pages := s3.NewListBucketsPaginator(s3c, &s3.ListBucketsInput{MaxBuckets: aws.Int32(listBucketsPageSize)})
+	var buckets []Bucket
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, err
 		}
-		if b.CreationDate != nil {
-			bucket.CreationDate = *b.CreationDate
+		for _, b := range page.Buckets {
+			bucket := Bucket{Name: aws.ToString(b.Name)}
+			if b.CreationDate != nil {
+				bucket.CreationDate = *b.CreationDate
+			}
+			svc.rememberRegion(bucket.Name, aws.ToString(b.BucketRegion))
+			buckets = append(buckets, bucket)
 		}
-		buckets = append(buckets, bucket)
 	}
 	return buckets, nil
 }
@@ -606,6 +584,10 @@ func (svc *S3ServiceImpl) DeleteBucket(ctx context.Context, bucket string) error
 	_, err = s3c.DeleteBucket(ctx, &s3.DeleteBucketInput{
 		Bucket: aws.String(bucket),
 	})
+	if err == nil {
+		// A bucket with this name can come back in another region.
+		svc.forgetRegion(bucket)
+	}
 	return err
 }
 
@@ -1084,6 +1066,9 @@ func (svc *S3ServiceImpl) CreateBucket(ctx context.Context, name, region string)
 	}
 
 	_, err := s3c.CreateBucket(ctx, input)
+	if err == nil {
+		svc.rememberRegion(name, region)
+	}
 	return err
 }
 
