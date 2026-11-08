@@ -13,7 +13,15 @@ All UI elements should use semantic color roles, never hardcoded color values. E
 | `Error`      | Failed tasks, terminated instances, API errors           |
 | `Info`       | Informational badges, neutral highlights, links          |
 
-All four themes (Catppuccin, Dracula, Nord, Tokyo Night) must map these roles to their palette's green, yellow, red, and blue equivalents respectively. New themes must define all four.
+All themes must map these roles to their palette's green, yellow, red, and blue equivalents respectively. New themes must define all four.
+
+### Light Themes
+
+Catppuccin Latte and Tokyo Night Day are light themes. They set `Light: true`. On a light theme, `Base` and the surfaces are light, and `Text`, `SubText`, and `BrightText` are dark. `BrightText` is the strongest text, so it is near black, not white. The forms use the light huh base for these themes.
+
+The theme setting `auto` is the default. The app asks the terminal for its background color at start (`tea.RequestBackgroundColor`). On a light background it uses Catppuccin Latte, and on a dark one, or when the terminal does not answer, Catppuccin Mocha. It picks the theme only once, so a later answer cannot rebuild the views that the user opened. A theme set in the config, with `--theme`, or with the picker always wins.
+
+`TestLightThemesHaveReadableText` checks that the text of a light theme has a contrast of at least 3:1 on its background and on its badges. The official yellow and green of Catppuccin Latte are lower, so the theme uses darker shades of both.
 
 ### Log Level Colors
 
@@ -71,5 +79,5 @@ Follow this pattern for new services:
 ## Color Accessibility
 
 - Never rely on color alone to convey information — always pair with text labels or symbols (e.g., state badges show both color and text like `● running`)
-- Maintain sufficient contrast between foreground text and background in all four themes
-- Test new theme colors against both dark terminal backgrounds and the theme's own surface colors
+- Maintain sufficient contrast between foreground text and background in all themes
+- Test new theme colors against the terminal background that the theme is made for, and against the theme's own surface colors
