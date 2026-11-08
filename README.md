@@ -20,7 +20,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 ## Features
 
 - Browse and manage AWS resources without leaving your terminal
-- **ReadOnly by default** — mutations blocked regardless of IAM permissions until you press `W`
+- **ReadOnly by default** — mutations blocked regardless of IAM permissions until you switch to ReadWrite with `W`
 - Drill-down navigation with a side detail panel on wide terminals (≥120 cols)
 - Filterable, sortable tables with vim-style keybindings
 - Multi-select with bulk actions (start/stop/delete across selections)
@@ -36,7 +36,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 | Service | Description |
 |---------|-------------|
 | [S3](services/aws/s3.md) | Buckets, objects, versions, presigned URLs, copy/move, create/delete |
-| [EC2](services/aws/ec2.md) | Instances, AMIs, start/stop/reboot/terminate, SSM connect, public AMI search |
+| [EC2](services/aws/ec2.md) | Instances, AMIs, security groups, VPCs, subnets, start/stop/reboot/terminate, SSM connect, public AMI search |
 | [SQS](services/aws/sqs.md) | Queues, message peek, send, purge, delete, DLQ redrive |
 
 ## Getting Started
@@ -128,19 +128,24 @@ task dev               # run against LocalStack
 
 | Key | Action |
 |-----|--------|
-| `j`/`k` or arrows | Navigate |
-| `enter` | Drill into resource |
-| `esc` | Go back / clear selection |
+| `j`/`k` or arrows | Move the cursor |
+| `enter` | Open the resource. On Home, open the service picker |
+| `esc` | Go back, or clear the selection |
 | `/` | Filter |
-| `space` | Multi-select |
-| `s`/`S` | Sort / reverse sort |
+| `space` | Select several rows |
+| `s`/`S` | Sort / reverse sort. On Home, `s` opens the service picker |
 | `r` | Refresh |
-| `W` | Toggle ReadOnly/ReadWrite |
-| `tab` | Toggle panel focus |
+| `tab` | Move the focus between the list and the side panel |
+| `backspace` | Go back to the view where you followed a link, with its panel |
+| `W` | Open the mode picker (ReadOnly or ReadWrite) |
+| `P` | Open the profile picker |
+| `R` | Open the region picker |
+| `T` | Open the theme picker |
+| `L` | Open the event log |
 | `:` | Command bar |
 | `?` | Help overlay (full keybinding reference) |
 | `ctrl+x` | Cancel a running operation, such as a download |
-| `q` | Quit / back |
+| `q` | Go back. On Home, quit |
 
 Press `?` in-app for the complete list including view-specific and panel keybindings. See [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md) for the keybinding system architecture.
 
@@ -183,7 +188,7 @@ internal/aws/        Service interfaces + SDK implementations
 internal/views/      Bubble Tea view models (one per resource type)
 internal/ui/         Shared components (table, filter, picker, toast, panel)
 internal/app/        Root model — message router, layout, view factory
-internal/nav/        Stack-based navigator with view caching
+internal/nav/        Stack-based navigator
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime patterns, scaling strategy, and the guide for adding new services.
@@ -193,7 +198,6 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for runtime patterns, scaling s
 ```bash
 go test ./...              # unit tests
 task test:race             # unit tests like CI (race detector, random order)
-task test:integration      # integration tests against LocalStack
 ```
 
 ## Contributing

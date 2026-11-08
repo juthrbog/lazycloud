@@ -122,7 +122,7 @@ lipgloss.NewStyle().
 |---------|---------|-----------|
 | **Inside dialog borders** | `Padding(0, 1)` | 1 char horizontal breathing room |
 | **Badge text** | `Padding(0, 1)` | Consistent pill shape |
-| **Status bar hints** | No padding, `"  "` separator between hints | Compact, many hints per line |
+| **Status bar hints** | No padding, `" · "` separator between hints | Compact, many hints per line |
 | **Table cells** | `Padding(0, 1)` (bubbles default) | Standard table readability |
 
 ### Separator conventions
@@ -130,7 +130,7 @@ lipgloss.NewStyle().
 | Separator | Character | Usage |
 |-----------|-----------|-------|
 | **Breadcrumb** | ` › ` | Navigation path |
-| **Status hint** | `  ` (2 spaces) | Between key+desc pairs |
+| **Status hint** | ` · ` (a Muted dot with a space on each side) | Between key+desc pairs |
 | **Tab bar** | `  ` (2 spaces) | Between tab labels |
 | **Key+description** | ` ` (1 space) | `<key> desc` in status bar |
 
@@ -180,7 +180,7 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 ### Header
 - Gradient text title + profile/region/mode badges + breadcrumbs
 - Full-width Surface background padding
-- Gradient line (`▀` characters with `Blend1D`) below
+- Gradient line (`▄` characters with `Blend1D`) below
 - At < 80 cols: drop region badge. At < 60 cols: title + breadcrumb only
 
 ### Status Bar
@@ -205,7 +205,8 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 ### Toasts
 - Bottom-right overlay via Compositor
 - RoundedBorder with Secondary
-- Level-based icon + color (Success/Error/Primary)
+- Level-based icon + color (Success/Error/Info)
+- A toast closes after 3 seconds (success), 4 seconds (info), or 6 seconds (error)
 - `View(width)` fits the box in the screen width, minus the 2-column margin that the app keeps to the right edge. A long toast wraps, and its wrapped lines start under the text. It breaks at spaces and after `/`, `-`, `_`, and `.`, so S3 keys and paths wrap at natural points. One toast shows at most `maxToastLines` (4) lines and ends with `…` when it is cut.
 
 ### Command Bar
