@@ -39,7 +39,7 @@ type LogConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Display: DisplayConfig{
-			Theme:     "catppuccin",
+			Theme:     "auto",
 			NerdFonts: true,
 		},
 	}
@@ -113,8 +113,10 @@ func WriteDefault(path string) error {
 # endpoint = ""
 
 [display]
-# Color theme: catppuccin, dracula, nord, tokyonight
-theme = "catppuccin"
+# Color theme: auto, catppuccin, catppuccin-latte, dracula, nord, tokyonight,
+# tokyonight-day. auto uses catppuccin on a dark terminal and catppuccin-latte
+# on a light one.
+theme = "auto"
 
 # Use Nerd Font icons (set to false for plain Unicode fallbacks)
 nerd_fonts = true

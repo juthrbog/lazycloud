@@ -33,7 +33,7 @@ func run() int {
 	region := flag.String("region", "", "AWS region")
 	endpoint := flag.String("endpoint", "", "AWS endpoint override (for LocalStack)")
 	logFile := flag.String("log", "", "path to log file for debugging")
-	theme := flag.String("theme", "", "color theme (catppuccin, dracula, nord, tokyonight)")
+	theme := flag.String("theme", "", "color theme: auto (default), "+strings.Join(ui.ThemeOrder, ", "))
 	noNerd := flag.Bool("no-nerd-fonts", false, "disable Nerd Font icons")
 	configPath := flag.String("config", "", "path to config file")
 	readWrite := flag.Bool("read-write", false, "start in ReadWrite mode (default: ReadOnly)")
@@ -69,12 +69,17 @@ func run() int {
 	cfg.ApplyEnv()
 	cfg.ApplyFlags(*profile, *region, *endpoint, *logFile, *theme, *noNerd)
 
-	// Apply theme
-	if t, ok := ui.Themes[strings.ToLower(cfg.Display.Theme)]; ok {
+	// Apply theme. The auto theme starts dark. The app switches to the light
+	// theme when the terminal reports a light background.
+	themeName := strings.ToLower(cfg.Display.Theme)
+	if themeName == ui.AutoTheme {
+		themeName = ui.AutoThemeName(true)
+	}
+	if t, ok := ui.Themes[themeName]; ok {
 		ui.ActiveTheme = t
 		ui.RebuildStyles()
 	} else {
-		fmt.Fprintf(os.Stderr, "Unknown theme: %s (available: catppuccin, dracula, nord, tokyonight)\n", cfg.Display.Theme)
+		fmt.Fprintf(os.Stderr, "Unknown theme: %s (available: %s, %s)\n", cfg.Display.Theme, ui.AutoTheme, strings.Join(ui.ThemeOrder, ", "))
 		return 1
 	}
 
