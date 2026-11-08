@@ -237,9 +237,9 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] L10. Fixed in #242: the ten views use `ui.S.Error`, which follows the active theme. The legacy `ErrorStyle`, `WarningStyle`, and `SuccessStyle` are removed. The manual check found that the red of Catppuccin Latte (#241) becomes a gray with 256 colors. The PR also changes that red, and a test checks the status colors of all themes. The legacy `ErrorStyle` (`styles.go:634`) kept the Catppuccin red from startup. Ten views used it.
 - [x] L11. Fixed in #243 (with L27): `ToastManager.View` ignored its `width` argument, so long toasts overflowed.
 - [ ] L12. The picker, the command bar, and the help filter accept only ASCII 32 to 126. Space arrives as `"space"`, so the input drops it. Paste is ignored.
-- [x] L13. Fixed in #PRNUM: the fallback is `⛨`, as `THEMING.md` suggests for a shield, and a test checks that each fallback is one plain character. The fallback for `IconShield` was an emoji. `THEMING.md` says not to use emoji.
-- [x] L14. Fixed in #PRNUM: `detail.go` and its `DetailKey` and `DetailValue` styles are deleted. The `Detail` component was not used, and its `View()` drew h+1 lines.
-- [x] L15. Fixed in #PRNUM: deleted. `Client.ServiceEndpoint()` was not used.
+- [x] L13. Fixed in #244: the fallback is `⛨`, as `THEMING.md` suggests for a shield, and a test checks that each fallback is one plain character. The fallback for `IconShield` was an emoji. `THEMING.md` says not to use emoji.
+- [x] L14. Fixed in #244: `detail.go` and its `DetailKey` and `DetailValue` styles are deleted. The `Detail` component was not used, and its `View()` drew h+1 lines.
+- [x] L15. Fixed in #244: deleted. `Client.ServiceEndpoint()` was not used.
 - [ ] L16. A `Range` request on an empty object returns 416, so the preview of an empty text file can fail. Evidence: plausible.
 - [ ] L17. A theme switch rebuilds the whole navigation stack (`app.go:995`) and loses loaded data. The cause is that `NewTable` and `StateColor` put theme colors into the row strings.
 - [ ] L18. `resizeViews` drops the commands that views return. All 13 views return nil on `WindowSizeMsg` today, so this has no effect yet.
