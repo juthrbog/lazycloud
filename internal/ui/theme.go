@@ -150,7 +150,7 @@ var CatppuccinLatte = Theme{
 	Primary:      lipgloss.Color("#8839ef"), // mauve
 	Secondary:    lipgloss.Color("#acb0be"), // surface2
 	Accent:       lipgloss.Color("#3a9626"), // green #40a02b, darker for text on base
-	Error:        lipgloss.Color("#d20f39"), // red
+	Error:        lipgloss.Color("#c8102f"), // red #d20f39, which is gray with 256 colors
 	Warning:      lipgloss.Color("#b8730c"), // yellow #df8e1d, darker for text on base
 	Success:      lipgloss.Color("#3a9626"), // green, darker
 	Info:         lipgloss.Color("#1e66f5"), // blue
@@ -165,7 +165,7 @@ var CatppuccinLatte = Theme{
 	GradientTo:   lipgloss.Color("#1e66f5"), // blue
 	ChromaStyle:  "catppuccin-latte",
 	StateRunning: lipgloss.Color("#3a9626"), // green, darker
-	StateStopped: lipgloss.Color("#d20f39"), // red
+	StateStopped: lipgloss.Color("#c8102f"), // red, see Error
 	StatePending: lipgloss.Color("#b8730c"), // yellow, darker
 }
 

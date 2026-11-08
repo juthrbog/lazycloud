@@ -898,7 +898,7 @@ func (e *EC2List) View() tea.View {
 		// Initial load — spinner only
 		content = "\n  " + e.spinner.View()
 	case e.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(e.err)))
+		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(e.err)))
 	default:
 		content = e.table.View()
 		if e.filter.Active() {

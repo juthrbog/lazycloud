@@ -903,7 +903,7 @@ func (s *SQSMessages) View() tea.View {
 	case s.loading && len(s.messages) == 0:
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
+		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	case len(s.messages) == 0 && s.fetched:
 		content = "\n  No messages in queue. Press l to peek again."
 	case len(s.messages) == 0 && s.attrsLoaded && s.peekBlocked() != "":

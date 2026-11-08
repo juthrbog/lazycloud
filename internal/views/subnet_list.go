@@ -455,7 +455,7 @@ func (s *SubnetList) View() tea.View {
 	case s.loading && len(s.subnets) == 0:
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
+		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	default:
 		content = s.table.View()
 		if s.filter.Active() {

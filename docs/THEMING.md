@@ -23,6 +23,8 @@ The theme setting `auto` is the default. The app asks the terminal for its backg
 
 `TestLightThemesHaveReadableText` checks that the text of a light theme has a contrast of at least 3:1 on its background and on its badges. The official yellow and green of Catppuccin Latte are lower, so the theme uses darker shades of both.
 
+A terminal without truecolor gets the nearest of 256 colors, and that color can be a gray. The official red of Catppuccin Latte, `#d20f39`, becomes 241 (`#626262`), so the theme uses `#c8102f`, which becomes 160 (`#d70000`). `TestThemeColorsKeepTheirHueIn256Colors` checks that the status colors of every theme keep a hue with 256 colors. Check a new color with `colorprofile.ANSI256.Convert`.
+
 ### Log Level Colors
 
 Log viewers use a subset of status colors for log level keywords:

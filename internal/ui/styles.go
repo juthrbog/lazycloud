@@ -255,11 +255,3 @@ func GradientText(text string, colors []color.Color) string {
 	}
 	return b.String()
 }
-
-// --- Legacy exports (kept for backward compat during migration) ---
-
-var (
-	ErrorStyle   = lipgloss.NewStyle().Foreground(ActiveTheme.Error)
-	WarningStyle = lipgloss.NewStyle().Foreground(ActiveTheme.Warning)
-	SuccessStyle = lipgloss.NewStyle().Foreground(ActiveTheme.Success)
-)
