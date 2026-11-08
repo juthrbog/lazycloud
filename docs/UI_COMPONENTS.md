@@ -160,6 +160,9 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 | Cloud | `\U000f015f` | `☁` | App title |
 | S3 | `\U000f01bc` | `◇` | S3 service |
 | EC2 | `\U000f01c4` | `◈` | EC2 service |
+| Shield | `\U000f0498` | `⛨` | Security groups |
+| SQS | `\U000f01ee` | `≡` | SQS service |
+| Network | `\U000f0317` | `⊞` | VPCs and subnets |
 | Running | `\U000f012c` | `●` | State: running/available |
 | Stopped | `\U000f0156` | `○` | State: stopped/terminated |
 | Pending | `\U000f0e4e` | `◌` | State: pending/starting |
@@ -221,7 +224,6 @@ the active theme. Use these for repeated patterns:
 
 - `S.Title` — Bold + Primary
 - `S.StatusKey` / `S.StatusDesc` / `S.StatusBarBase` — Status bar
-- `S.DetailKey` / `S.DetailValue` — Key-value pairs
 - `S.FilterPrompt` — Filter `/` character
 - `S.Error` / `S.Warning` / `S.Success` — Message styling
 - `S.HeaderStyle` / `S.HeaderAccent` — Header badges

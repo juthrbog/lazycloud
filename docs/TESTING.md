@@ -265,7 +265,6 @@ Focus test coverage where bugs are most costly:
 | `ui/contentview.go` | Medium | Visual mode, yank, cursor movement — add unit tests |
 | `ui/filter.go` | Low | Simple text input; tested indirectly by views |
 | `ui/toast.go` | Low | Auto-dismiss logic; tested indirectly by app_test |
-| `ui/detail.go` | Low | Simple key-value renderer |
 | `ui/header.go` | Low | Rendering only; visual verification |
 
 ### Infrastructure Gaps
