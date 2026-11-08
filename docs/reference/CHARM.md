@@ -1,5 +1,7 @@
 # Charm Ecosystem Layout Reference
 
+> As of April 2026. This is a general reference for the v2.0 releases of the Charm libraries, made from their source. The project now uses newer versions (see `go.mod`), so some details can be different. The code in `internal/` is the source of truth for this project.
+
 Deep research into BubbleTea v2, LipGloss v2, and Bubbles v2 layout patterns.
 Based on reading actual source code from the installed modules, Charm blog posts,
 community discussions, and real-world usage in this codebase.
