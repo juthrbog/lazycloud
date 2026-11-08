@@ -5,7 +5,7 @@
 - **Test framework:** Go `testing` package + [testify](https://github.com/stretchr/testify) (`assert`, `require`, `mock`)
 - **TUI integration:** [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest) (`charmbracelet/x/exp/teatest/v2`)
 - **AWS mocking:** Hand-written mocks in `internal/aws/awstest/` implementing service interfaces
-- **LocalStack:** Docker-based AWS emulator for integration tests
+- **LocalStack:** Docker-based AWS emulator for manual checks of the app (see `DEVELOPMENT.md`). The project has no automated integration tests.
 
 ## Three-Tier Testing Pyramid
 
@@ -137,7 +137,8 @@ func (m *MockEC2Service) ListInstances(ctx context.Context) ([]aws.Instance, err
 
 ```go
 mockSvc := new(awstest.MockEC2Service)
-mockSvc.On("ListInstances", mock.Anything).Return([]aws.Instance{testInstance}, nil)
+mockSvc.On("ListInstancesPage", mock.Anything, (*string)(nil)).
+    Return(&aws.InstancePage{Instances: []aws.Instance{testInstance}}, nil)
 
 view := views.NewEC2List(mockSvc, nil)
 // ... test code ...
@@ -147,25 +148,7 @@ mockSvc.AssertExpectations(t) // verify all expected calls were made
 
 ### When to Use Generated Mocks
 
-Stick with hand-written mocks. The interfaces are well-scoped (EC2: 8 methods, S3: 17 methods). Consider [mockery](https://github.com/vektra/mockery) only if an interface exceeds ~20 methods and maintaining the mock by hand becomes tedious.
-
-### LocalStack Integration Tests
-
-The codebase supports LocalStack via `Client.Endpoint` and the Taskfile has `task test:integration`. Integration tests should use the `//go:build integration` build tag to keep them separate from unit tests:
-
-```go
-//go:build integration
-
-func TestS3ListBuckets_LocalStack(t *testing.T) {
-    client, _ := aws.NewClient("", "us-east-1", "http://localhost:4566")
-    svc := aws.NewS3Service(client)
-    buckets, err := svc.ListBuckets(context.Background())
-    require.NoError(t, err)
-    assert.NotEmpty(t, buckets)
-}
-```
-
-Run with: `task test:integration` (requires `task localstack:up` first).
+Use hand-written mocks. The EC2 interface has 21 methods, S3 has 18, and SQS has 13. Each mock method is a few lines that call `m.Called`. If a mock becomes hard to keep in step with its interface, consider [mockery](https://github.com/vektra/mockery).
 
 ## Test Helper Conventions
 
@@ -190,7 +173,7 @@ Simulate async data loading by sending the loaded message directly:
 
 ```go
 func loadInstances(view *EC2List, instances []aws.Instance) {
-    view.Update(ec2InstancesLoadedMsg{instances: instances})
+    view.Update(ec2PageLoadedMsg{instances: instances, hasMorePages: false, pageNum: 1})
 }
 ```
 
@@ -271,7 +254,7 @@ Focus test coverage where bugs are most costly:
 
 | Gap | Recommendation |
 |-----|---------------|
-| No `//go:build integration` tagged tests | Add LocalStack smoke tests for S3 and EC2 |
+| No LocalStack integration tests | Add smoke tests for S3 and EC2 behind a build tag (T10 in the review tracker) |
 | No golden file tests | Consider for rendered output regression after theme changes |
 | `internal/config/` untested | Add config loading/precedence tests |
 
@@ -279,6 +262,5 @@ Focus test coverage where bugs are most costly:
 
 - **Headless testing:** All tests run without a real terminal. teatest uses a virtual terminal internally. No `TERM` configuration needed.
 - **Timeouts:** teatest `WaitFor` uses real wall-clock time. Use generous timeouts (2-5s) in CI where runners may be slow.
-- **LocalStack:** Integration tests (`task test:integration`) require Docker. Run separately from unit tests in CI, or skip with build tags.
 - **Race detection and test order:** CI runs `go test -race -shuffle=on ./...` on every pull request. Run `task test:race` before you push. The race detector finds data races between `Update` and command goroutines. The random order finds tests that depend on global state, such as the ReadOnly mode, the theme, or the event log, which keeps only its last 500 entries.
 - **No real AWS:** App tests build a client for a closed local port (`http://127.0.0.1:1`) with dummy credentials. A test that sets an AWS profile points `AWS_CONFIG_FILE` at a temporary file. No test reads `~/.aws` or reaches an AWS account.

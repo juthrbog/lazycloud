@@ -81,13 +81,6 @@ tasks:
     cmds:
       - go tool govulncheck ./...
 
-  test:integration:
-    desc: Run integration tests against LocalStack
-    deps: [localstack:up, localstack:seed]
-    cmds:
-      - go test ./... -v -tags=integration
-    env: *localstack-env
-
   # ─── Linting ────────────────────────────────────────────
 
   lint:

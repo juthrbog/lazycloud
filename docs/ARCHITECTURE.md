@@ -6,12 +6,12 @@ LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture
 
 ```
 cmd/seed/               Seed program for populating LocalStack with test data. See docs/DEVELOPMENT.md.
-internal/aws/           Service interfaces (S3Service, EC2Service) + SDK implementations. No UI imports.
+internal/aws/           Service interfaces (S3Service, EC2Service, SQSService) + SDK implementations. No UI imports.
 internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
 internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
 internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
 internal/app/           Root model — message router, layout compositor, view factory, side panel.
-internal/nav/           Stack-based navigator with view caching.
+internal/nav/           Stack-based navigator. It keeps no cache: a popped view is gone.
 internal/msg/           Shared message types for the event loop.
 internal/config/        TOML config with layered precedence (file < env < flags).
 internal/eventlog/      Thread-safe ring buffer for in-app event logging. See docs/LOGGING.md for guidelines.
@@ -265,20 +265,26 @@ Multi-field input forms use `charm.land/huh/v2` wrapped in a `FormView` (`intern
 
 ## Service Sub-Navigation Tree
 
-As LazyCloud grows beyond EC2 and S3, the navigation hierarchy should follow this structure. Each service defines its own sub-resources, accessible via the home screen feature picker and command mode (`:service/subresource`).
+Each service defines its sub-resources. The user opens them from the feature picker on Home and with the command bar (`:service/subresource`). The app has these views now:
 
 ```
-Home (service grid)
+Home
 ├── EC2
-│   ├── Instances        (list → detail with tabs: Info / SGs / Volumes / Tags)
+│   ├── Instances        (list → detail with tabs: Info / JSON / Security Groups / Tags)
 │   ├── AMIs             (list → detail)
-│   ├── Security Groups  (list → detail with rules)
-│   ├── Volumes          (list → detail)
-│   └── Key Pairs        (list)
+│   ├── Security Groups  (list → detail with tabs: Info / Inbound / Outbound / JSON / Tags)
+│   ├── VPCs             (list → detail with tabs: Info / CIDR Blocks / JSON / Tags → subnets of the VPC)
+│   └── Subnets          (list → detail with tabs: Info / Config / IPv6 / JSON / Tags)
 ├── S3
 │   └── Buckets          (list → objects → versions)
-├── SQS
-│   └── Queues           (list → detail with tabs / message peek)
+└── SQS
+    └── Queues           (list → detail with tabs / message peek)
+```
+
+A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. New services follow the same structure. These services are planned:
+
+```
+Home
 ├── Lambda
 │   ├── Functions        (list → detail with tabs: Config / Env / Triggers / Logs)
 │   └── Layers           (list → detail)
@@ -306,41 +312,27 @@ Home (service grid)
 6. **View factory**: Add a case in `app.go`'s `resolveView()` for each new ViewID, with the service from `m.svc` (the sync test will catch any missing entries)
 7. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
 
-## Context-Aware Action System
+## Key Hints
 
-Rather than scattering keybinding definitions across view files, views should declare their actions as structured data. This powers both the status bar and the `?` help overlay automatically.
+Each view declares its keys as data, so the status bar and the `?` help overlay show the same keys. [KEYBINDINGS.md](KEYBINDINGS.md) describes the types in detail.
 
-### Action Definition
+A view returns its keys from `KeyMap() []ui.HintBinding`. A `HintBinding` (`internal/ui/keys.go`) is a `key.Binding` with two more fields:
 
 ```go
-type Action struct {
-    Key         string   // e.g., "m", "ctrl+d"
-    Label       string   // e.g., "Manage", "Delete"
-    Description string   // e.g., "Open actions menu for selected instance"
-    Mode        Mode     // ReadOnly, ReadWrite, or Any
-    Category    string   // "Navigation", "Actions", "View" — for help overlay grouping
-    Handler     func() tea.Cmd
+type HintBinding struct {
+    key.Binding
+    Mode     HintMode // ModeAny, ModeReadOnly, ModeReadWrite
+    Category string   // group in the help overlay; empty means "Current View"
 }
 ```
 
-### View Interface Extension
+The view uses the same bindings in `Update()` with `key.Matches`, so a hint cannot name a key that the view does not handle.
 
-Each view exposes its actions:
+The root model builds the hints in two places in `internal/app/app.go`:
 
-```go
-type ActionProvider interface {
-    Actions() []Action
-}
-```
-
-The root model collects actions from: global bindings + current view + focused UI component (table, detail panel). The status bar renders a subset (highest priority actions that fit). The `?` overlay renders all of them grouped by category.
-
-### Benefits
-
-- **Status bar and help overlay never drift out of sync** — both derive from the same action list
-- **Keybinding conflicts are detectable** at registration time
-- **New services get status bar hints for free** just by declaring actions
-- **ReadWrite-only actions can be visually distinguished** (dimmed or badged in ReadOnly mode)
+- `currentKeyHints()` builds the status bar. It puts the keys of the view first, then the navigation keys, then the global keys. The status bar drops hints from the right until they fit. When the side panel has the focus, the status bar shows the panel keys. When the view takes text input, it shows only the keys of the view.
+- `collectAllKeyHints()` builds the help overlay. It gives each key a category: Current View, Navigation, Panel, or Global.
+- `Mode` marks the keys that change AWS resources. In ReadOnly mode, the status bar hides the `ModeReadWrite` hints, and the help overlay marks them `[RW]`. The app also blocks such a key before the view gets it (`readWriteKey`). The guarded AWS services check the mode again when the action runs.
 
 ## Scaling Strategy
 

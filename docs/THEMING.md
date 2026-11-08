@@ -27,14 +27,14 @@ A terminal without truecolor gets the nearest of 256 colors, and that color can 
 
 ### Log Level Colors
 
-Log viewers use a subset of status colors for log level keywords:
+The event log colors the level keyword of each entry:
 
-| Level   | Maps to   |
-| ------- | --------- |
-| `ERROR` | `Error`   |
-| `WARN`  | `Warning` |
-| `INFO`  | `Success` |
-| `DEBUG` | `Info`    |
+| Level | Maps to   |
+| ----- | --------- |
+| `ERR` | `Error`   |
+| `WRN` | `Warning` |
+| `INF` | `Accent`  |
+| `DBG` | `Muted`   |
 
 ### Resource State Colors
 
@@ -66,17 +66,15 @@ This creates clear visual hierarchy without being distracting. The user should a
 
 ### Service Icon Conventions
 
-Follow this pattern for new services:
+`UI_COMPONENTS.md` lists the icons that the app uses now. A new icon must not reuse one of their fallbacks. These are the suggestions for the planned services:
 
 | Service    | Nerd Font             | Unicode Fallback |
 | ---------- | --------------------- | ---------------- |
-| EC2        | Server/compute icon   | `⊞`              |
-| S3         | Bucket/database icon  | `◉`              |
 | Lambda     | Lambda symbol         | `λ`              |
 | ECS        | Container icon        | `⊟`              |
-| IAM        | Shield/lock icon      | `⛨`              |
+| IAM        | Lock icon             | `⊠`              |
 | RDS        | Database icon         | `⊡`              |
-| CloudWatch | Chart/graph icon      | `◈`              |
+| CloudWatch | Chart/graph icon      | `◔`              |
 
 ## Color Accessibility
 
