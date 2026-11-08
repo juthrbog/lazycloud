@@ -545,7 +545,7 @@ func (a *AMIList) View() tea.View {
 	case a.loading && len(a.amis) == 0:
 		content = "\n  " + a.spinner.View()
 	case a.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(a.err)))
+		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(a.err)))
 	default:
 		content = a.table.View()
 		if a.search.Active() {

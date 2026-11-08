@@ -269,7 +269,7 @@ func (s *S3Versions) View() tea.View {
 	case s.loading:
 		content = "\n  " + s.spinner.View()
 	case s.err != nil:
-		content = "\n  " + ui.ErrorStyle.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
+		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(s.err)))
 	default:
 		content = s.table.View()
 	}
