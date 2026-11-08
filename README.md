@@ -27,7 +27,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 - Syntax-highlighted content viewer with visual selection and yank
 - In-app event log, command bar, and fuzzy-search pickers
 - Multiple AWS profiles and regions — switch at runtime
-- 4 color themes (Catppuccin, Dracula, Nord, Tokyo Night)
+- 6 color themes: Catppuccin, Dracula, Nord, and Tokyo Night, plus the light themes Catppuccin Latte and Tokyo Night Day. The default `auto` picks Catppuccin or Catppuccin Latte for the background of the terminal
 - TOML config with XDG support, Nerd Font icons with Unicode fallbacks
 - LocalStack integration for local development
 
@@ -116,7 +116,7 @@ task dev               # run against LocalStack
 | `--profile` | AWS profile (falls back to `AWS_PROFILE`) |
 | `--region` | AWS region (falls back to `AWS_REGION`) |
 | `--endpoint` | Endpoint override for LocalStack (falls back to `AWS_ENDPOINT_URL`) |
-| `--theme` | Color theme: `catppuccin`, `dracula`, `nord`, `tokyonight` |
+| `--theme` | Color theme: `auto` (default), `catppuccin`, `catppuccin-latte`, `dracula`, `nord`, `tokyonight`, `tokyonight-day` |
 | `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs |
 | `--config` | Path to config file (default: `~/.config/lazycloud/config.toml`) |
 | `--log` | Path to debug log file |
@@ -161,7 +161,7 @@ This creates `~/.config/lazycloud/config.toml` (or `$XDG_CONFIG_HOME/lazycloud/c
 # endpoint = ""
 
 [display]
-theme = "catppuccin"    # catppuccin, dracula, nord, tokyonight
+theme = "auto"          # auto, catppuccin, catppuccin-latte, dracula, nord, tokyonight, tokyonight-day
 nerd_fonts = true       # false for plain Unicode fallbacks
 
 [log]

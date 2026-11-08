@@ -9,7 +9,7 @@ import (
 func HuhTheme() huh.ThemeFunc {
 	return func(bool) *huh.Styles {
 		t := ActiveTheme
-		s := huh.ThemeBase(true)
+		s := huh.ThemeBase(!t.Light)
 
 		// Focused field styles.
 		s.Focused.Base = s.Focused.Base.BorderForeground(t.Secondary)

@@ -57,6 +57,9 @@ type Model struct {
 	err        string
 	errView    nav.View // view that err belongs to; err shows only while it is on top
 	isDark     bool
+	// autoTheme is true until the terminal reports its background, when
+	// the theme setting is auto. Then the app picks the dark or light theme.
+	autoTheme bool
 
 	keys ui.AppKeyMap
 
@@ -122,6 +125,7 @@ func New(cfg config.Config) Model {
 		toasts:     ui.NewToastManager(),
 		keys:       ui.DefaultAppKeyMap(),
 		isDark:     true,
+		autoTheme:  strings.EqualFold(cfg.Display.Theme, ui.AutoTheme),
 		ops:        ops.NewRegistry(),
 	}
 	// Without a session, the app still starts. It shows the error on Home and
@@ -343,7 +347,18 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
-		return m, nil
+		if !m.autoTheme {
+			return m, nil
+		}
+		// The terminal answers once, at start. Pick the theme only then: a
+		// switch later would rebuild the views that the user opened.
+		m.autoTheme = false
+		name := ui.AutoThemeName(m.isDark)
+		if ui.Themes[name].Name == ui.ActiveTheme.Name {
+			return m, nil
+		}
+		eventlog.Infof(eventlog.CatUI, "Theme auto → %s (dark background: %t)", name, m.isDark)
+		return m.setTheme(name)
 
 	case tea.ColorProfileMsg:
 		// Bubble Tea sends this once at start, before any table exists.
@@ -1302,19 +1317,23 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatUI, "Theme changed → %s", name)
+	m, cmd := m.setTheme(name)
+	_, toastCmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
+	return m, tea.Batch(cmd, toastCmd)
+}
+
+// setTheme makes a theme active. The views keep theme colors in their rows
+// (L17), so it builds the navigation and the overlays again.
+func (m Model) setTheme(name string) (Model, tea.Cmd) {
 	if t, ok := ui.Themes[name]; ok {
 		ui.ActiveTheme = t
 		ui.RebuildStyles()
 	}
-
-	// The views keep theme colors in their rows (L17), so the app builds
-	// the navigation and the overlays again with the new theme.
 	cmd := m.resetNav()
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
 	m.picker.SetMaxHeight(m.height)
-	_, toastCmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
-	return m, tea.Batch(cmd, toastCmd)
+	return m, cmd
 }
 
 func (m Model) View() tea.View {

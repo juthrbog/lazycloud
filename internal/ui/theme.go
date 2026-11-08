@@ -6,9 +6,14 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Theme holds all colors for the application. Themes adapt to dark/light terminals.
+// Theme holds all colors for the application. A dark theme is made for a
+// dark terminal background, and a light theme for a light one.
 type Theme struct {
 	Name string
+
+	// Light is true for a theme made for a light terminal background. On
+	// such a theme, Base is light and the text colors are dark.
+	Light bool
 
 	// Core palette
 	Primary   color.Color
@@ -139,15 +144,81 @@ var TokyoNight = Theme{
 	StatePending: lipgloss.Color("#e0af68"),
 }
 
+var CatppuccinLatte = Theme{
+	Name:         "Catppuccin Latte",
+	Light:        true,
+	Primary:      lipgloss.Color("#8839ef"), // mauve
+	Secondary:    lipgloss.Color("#acb0be"), // surface2
+	Accent:       lipgloss.Color("#3a9626"), // green #40a02b, darker for text on base
+	Error:        lipgloss.Color("#d20f39"), // red
+	Warning:      lipgloss.Color("#b8730c"), // yellow #df8e1d, darker for text on base
+	Success:      lipgloss.Color("#3a9626"), // green, darker
+	Info:         lipgloss.Color("#1e66f5"), // blue
+	Base:         lipgloss.Color("#eff1f5"), // base
+	Surface:      lipgloss.Color("#ccd0da"), // surface0
+	Overlay:      lipgloss.Color("#bcc0cc"), // surface1
+	Muted:        lipgloss.Color("#7c7f93"), // overlay2
+	Text:         lipgloss.Color("#4c4f69"), // text
+	SubText:      lipgloss.Color("#6c6f85"), // subtext0
+	BrightText:   lipgloss.Color("#11111b"),
+	GradientFrom: lipgloss.Color("#8839ef"), // mauve
+	GradientTo:   lipgloss.Color("#1e66f5"), // blue
+	ChromaStyle:  "catppuccin-latte",
+	StateRunning: lipgloss.Color("#3a9626"), // green, darker
+	StateStopped: lipgloss.Color("#d20f39"), // red
+	StatePending: lipgloss.Color("#b8730c"), // yellow, darker
+}
+
+var TokyoNightDay = Theme{
+	Name:         "Tokyo Night Day",
+	Light:        true,
+	Primary:      lipgloss.Color("#2e7de9"), // blue
+	Secondary:    lipgloss.Color("#a8aecb"), // fg_gutter
+	Accent:       lipgloss.Color("#587539"), // green
+	Error:        lipgloss.Color("#f52a65"), // red
+	Warning:      lipgloss.Color("#8c6c3e"), // yellow
+	Success:      lipgloss.Color("#587539"), // green
+	Info:         lipgloss.Color("#2e7de9"), // blue
+	Base:         lipgloss.Color("#e1e2e7"), // bg
+	Surface:      lipgloss.Color("#d0d5e3"), // bg_dark
+	Overlay:      lipgloss.Color("#c4c8da"), // bg_highlight
+	Muted:        lipgloss.Color("#68709a"), // dark5
+	Text:         lipgloss.Color("#3760bf"), // fg
+	SubText:      lipgloss.Color("#6172b0"), // fg_dark
+	BrightText:   lipgloss.Color("#1a1b26"),
+	GradientFrom: lipgloss.Color("#2e7de9"), // blue
+	GradientTo:   lipgloss.Color("#9854f1"), // purple
+	ChromaStyle:  "tokyonight-day",
+	StateRunning: lipgloss.Color("#587539"),
+	StateStopped: lipgloss.Color("#f52a65"),
+	StatePending: lipgloss.Color("#8c6c3e"),
+}
+
 // ThemeOrder defines the cycle order for theme switching.
-var ThemeOrder = []string{"catppuccin", "dracula", "nord", "tokyonight"}
+var ThemeOrder = []string{"catppuccin", "catppuccin-latte", "dracula", "nord", "tokyonight", "tokyonight-day"}
 
 // Themes maps theme names to themes.
 var Themes = map[string]Theme{
-	"catppuccin": Catppuccin,
-	"dracula":    Dracula,
-	"nord":       Nord,
-	"tokyonight": TokyoNight,
+	"catppuccin":       Catppuccin,
+	"catppuccin-latte": CatppuccinLatte,
+	"dracula":          Dracula,
+	"nord":             Nord,
+	"tokyonight":       TokyoNight,
+	"tokyonight-day":   TokyoNightDay,
+}
+
+// AutoTheme is the theme setting that picks a theme for the background of
+// the terminal: AutoThemeName(true) on a dark one, AutoThemeName(false) on a
+// light one.
+const AutoTheme = "auto"
+
+// AutoThemeName returns the name of the theme that the auto setting uses for
+// a dark or a light terminal background.
+func AutoThemeName(dark bool) string {
+	if dark {
+		return "catppuccin"
+	}
+	return "catppuccin-latte"
 }
 
 // DefaultTheme is the default theme.
