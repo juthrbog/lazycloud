@@ -27,10 +27,6 @@ type Styles struct {
 	TableSelected lipgloss.Style
 	TableCell     lipgloss.Style
 
-	// Detail
-	DetailKey   lipgloss.Style
-	DetailValue lipgloss.Style
-
 	// Messages
 	Error   lipgloss.Style
 	Warning lipgloss.Style
@@ -135,15 +131,6 @@ func NewStyles(t Theme) Styles {
 		TableCell: lipgloss.NewStyle().
 			Foreground(t.Text).
 			Padding(0, 1),
-
-		// Detail
-		DetailKey: lipgloss.NewStyle().
-			Bold(true).
-			Foreground(t.Primary).
-			Width(20),
-
-		DetailValue: lipgloss.NewStyle().
-			Foreground(t.Text),
 
 		// Messages
 		Error:   lipgloss.NewStyle().Foreground(t.Error),

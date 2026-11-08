@@ -127,12 +127,3 @@ func (c *Client) SQSClient() *sqs.Client {
 		}
 	})
 }
-
-// ServiceEndpoint returns the endpoint override for service client constructors.
-// Returns nil when targeting real AWS.
-func (c *Client) ServiceEndpoint() *string {
-	if c.Endpoint == "" {
-		return nil
-	}
-	return aws.String(c.Endpoint)
-}
