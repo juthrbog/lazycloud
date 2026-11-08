@@ -114,6 +114,10 @@ Rules for view code:
 - A selected key whose row is not loaded stays selected, so a reload keeps the selection. After an action removes resources, call `DeselectAll()`.
 - Put plain text in `Cells`. The table shows each cell through `ui.Sanitize` (see the next section). To color a cell, set `Style` on its column, for example `{Title: "State", Width: 16, Style: ui.StateColor}`. The table calls `Style` with the safe text.
 
+### Terminals Without Color
+
+When `NO_COLOR` is set, Bubble Tea uses the ASCII profile and removes all colors. The app gets the profile in `tea.ColorProfileMsg` at start and calls `ui.SetNoColor`. A cursor or selection that only has a background would then not show, so the table cursor, the content cursor, and the selected picker option also use reverse video. With colors, they keep the background of the theme. A new style for a cursor or a selection must also show without color: check `ui.NoColor()`, or use a marker such as `▸` or `✓`.
+
 ### AWS Text on the Screen
 
 AWS text can hold terminal control characters, for example an S3 key, an object preview, a tag, an SQS message body, or an error message. A terminal acts on these characters. It can move the cursor, show text in reverse, or answer a query with input to the app. The Bubble Tea renderer passes some sequences on to the terminal unchanged: the string sequences DCS, SOS, PM, and APC, and the C1 control characters.
