@@ -203,6 +203,7 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 - Bottom-right overlay via Compositor
 - RoundedBorder with Secondary
 - Level-based icon + color (Success/Error/Primary)
+- `View(width)` fits the box in the screen width, minus the 2-column margin that the app keeps to the right edge. A long toast wraps, and its wrapped lines start under the text. It breaks at spaces and after `/`, `-`, `_`, and `.`, so S3 keys and paths wrap at natural points. One toast shows at most `maxToastLines` (4) lines and ends with `…` when it is cut.
 
 ### Command Bar
 - Input: `:` in Accent+Bold + text + `█` cursor + muted hints
