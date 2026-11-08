@@ -653,6 +653,10 @@ func (cv *ContentView) paintHighlight(padTo int) {
 	if cv.visualMode {
 		bg = ansi.NewStyle().BackgroundColor(t.Secondary).String()
 	}
+	if NoColor() {
+		// A background does not show without colors.
+		bg = ansi.NewStyle().Reverse(true).String()
+	}
 	lo, hi := cv.selectionRange()
 	s.from, _ = cv.lineRows(lo)
 	_, s.to = cv.lineRows(hi)

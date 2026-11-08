@@ -129,7 +129,8 @@ func NewStyles(t Theme) Styles {
 		TableSelected: lipgloss.NewStyle().
 			Background(t.Overlay).
 			Foreground(t.BrightText).
-			Bold(false),
+			Bold(false).
+			Reverse(noColor),
 
 		TableCell: lipgloss.NewStyle().
 			Foreground(t.Text).
@@ -191,7 +192,7 @@ func NewStyles(t Theme) Styles {
 		PickerOption: lipgloss.NewStyle().
 			Foreground(t.Text).Padding(0, 2),
 		PickerOptionSelected: lipgloss.NewStyle().
-			Foreground(t.BrightText).Background(t.Overlay).Bold(true).Padding(0, 2),
+			Foreground(t.BrightText).Background(t.Overlay).Bold(true).Reverse(noColor).Padding(0, 2),
 		SuggestionName: lipgloss.NewStyle().
 			Foreground(t.Text).Width(16),
 		SuggestionDesc: lipgloss.NewStyle().
@@ -220,6 +221,21 @@ var S = NewStyles(ActiveTheme)
 func RebuildStyles() {
 	S = NewStyles(ActiveTheme)
 }
+
+// noColor is true when the terminal shows no colors, for example because
+// NO_COLOR is set. A cursor or selection drawn only with a background then
+// does not show, so these use reverse video too.
+var noColor bool
+
+// SetNoColor records whether the terminal shows colors and rebuilds the
+// styles. Views made after the call use the new styles.
+func SetNoColor(v bool) {
+	noColor = v
+	RebuildStyles()
+}
+
+// NoColor reports whether the terminal shows no colors.
+func NoColor() bool { return noColor }
 
 // GradientText renders text with a horizontal gradient using the theme's gradient colors.
 func GradientText(text string, colors []color.Color) string {

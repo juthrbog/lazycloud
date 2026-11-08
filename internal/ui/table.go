@@ -67,19 +67,7 @@ func NewTable(columns []Column) Table {
 		table.WithFocused(true),
 	)
 
-	theme := ActiveTheme
-	st := table.DefaultStyles()
-	st.Header = st.Header.
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(theme.Secondary).
-		BorderBottom(true).
-		Bold(true).
-		Foreground(theme.Primary)
-	st.Selected = st.Selected.
-		Foreground(theme.BrightText).
-		Background(theme.Overlay).
-		Bold(false)
-	t.SetStyles(st)
+	t.SetStyles(tableStyles(ActiveTheme))
 
 	t.KeyMap = DefaultTableKeyMap()
 
@@ -93,6 +81,24 @@ func NewTable(columns []Column) Table {
 		flexColumns: flex,
 		sortCol:     -1,
 	}
+}
+
+// tableStyles returns the styles of a table for a theme. Without colors, the
+// cursor row uses reverse video, because its background does not show.
+func tableStyles(theme Theme) table.Styles {
+	st := table.DefaultStyles()
+	st.Header = st.Header.
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(theme.Secondary).
+		BorderBottom(true).
+		Bold(true).
+		Foreground(theme.Primary)
+	st.Selected = st.Selected.
+		Foreground(theme.BrightText).
+		Background(theme.Overlay).
+		Bold(false).
+		Reverse(NoColor())
+	return st
 }
 
 // DefaultTableKeyMap returns the navigation keys of a Table. It leaves out

@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/config"
@@ -342,6 +343,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
+		return m, nil
+
+	case tea.ColorProfileMsg:
+		// Bubble Tea sends this once at start, before any table exists.
+		// NO_COLOR gives the ASCII profile.
+		ui.SetNoColor(msg.Profile == colorprofile.NoTTY || msg.Profile == colorprofile.ASCII)
 		return m, nil
 
 	case tea.WindowSizeMsg:
