@@ -235,7 +235,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [ ] L8. `DistributeWidths` can overflow by one column when it shrinks columns, because of rounding. At width 40, the widest line is 41, so the border wraps the header.
 - [ ] L9. In help, each printable key goes to the filter, so `j` and `k` do not scroll (`help.go:303`). A category that is not in the known list gets order 0 and a random position.
 - [x] L10. Fixed in #242: the ten views use `ui.S.Error`, which follows the active theme. The legacy `ErrorStyle`, `WarningStyle`, and `SuccessStyle` are removed. The manual check found that the red of Catppuccin Latte (#241) becomes a gray with 256 colors. The PR also changes that red, and a test checks the status colors of all themes. The legacy `ErrorStyle` (`styles.go:634`) kept the Catppuccin red from startup. Ten views used it.
-- [ ] L11. `ToastManager.View` ignores its `width` argument, so long toasts overflow.
+- [x] L11. Fixed in #PRNUM (with L27): `ToastManager.View` ignored its `width` argument, so long toasts overflowed.
 - [ ] L12. The picker, the command bar, and the help filter accept only ASCII 32 to 126. Space arrives as `"space"`, so the input drops it. Paste is ignored.
 - [ ] L13. The fallback for `IconShield` is an emoji. `THEMING.md` says not to use emoji.
 - [ ] L14. The `Detail` component is not used, and its `View()` draws h+1 lines. Delete it or fix it.
@@ -251,7 +251,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] L24. The confirm prompt shows only the first letter of its placeholder (`> t`). Evidence: reproduced in LocalStack. Fixed in #213. The text input had no width, and bubbles v2 then draws one character of the placeholder. Now the input is as wide as the placeholder.
 - [x] L25. Fixed in #218 with `ui.SortKeyInt`. Count columns sort as text. Evidence: reproduced in LocalStack. The SQS queue list sorts Messages as 0, 10, 16, 6, 8. The sort values of Messages, In-Flight, and Delayed (`sqs_queues.go:761`) and of Receives (`sqs_messages.go:665`) are `fmt.Sprintf("%d")`. Fix: pad them with zeros, as `ui.SortKeyBytes` does for sizes.
 - [x] L26. Fixed in #221: the seeder sends the messages only to an empty queue. The seeder sends the SQS messages again on each run, so the message counts double. Evidence: reproduced in LocalStack. `docs/DEVELOPMENT.md` says that the seeder is idempotent. Fix: send the seed messages only to a queue that the run creates, or only when the queue is empty.
-- [ ] L27. A long toast runs past the right edge of the screen. Evidence: reproduced in LocalStack. `ToastManager.View` (`internal/ui/toast.go:129`) gets the screen width but does not use it, so the end of a long S3 key or download path is cut off. The S3 download toast now writes the home directory as `~`, which is enough for the usual path. Fix: wrap or shorten the toast text to the width.
+- [x] L27. Fixed in #PRNUM: a long toast wraps to the width of the screen, with its wrapped lines under the text. It breaks at spaces and after `/`, `-`, `_`, and `.`, and shows at most 4 lines, with `…` at the end of a cut toast. A long toast ran past the right edge of the screen. Evidence: reproduced in LocalStack. `ToastManager.View` (`internal/ui/toast.go:129`) gets the screen width but does not use it, so the end of a long S3 key or download path is cut off. The S3 download toast now writes the home directory as `~`, which is enough for the usual path. Fix: wrap or shorten the toast text to the width.
 
 ## Performance
 
