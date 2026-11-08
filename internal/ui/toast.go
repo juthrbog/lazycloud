@@ -7,6 +7,23 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
+)
+
+const (
+	// maxToastLines is the most lines that one toast shows. On a narrow
+	// terminal, a long toast would otherwise cover the screen.
+	maxToastLines = 4
+	// toastFrame is the width of a toast box around its text: the border
+	// and padding of the box (4), the icon and its spaces (3), and the
+	// space after the text (1).
+	toastFrame = 8
+	// toastMargin is the gap between the toast box and the right edge
+	// of the screen (see the toast overlay in app.go).
+	toastMargin = 2
+	// minToastText is the narrowest text column. A very narrow terminal
+	// cuts the box at its edge rather than wrap one letter to a line.
+	minToastText = 10
 )
 
 // ToastLevel controls the color of a toast notification.
@@ -124,9 +141,12 @@ func (tm ToastManager) HasActive() bool {
 	return false
 }
 
-// View renders the toast stack as a bordered block.
-// Skips expired toasts that haven't been cleaned up yet.
+// View renders the toast stack as a bordered block that fits in width,
+// with the margin that the app keeps to the right edge. A long toast wraps,
+// and its wrapped lines start under its text. Skips expired toasts that
+// haven't been cleaned up yet.
 func (tm ToastManager) View(width int) string {
+	textWidth := max(width-toastMargin-toastFrame, minToastText)
 	s := S
 	now := time.Now()
 	var lines []string
@@ -151,8 +171,7 @@ func (tm ToastManager) View(width int) string {
 			style = s.Info
 		}
 
-		line := style.Render(fmt.Sprintf(" %s %s ", icon, toast.Text))
-		lines = append(lines, line)
+		lines = append(lines, style.Render(toastLines(icon, toast.Text, textWidth)))
 	}
 
 	if len(lines) == 0 {
@@ -167,4 +186,26 @@ func (tm ToastManager) View(width int) string {
 		Padding(0, 1)
 
 	return box.Render(content)
+}
+
+// toastLines wraps the text of one toast to width and puts the icon before
+// the first line. The other lines start under the text. S3 keys and paths
+// have no spaces, so the text can also break after "/", "_", and ".". Text
+// longer than maxToastLines lines ends with "…".
+func toastLines(icon, text string, width int) string {
+	wrapped := strings.Split(ansi.Wrap(text, width, "/_."), "\n")
+	if len(wrapped) > maxToastLines {
+		wrapped = wrapped[:maxToastLines]
+		last := strings.TrimRight(wrapped[maxToastLines-1], " ")
+		wrapped[maxToastLines-1] = ansi.Truncate(last, width-1, "") + "…"
+	}
+	var b strings.Builder
+	for i, line := range wrapped {
+		if i == 0 {
+			fmt.Fprintf(&b, " %s %s ", icon, line)
+			continue
+		}
+		fmt.Fprintf(&b, "\n   %s ", line)
+	}
+	return b.String()
 }
