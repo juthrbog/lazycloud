@@ -750,10 +750,11 @@ func TestCharEC2_ConfirmRequests(t *testing.T) {
 		action, selectIDs string
 		want              msg.RequestConfirmMsg
 	}{
-		{"Start", "i-2", msg.RequestConfirmMsg{Message: "Start 1 instance(s)?", Action: "ec2_start", Quick: true}},
-		{"Stop", "i-1", msg.RequestConfirmMsg{Message: "Stop 1 instance(s)?", Action: "ec2_stop"}},
-		{"Reboot", "i-1,i-3", msg.RequestConfirmMsg{Message: "Reboot 2 instance(s)?", Action: "ec2_reboot"}},
-		{"Terminate", "i-1,i-3", msg.RequestConfirmMsg{Message: "Terminate 2 instance(s)?", Action: "ec2_terminate"}},
+		{"Start", "i-2", msg.RequestConfirmMsg{Message: "Start 1 instance(s)?\n  db (i-2)\n", Action: "ec2_start", Quick: true}},
+		{"Stop", "i-1", msg.RequestConfirmMsg{Message: "Stop 1 instance(s)?\n  web (i-1)\n", Action: "ec2_stop"}},
+		// i-3 has no name, so the prompt shows its ID.
+		{"Reboot", "i-1,i-3", msg.RequestConfirmMsg{Message: "Reboot 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_reboot"}},
+		{"Terminate", "i-1,i-3", msg.RequestConfirmMsg{Message: "Terminate 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_terminate"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.action, func(t *testing.T) {
@@ -763,7 +764,7 @@ func TestCharEC2_ConfirmRequests(t *testing.T) {
 				v.Update(keyPress(' '))
 			}
 			charEC2Picker(t, v)
-			// Divergence #24: the message lists only a count; changes in PR 2.
+			// Divergence #24 (fixed in PR 2): the message lists the names.
 			assert.Equal(t, tc.want, charEC2Confirm(t, v, tc.action))
 		})
 	}
@@ -787,7 +788,7 @@ func TestCharEC2_TargetsFrozenAtManage(t *testing.T) {
 }
 
 // A decline clears the targets. A confirm that comes after the decline then
-// acts on no instances, with a broken spinner label.
+// does nothing.
 func TestCharEC2_DeclineClearsTargets(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	charEC2Picker(t, v)
@@ -797,27 +798,27 @@ func TestCharEC2_DeclineClearsTargets(t *testing.T) {
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 	assert.Contains(t, charEC2Text(v), "● running", "no optimistic state")
 
-	// Divergence #25: changes in PR 2.
-	svc.On("StopInstances", mock.Anything, []string(nil)).Return(nil).Once()
+	// Divergence #25 (fixed in PR 2).
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
-	assert.Equal(t, "3/3 instances  ⣾  ing 0 instance(s)...", plain(v.Footer()))
-	collectMsgsTimed(cmd, maxWait)
-	svc.AssertExpectations(t)
+	assert.Nil(t, cmd)
+	assert.Equal(t, "3/3 instances", plain(v.Footer()))
+	svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
 }
 
-// The confirm Action picks the API call; the picked action picks the
-// optimistic state. They are not checked against each other.
-func TestCharEC2_ConfirmActionNotChecked(t *testing.T) {
+// The confirm Action is checked against the pending action. A reply for
+// another action clears the targets and runs nothing.
+func TestCharEC2_ConfirmActionChecked(t *testing.T) {
 	t.Run("other ec2 action", func(t *testing.T) {
 		v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 		charEC2Picker(t, v)
 		charEC2Confirm(t, v, "Stop")
-		svc.On("TerminateInstances", mock.Anything, []string{"i-1"}).Return(nil).Once()
 		_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
-		// Divergence #25: changes in PR 2.
-		assert.Contains(t, charEC2Lines(v)[2], "◌ stopping")
-		collectMsgsTimed(cmd, maxWait)
-		svc.AssertExpectations(t)
+		// Divergence #25 (fixed in PR 2).
+		assert.Nil(t, cmd)
+		assert.Equal(t, "3/3 instances", plain(v.Footer()))
+		assert.Contains(t, charEC2Lines(v)[2], "● running")
+		svc.AssertNotCalled(t, "TerminateInstances", mock.Anything, mock.Anything)
+		svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
 	})
 	t.Run("unknown action", func(t *testing.T) {
 		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
@@ -825,9 +826,9 @@ func TestCharEC2_ConfirmActionNotChecked(t *testing.T) {
 		charEC2Confirm(t, v, "Stop")
 		_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
 		assert.Nil(t, cmd)
-		// Divergence #25 and #26: the spinner stays; changes in PR 2.
-		assert.Equal(t, "3/3 instances  ⣾  stoping 1 instance(s)...", plain(v.Footer()))
-		assert.Contains(t, charEC2Lines(v)[2], "◌ stopping")
+		// Divergence #25 and #26 (fixed in PR 2): no spinner.
+		assert.Equal(t, "3/3 instances", plain(v.Footer()))
+		assert.Contains(t, charEC2Lines(v)[2], "● running")
 	})
 }
 
@@ -835,12 +836,12 @@ func TestCharEC2_OptimisticStatesAndSpinner(t *testing.T) {
 	cases := []struct {
 		action, id, method, state, footer string
 	}{
-		{"Start", "i-2", "StartInstances", "◌ pending", "3/3 instances  ⣾  starting 1 instance(s)..."},
-		// Divergence #26: "stoping" and "terminateing"; changes in PR 2.
-		{"Stop", "i-1", "StopInstances", "◌ stopping", "3/3 instances  ⣾  stoping 1 instance(s)..."},
+		{"Start", "i-2", "StartInstances", "◌ pending", "3/3 instances  ⣾  Starting 1 instance(s)..."},
+		// Divergence #26 (fixed in PR 2): "Stopping" and "Terminating".
+		{"Stop", "i-1", "StopInstances", "◌ stopping", "3/3 instances  ⣾  Stopping 1 instance(s)..."},
 		// Divergence #49 (keep): Reboot shows "pending".
-		{"Reboot", "i-1", "RebootInstances", "◌ pending", "3/3 instances  ⣾  rebooting 1 instance(s)..."},
-		{"Terminate", "i-1", "TerminateInstances", "◌ shutting-down", "3/3 instances  ⣾  terminateing 1 instance(s)..."},
+		{"Reboot", "i-1", "RebootInstances", "◌ pending", "3/3 instances  ⣾  Rebooting 1 instance(s)..."},
+		{"Terminate", "i-1", "TerminateInstances", "◌ shutting-down", "3/3 instances  ⣾  Terminating 1 instance(s)..."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.action, func(t *testing.T) {
@@ -918,7 +919,7 @@ func TestCharEC2_MutationFailureRefreshesTargets(t *testing.T) {
 		Return([]aws.Instance{{ID: "i-1", State: "stopping"}, {ID: "i-3", State: "running"}}, nil).Once()
 
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
-	require.Equal(t, "3/3 instances  (2 selected)  ⣾  stoping 2 instance(s)...", plain(v.Footer()))
+	require.Equal(t, "3/3 instances  (2 selected)  ⣾  Stopping 2 instance(s)...", plain(v.Footer()))
 	mutated := charEC2NoTicks(collectMsgsTimed(cmd, maxWait))
 	require.Len(t, mutated, 1)
 	_, cmd = v.Update(mutated[0])
@@ -946,7 +947,7 @@ func TestCharEC2_MutationSuccessDelayedReload(t *testing.T) {
 	charEC2Confirm(t, v, "Stop")
 	svc.On("StopInstances", mock.Anything, []string{"i-1"}).Return(nil).Once()
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
-	require.Equal(t, "3/3 instances  (1 selected)  ⣾  stoping 1 instance(s)...", plain(v.Footer()))
+	require.Equal(t, "3/3 instances  (1 selected)  ⣾  Stopping 1 instance(s)...", plain(v.Footer()))
 	mutated := charEC2NoTicks(collectMsgsTimed(cmd, maxWait))
 	require.Len(t, mutated, 1)
 

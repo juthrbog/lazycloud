@@ -57,6 +57,48 @@ func (m ec2InstanceMutatedMsg) Outcome() msg.ToastMsg {
 	return msg.ToastSuccess("Instance " + m.action + ": " + m.instanceID)
 }
 
+// ec2ReadOnlyText is the toast when ReadOnly mode is on at the confirm
+// reply. It is the same text that the app shows for a blocked key.
+const ec2ReadOnlyText = "ReadOnly mode — press W to switch"
+
+// ec2Action describes one Manage action.
+type ec2Action struct {
+	label        string // picker label and prompt verb, for example "Stop"
+	busy         string // spinner verb, for example "Stopping"
+	past         string // ec2InstanceMutatedMsg action, for example "stopped"
+	confirmID    string // confirm Action id, for example "ec2_stop"
+	transitional string // optimistic state until the next refresh
+	// quick asks with a y/n prompt. Starting is reversible and destroys
+	// nothing, so y/n is enough. It still costs money, so it asks.
+	quick bool
+	run   func(aws.EC2Service, context.Context, []string) error
+}
+
+var ec2Actions = []ec2Action{
+	{"Start", "Starting", "started", "ec2_start", "pending", true, aws.EC2Service.StartInstances},
+	{"Stop", "Stopping", "stopped", "ec2_stop", "stopping", false, aws.EC2Service.StopInstances},
+	{"Reboot", "Rebooting", "rebooted", "ec2_reboot", "pending", false, aws.EC2Service.RebootInstances},
+	{"Terminate", "Terminating", "terminated", "ec2_terminate", "shutting-down", false, aws.EC2Service.TerminateInstances},
+}
+
+func ec2ActionByLabel(label string) (ec2Action, bool) {
+	for _, a := range ec2Actions {
+		if a.label == label {
+			return a, true
+		}
+	}
+	return ec2Action{}, false
+}
+
+func ec2ActionByConfirmID(id string) (ec2Action, bool) {
+	for _, a := range ec2Actions {
+		if a.confirmID == id {
+			return a, true
+		}
+	}
+	return ec2Action{}, false
+}
+
 // ec2RefreshDelay gives AWS time to register a state change before the
 // list loads again.
 const ec2RefreshDelay = 2 * time.Second
@@ -92,22 +134,21 @@ var defaultEC2ListKeyMap = ec2ListKeyMap{
 // EC2List displays all EC2 instances.
 type EC2List struct {
 	viewCtx
-	keys               ec2ListKeyMap
-	ec2                aws.EC2Service
-	awsClient          *aws.Client
-	table              ui.Table
-	instances          []aws.Instance
-	filter             ui.Filter
-	spinner            ui.Spinner
-	loading            bool
-	loadGen            int      // generation of the current full load; see startLoad
-	pendingInstanceIDs []string // instances targeted by a pending action
-	pendingAction      string   // action name awaiting confirmation
-	pendingFocus       string   // instance ID to auto-open after data loads
-	err                error
-	width              int
-	height             int
-	widthTier          ui.WidthTier
+	keys         ec2ListKeyMap
+	ec2          aws.EC2Service
+	awsClient    *aws.Client
+	table        ui.Table
+	instances    []aws.Instance
+	filter       ui.Filter
+	spinner      ui.Spinner
+	loading      bool
+	loadGen      int            // generation of the current full load; see startLoad
+	pending      pendingConfirm // instances targeted by a Manage action
+	pendingFocus string         // instance ID to auto-open after data loads
+	err          error
+	width        int
+	height       int
+	widthTier    ui.WidthTier
 }
 
 func (e *EC2List) ID() string    { return "ec2_list" }
@@ -249,61 +290,14 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				e.table.Sort(m.Selected)
 			}
 		} else if m.ID == "action" && m.Selected >= 0 {
-			ids := e.pendingInstanceIDs
-			switch m.Value {
-			case "Start":
-				// Starting is reversible and destroys nothing, so a y/n
-				// prompt is enough. It still costs money, so it asks.
-				e.pendingAction = m.Value
-				count := len(ids)
-				return e, func() tea.Msg {
-					return msg.RequestConfirmMsg{
-						Message: fmt.Sprintf("Start %d instance(s)?", count),
-						Action:  "ec2_start",
-						Quick:   true,
-					}
-				}
-			case "Stop", "Reboot", "Terminate":
-				e.pendingAction = m.Value
-				action := m.Value
-				count := len(ids)
-				return e, func() tea.Msg {
-					return msg.RequestConfirmMsg{
-						Message: fmt.Sprintf("%s %d instance(s)?", action, count),
-						Action:  "ec2_" + strings.ToLower(action),
-					}
-				}
+			if a, ok := ec2ActionByLabel(m.Value); ok {
+				return e, e.pending.ask(e.confirmRequest(a))
 			}
 		}
 		return e, nil
 
 	case ui.ConfirmResultMsg:
-		if !m.Confirmed {
-			e.pendingInstanceIDs = nil
-			e.pendingAction = ""
-			return e, nil
-		}
-		ids := e.pendingInstanceIDs
-		action := e.pendingAction
-		e.pendingInstanceIDs = nil
-		e.pendingAction = ""
-		for _, id := range ids {
-			if ts := transitionalState(action); ts != "" {
-				e.setInstanceState(id, ts)
-			}
-		}
-		e.spinner.Show(fmt.Sprintf("%s %d instance(s)...", strings.ToLower(action)+"ing", len(ids)))
-		switch m.Action {
-		case "ec2_start":
-			return e, tea.Batch(e.spinner.Tick(), e.startInstances(ids))
-		case "ec2_stop":
-			return e, tea.Batch(e.spinner.Tick(), e.stopInstances(ids))
-		case "ec2_reboot":
-			return e, tea.Batch(e.spinner.Tick(), e.rebootInstances(ids))
-		case "ec2_terminate":
-			return e, tea.Batch(e.spinner.Tick(), e.terminateInstances(ids))
-		}
-		return e, nil
+		return e, e.onConfirm(m)
 
 	case ec2InstanceMutatedMsg:
 		e.table.DeselectAll()
@@ -530,7 +524,7 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastError("No common actions for selected instances")
 				}
 			}
-			e.pendingInstanceIDs = ids
+			e.pending.hold(ids)
 			title := "Manage Instance"
 			if len(ids) > 1 {
 				title = fmt.Sprintf("Manage %d Instances", len(ids))
@@ -688,22 +682,6 @@ func actionName(done string) string {
 	return done
 }
 
-// transitionalState returns the EC2 transitional state for a given action.
-func transitionalState(action string) string {
-	switch action {
-	case "Start":
-		return "pending"
-	case "Stop":
-		return "stopping"
-	case "Reboot":
-		return "pending"
-	case "Terminate":
-		return "shutting-down"
-	default:
-		return ""
-	}
-}
-
 func (e *EC2List) actionsForState(state string) []string {
 	switch state {
 	case "stopped":
@@ -715,51 +693,59 @@ func (e *EC2List) actionsForState(state string) []string {
 	}
 }
 
-func (e *EC2List) startInstances(ids []string) tea.Cmd {
-	svc := e.ec2
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Starting %d instances", len(ids))
-		ctx, cancel := detached(ctx)
-		defer cancel()
-		err := svc.StartInstances(ctx, ids)
-		return ec2InstanceMutatedMsg{action: "started", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
+// confirmRequest builds the confirm prompt for a on the pending targets.
+// It lists the names from the rows the view holds, so it must run on the
+// Update goroutine.
+func (e *EC2List) confirmRequest(a ec2Action) msg.RequestConfirmMsg {
+	ids := e.pending.keys
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		name := id
+		if inst := e.findInstance(id); inst != nil && inst.Name != "" {
+			name = inst.Name + " (" + id + ")"
+		}
+		names = append(names, name)
+	}
+	return msg.RequestConfirmMsg{
+		Message: confirmMessage(a.label, len(ids), "instance(s)", names, ""),
+		Action:  a.confirmID,
+		Quick:   a.quick,
 	}
 }
 
-func (e *EC2List) stopInstances(ids []string) tea.Cmd {
-	svc := e.ec2
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Stopping %d instances", len(ids))
-		ctx, cancel := detached(ctx)
-		defer cancel()
-		err := svc.StopInstances(ctx, ids)
-		return ec2InstanceMutatedMsg{action: "stopped", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
+// onConfirm runs the pending action when the reply confirms it. Any other
+// reply only clears the targets.
+func (e *EC2List) onConfirm(m ui.ConfirmResultMsg) tea.Cmd {
+	ids, ok := e.pending.take(m)
+	if !ok {
+		return nil
 	}
+	a, ok := ec2ActionByConfirmID(m.Action)
+	if !ok {
+		return nil
+	}
+	// The mode can change while the prompt is open.
+	if ui.IsReadOnly() {
+		return func() tea.Msg { return msg.ToastError(ec2ReadOnlyText) }
+	}
+	for _, id := range ids {
+		e.setInstanceState(id, a.transitional)
+	}
+	e.spinner.Show(fmt.Sprintf("%s %d instance(s)...", a.busy, len(ids)))
+	return tea.Batch(e.spinner.Tick(), e.mutate(a, ids))
 }
 
-func (e *EC2List) rebootInstances(ids []string) tea.Cmd {
+// mutate runs a on the instances in one batch call. The call uses a
+// detached context, so leaving the view does not stop it.
+func (e *EC2List) mutate(a ec2Action, ids []string) tea.Cmd {
 	svc := e.ec2
 	ctx := e.viewContext()
 	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Rebooting %d instances", len(ids))
+		eventlog.Infof(eventlog.CatAWS, "%s %d instances", a.busy, len(ids))
 		ctx, cancel := detached(ctx)
 		defer cancel()
-		err := svc.RebootInstances(ctx, ids)
-		return ec2InstanceMutatedMsg{action: "rebooted", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
-	}
-}
-
-func (e *EC2List) terminateInstances(ids []string) tea.Cmd {
-	svc := e.ec2
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Terminating %d instances", len(ids))
-		ctx, cancel := detached(ctx)
-		defer cancel()
-		err := svc.TerminateInstances(ctx, ids)
-		return ec2InstanceMutatedMsg{action: "terminated", ids: ids, instanceID: strings.Join(ids, ", "), err: err}
+		err := a.run(svc, ctx, ids)
+		return ec2InstanceMutatedMsg{action: a.past, ids: ids, instanceID: strings.Join(ids, ", "), err: err}
 	}
 }
 
