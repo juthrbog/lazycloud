@@ -176,3 +176,22 @@ func TestBuildRulesContent_Empty(t *testing.T) {
 	content := buildRulesContent(nil)
 	assert.Contains(t, content, "No rules")
 }
+
+// #46: In and Out sort as numbers in the wide and the narrow layout.
+func TestBuildSGRows_CountSortKeys(t *testing.T) {
+	sg := aws.SecurityGroup{
+		ID: "sg-1", Name: "web", VpcID: "vpc-1", Description: "d",
+		InboundRules:  make([]aws.SecurityGroupRule, 9),
+		OutboundRules: make([]aws.SecurityGroupRule, 10),
+	}
+	wide := buildSGRows([]aws.SecurityGroup{sg}, ui.TierWide)[0]
+	assert.Len(t, wide.Sort, len(wide.Cells))
+	assert.Equal(t, ui.SortKeyInt(9), wide.Sort[4], "In")
+	assert.Equal(t, ui.SortKeyInt(10), wide.Sort[5], "Out")
+	assert.Equal(t, "d", wide.Sort[3], "Description")
+
+	narrow := buildSGRows([]aws.SecurityGroup{sg}, ui.TierNarrow)[0]
+	assert.Len(t, narrow.Sort, len(narrow.Cells))
+	assert.Equal(t, ui.SortKeyInt(9), narrow.Sort[3], "In")
+	assert.Equal(t, ui.SortKeyInt(10), narrow.Sort[4], "Out")
+}

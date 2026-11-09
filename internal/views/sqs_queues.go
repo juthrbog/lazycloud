@@ -233,6 +233,9 @@ func (s *SQSQueues) fetchQueuesPage(token *string, pageNum int) tea.Cmd {
 	gen := s.loadGen
 	ctx := s.viewContext()
 	return func() tea.Msg {
+		if svc == nil {
+			return msg.ErrorMsg{Err: errNoClient, Context: "SQS"}
+		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching SQS queues (page %d)", pageNum)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
@@ -255,6 +258,9 @@ func (s *SQSQueues) fetchAllAttributes(urls []string) tea.Cmd {
 	gen := s.loadGen
 	ctx := s.viewContext()
 	return func() tea.Msg {
+		if svc == nil {
+			return msg.ErrorMsg{Err: errNoClient, Context: "SQS"}
+		}
 		eventlog.Infof(eventlog.CatAWS, "Fetching attributes for %d SQS queues", len(urls))
 		ctx, cancel := context.WithTimeout(ctx, listTimeout)
 		defer cancel()
@@ -270,6 +276,9 @@ func (s *SQSQueues) refreshQueue(queueURL string) tea.Cmd {
 	svc := s.sqs
 	ctx := s.viewContext()
 	return func() tea.Msg {
+		if svc == nil {
+			return sqsQueueRefreshedMsg{err: errNoClient}
+		}
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 		queue, err := svc.GetQueueAttributes(ctx, queueURL)
@@ -281,6 +290,9 @@ func (s *SQSQueues) fetchQueueDetail(queueURL string) tea.Cmd {
 	svc := s.sqs
 	ctx := s.viewContext()
 	return func() tea.Msg {
+		if svc == nil {
+			return sqsQueueDetailMsg{err: errNoClient}
+		}
 		eventlog.Infof(eventlog.CatAWS, "Fetching details for queue: %s", queueURL)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
@@ -537,8 +549,8 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sqsQueueDetailMsg:
 		if m.err != nil {
-			s.err = m.err
-			return s, nil
+			eventlog.Errorf(eventlog.CatAWS, "Queue details failed: %v", m.err)
+			return s, detailErrorToast(m.err)
 		}
 		if m.queue == nil {
 			return s, nil

@@ -164,7 +164,7 @@ func (a *AMIList) fetchOwned() tea.Cmd {
 	ctx := a.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching owned AMIs")
 		ctx, cancel := context.WithTimeout(ctx, listTimeout)
@@ -182,6 +182,9 @@ func (a *AMIList) fetchSearch(query string) tea.Cmd {
 	svc := a.ec2
 	ctx := a.viewContext()
 	return func() tea.Msg {
+		if svc == nil {
+			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
+		}
 		eventlog.Infof(eventlog.CatAWS, "Searching AMIs: %q", query)
 		// No overall limit: SearchAMIs reads at most 20 pages of the public
 		// catalog, which can take longer than listTimeout for a rare name.

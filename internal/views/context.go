@@ -2,8 +2,13 @@ package views
 
 import (
 	"context"
+	"errors"
 	"time"
 )
+
+// errNoClient is the error of a view that has no AWS client, for example
+// when the client could not be set up.
+var errNoClient = errors.New("AWS client not initialized")
 
 // Time limits of AWS calls made by views. The HTTP client also fails a call
 // that gets no data for a minute (see internal/aws), so these limits catch

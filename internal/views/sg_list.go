@@ -121,7 +121,7 @@ func (s *SGList) fetchSecurityGroups() tea.Cmd {
 	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching security groups")
 		ctx, cancel := context.WithTimeout(ctx, listTimeout)
@@ -291,11 +291,15 @@ func buildSGRows(groups []aws.SecurityGroup, tier ui.WidthTier) []ui.Row {
 	for _, sg := range groups {
 		inCount := fmt.Sprintf("%d", len(sg.InboundRules))
 		outCount := fmt.Sprintf("%d", len(sg.OutboundRules))
+		inKey := ui.SortKeyInt(int64(len(sg.InboundRules)))
+		outKey := ui.SortKeyInt(int64(len(sg.OutboundRules)))
 		cells := table.Row{sg.ID, sg.Name, sg.VpcID, sg.Description, inCount, outCount}
+		sortKeys := table.Row{sg.ID, sg.Name, sg.VpcID, sg.Description, inKey, outKey}
 		if narrow {
 			cells = table.Row{sg.ID, sg.Name, sg.VpcID, inCount, outCount}
+			sortKeys = table.Row{sg.ID, sg.Name, sg.VpcID, inKey, outKey}
 		}
-		rows = append(rows, ui.Row{Key: sg.ID, Cells: cells})
+		rows = append(rows, ui.Row{Key: sg.ID, Cells: cells, Sort: sortKeys})
 	}
 	return rows
 }

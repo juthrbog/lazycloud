@@ -176,7 +176,7 @@ func (s *S3List) fetchBuckets() tea.Cmd {
 	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "S3"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching S3 buckets")
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -218,22 +218,20 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg { return toast })
 
 	case s3BucketCreatedMsg:
+		toast := m.Outcome()
 		if m.err != nil {
-			s.err = m.err
-			return s, nil
+			eventlog.Errorf(eventlog.CatAWS, "Create bucket %s failed: %v", m.name, m.err)
+			return s, func() tea.Msg { return toast }
 		}
 		eventlog.Infof(eventlog.CatAWS, "Created bucket: %s", m.name)
 		s.loading = true
 		s.spinner.Show("Loading S3 buckets...")
-		name := m.name
-		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg {
-			return msg.ToastSuccess("Bucket created: " + name)
-		})
+		return s, tea.Batch(s.spinner.Tick(), s.fetchBuckets(), func() tea.Msg { return toast })
 
 	case s3BucketPropsMsg:
 		if m.err != nil {
-			s.err = m.err
-			return s, nil
+			eventlog.Errorf(eventlog.CatAWS, "Bucket properties failed: %v", m.err)
+			return s, detailErrorToast(m.err)
 		}
 		jsonBytes, _ := json.MarshalIndent(m.props, "", "  ")
 		return s, func() tea.Msg {
@@ -397,10 +395,16 @@ func (s *S3List) fetchBucketProperties(bucket string) tea.Cmd {
 	svc := s.s3
 	ctx := s.viewContext()
 	return func() tea.Msg {
+		if svc == nil {
+			return s3BucketPropsMsg{err: errNoClient}
+		}
 		eventlog.Infof(eventlog.CatAWS, "Fetching properties for bucket: %s", bucket)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
 		props, err := svc.GetBucketProperties(ctx, bucket)
+		if err == nil && props == nil {
+			err = fmt.Errorf("no properties for bucket %s", bucket)
+		}
 		return s3BucketPropsMsg{props: props, err: err}
 	}
 }
@@ -435,7 +439,7 @@ func deleteBucketsPrompt(names []string) (message, phrase string) {
 	const warning = "Every object version and delete marker is deleted\n" +
 		"permanently, then the bucket. You cannot undo this."
 	if len(names) == 1 {
-		return fmt.Sprintf("Delete bucket '%s'?\n%s", names[0], warning), names[0]
+		return fmt.Sprintf("Delete bucket '%s'?\n%s", ui.Sanitize(names[0]), warning), names[0]
 	}
 	message = fmt.Sprintf("Delete %d buckets?\n%s%s", len(names), promptNameList(names), warning)
 	return message, fmt.Sprintf("delete %d buckets", len(names))

@@ -214,13 +214,13 @@ func TestCharSubnet_StateCellPlainAndColoredByColumn(t *testing.T) {
 	assert.Equal(t, "1/2 subnets", netFooter(v))
 }
 
-func TestCharSubnet_AvailIPsSortAsText(t *testing.T) {
+func TestCharSubnet_AvailIPsSortAsNumber(t *testing.T) {
 	many := aws.Subnet{ID: "subnet-many", AvailableIPCount: 1000}
 	few := aws.Subnet{ID: "subnet-few", AvailableIPCount: 999}
 	v, _ := newCharSubnet(t, "", few, many)
 	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 5, Value: "Avail IPs"})
-	// Divergence #46: changes in PR 3. "1000" sorts before "999" as text.
-	assert.Equal(t, []string{"subnet-many | 1000 | Private | No", "subnet-few | 999 | Private | No"}, netRows(v))
+	// Divergence #46 (fixed in PR 3): 999 sorts before 1000.
+	assert.Equal(t, []string{"subnet-few | 999 | Private | No", "subnet-many | 1000 | Private | No"}, netRows(v))
 }
 
 func TestCharSubnet_Paging(t *testing.T) {

@@ -137,7 +137,7 @@ func (v *VPCList) fetchPage(token *string, pageNum int) tea.Cmd {
 	ctx := v.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching VPCs (page %d)", pageNum)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
