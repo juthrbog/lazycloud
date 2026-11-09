@@ -124,23 +124,24 @@ var defaultSQSQueuesKeyMap = sqsQueuesKeyMap{
 // SQSQueues displays all SQS queues.
 type SQSQueues struct {
 	viewCtx
-	keys             sqsQueuesKeyMap
-	sqs              aws.SQSService
-	table            ui.Table
-	queues           []aws.Queue
-	queueURLs        []string // accumulated during progressive load
-	filter           ui.Filter
-	spinner          ui.Spinner
-	loading          bool
-	loadGen          int // generation of the current full load; see startLoad
-	attrsLoading     bool
-	pendingQueueURLs []string
-	pendingAction    string
-	pendingFocus     string // queue name to focus when the load finishes
-	err              error
-	width            int
-	height           int
-	widthTier        ui.WidthTier
+	keys         sqsQueuesKeyMap
+	sqs          aws.SQSService
+	table        ui.Table
+	queues       []aws.Queue
+	queueURLs    []string // accumulated during progressive load
+	filter       ui.Filter
+	spinner      ui.Spinner
+	loading      bool
+	loadGen      int // generation of the current full load; see startLoad
+	attrsLoading bool
+	pending      pendingConfirm // targets of Purge and Delete
+	sendTarget   string         // queue URL of the open Send Message form
+	running      int            // purges and deletes that have not replied
+	pendingFocus string         // queue name to focus when the load finishes
+	err          error
+	width        int
+	height       int
+	widthTier    ui.WidthTier
 }
 
 func (s *SQSQueues) ID() string    { return "sqs_queues" }
@@ -304,7 +305,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				s.table.Sort(m.Selected)
 			}
 		} else if m.ID == "action" && m.Selected >= 0 {
-			urls := s.pendingQueueURLs
+			urls := s.pending.keys
 			switch m.Value {
 			case "Send Message":
 				// Send acts on the same queue as Purge and Delete: the
@@ -366,7 +367,8 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 							}},
 					)
 				}
-				s.pendingQueueURLs = []string{q.URL}
+				s.sendTarget = q.URL
+				s.pending.clear()
 				return s, func() tea.Msg {
 					return msg.RequestFormMsg{
 						ID:     "sqs_send_message",
@@ -375,57 +377,49 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			case "Purge Queue":
-				s.pendingAction = "purge"
-				count := len(urls)
-				return s, func() tea.Msg {
-					return msg.RequestConfirmMsg{
-						Message: fmt.Sprintf("Purge %d queue(s)? This removes all messages and cannot be undone.", count),
-						Action:  "sqs_purge",
-					}
-				}
+				return s, s.pending.ask(msg.RequestConfirmMsg{
+					Message: confirmMessage("Purge", len(urls), "queue(s)", s.queueNameList(urls),
+						"This removes all messages and cannot be undone."),
+					Action: "sqs_purge",
+				})
 			case "Delete Queue":
-				s.pendingAction = "delete"
-				count := len(urls)
-				return s, func() tea.Msg {
-					return msg.RequestConfirmMsg{
-						Message: fmt.Sprintf("Delete %d queue(s)? All messages will be lost.", count),
-						Action:  "sqs_delete",
-					}
-				}
+				return s, s.pending.ask(msg.RequestConfirmMsg{
+					Message: confirmMessage("Delete", len(urls), "queue(s)", s.queueNameList(urls),
+						"All messages will be lost."),
+					Action: "sqs_delete",
+				})
 			}
 		}
 		return s, nil
 
 	case msg.FormResultMsg:
-		if m.ID == "sqs_send_message" && !m.Aborted {
-			if len(s.pendingQueueURLs) == 0 {
-				return s, nil
-			}
-			queueURL := s.pendingQueueURLs[0]
-			s.pendingQueueURLs = nil
+		// Every form reply clears the target, also an aborted form.
+		queueURL := s.sendTarget
+		s.sendTarget = ""
+		if m.ID == "sqs_send_message" && !m.Aborted && queueURL != "" {
 			return s, s.sendMessage(queueURL, m.Values)
 		}
-		s.pendingQueueURLs = nil
 		return s, nil
 
 	case ui.ConfirmResultMsg:
-		if !m.Confirmed {
-			s.pendingQueueURLs = nil
-			s.pendingAction = ""
+		urls, ok := s.pending.take(m)
+		if !ok {
 			return s, nil
 		}
-		urls := s.pendingQueueURLs
-		s.pendingQueueURLs = nil
-		s.pendingAction = ""
+		if ui.IsReadOnly() {
+			// The mode changed after the picker opened.
+			return s, func() tea.Msg { return msg.ToastError(sqsReadOnlyText) }
+		}
 		switch m.Action {
 		case "sqs_purge":
-			return s, s.purgeQueues(urls)
+			return s, s.startAction(fmt.Sprintf("Purging %d queue(s)...", len(urls)), s.purgeQueues(urls))
 		case "sqs_delete":
-			return s, s.deleteQueues(urls)
+			return s, s.startAction(fmt.Sprintf("Deleting %d queue(s)...", len(urls)), s.deleteQueues(urls))
 		}
 		return s, nil
 
 	case sqsQueuePurgedMsg:
+		s.finishAction()
 		for _, f := range m.failed {
 			eventlog.Errorf(eventlog.CatAWS, "Purge of %s failed: %v", f.name, f.err)
 		}
@@ -458,6 +452,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case sqsQueueDeletedMsg:
+		s.finishAction()
 		for _, f := range m.failed {
 			eventlog.Errorf(eventlog.CatAWS, "Delete of queue %s failed: %v", f.name, f.err)
 		}
@@ -662,7 +657,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if len(urls) == 0 {
 				return s, nil
 			}
-			s.pendingQueueURLs = urls
+			s.pending.hold(urls)
 			title := "Manage Queue"
 			actions := []string{"Send Message", "Purge Queue", "Delete Queue"}
 			if len(urls) > 1 {
@@ -685,7 +680,7 @@ func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	var cmds []tea.Cmd
-	if s.loading || s.attrsLoading {
+	if s.loading || s.attrsLoading || s.running > 0 {
 		var cmd tea.Cmd
 		s.spinner, cmd = s.spinner.Update(m)
 		cmds = append(cmds, cmd)
@@ -758,25 +753,52 @@ func (s *SQSQueues) queueNames(urls []string) map[string]string {
 	return names
 }
 
+// queueNameList returns the queue names in the order of urls, for a
+// confirm prompt.
+func (s *SQSQueues) queueNameList(urls []string) []string {
+	names := s.queueNames(urls)
+	list := make([]string, len(urls))
+	for i, url := range urls {
+		list[i] = names[url]
+	}
+	return list
+}
+
+// sqsReadOnlyText is the toast when ReadOnly mode is turned on between the
+// action picker and the confirm reply. The app uses the same text when it
+// blocks an RW key.
+const sqsReadOnlyText = "ReadOnly mode — press W to switch"
+
+// startAction shows the spinner with label while a purge or delete runs.
+func (s *SQSQueues) startAction(label string, cmd tea.Cmd) tea.Cmd {
+	s.running++
+	s.spinner.Show(label)
+	return tea.Batch(s.spinner.Tick(), cmd)
+}
+
+// finishAction hides the action spinner when the last purge or delete
+// replies. A full load keeps its spinner.
+func (s *SQSQueues) finishAction() {
+	if s.running > 0 {
+		s.running--
+	}
+	if s.running == 0 && !s.loading && !s.attrsLoading {
+		s.spinner.Hide()
+	}
+}
+
 func (s *SQSQueues) purgeQueues(urls []string) tea.Cmd {
 	svc := s.sqs
 	names := s.queueNames(urls)
 	ctx := s.viewContext()
 	return func() tea.Msg {
-		var res sqsQueuePurgedMsg
-		for _, url := range urls {
+		// runEach gives each queue its own limit, so many queues do not
+		// share one minute.
+		done, failed := runEach(ctx, urls, names, func(qctx context.Context, url string) error {
 			eventlog.Infof(eventlog.CatAWS, "Purging queue: %s", url)
-			// One limit per queue, so many queues do not share one minute.
-			qctx, cancel := detached(ctx)
-			err := svc.PurgeQueue(qctx, url)
-			cancel()
-			if err != nil {
-				res.failed = append(res.failed, itemFailure{name: names[url], err: err})
-				continue
-			}
-			res.done = append(res.done, url)
-		}
-		return res
+			return svc.PurgeQueue(qctx, url)
+		})
+		return sqsQueuePurgedMsg{done: done, failed: failed}
 	}
 }
 
@@ -785,19 +807,11 @@ func (s *SQSQueues) deleteQueues(urls []string) tea.Cmd {
 	names := s.queueNames(urls)
 	ctx := s.viewContext()
 	return func() tea.Msg {
-		var res sqsQueueDeletedMsg
-		for _, url := range urls {
+		done, failed := runEach(ctx, urls, names, func(qctx context.Context, url string) error {
 			eventlog.Infof(eventlog.CatAWS, "Deleting queue: %s", url)
-			qctx, cancel := detached(ctx)
-			err := svc.DeleteQueue(qctx, url)
-			cancel()
-			if err != nil {
-				res.failed = append(res.failed, itemFailure{name: names[url], err: err})
-				continue
-			}
-			res.done = append(res.done, url)
-		}
-		return res
+			return svc.DeleteQueue(qctx, url)
+		})
+		return sqsQueueDeletedMsg{done: done, failed: failed}
 	}
 }
 

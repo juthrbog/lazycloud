@@ -1037,14 +1037,15 @@ func charSQSConfirm(t *testing.T, v *SQSQueues, action string) msg.RequestConfir
 }
 
 func TestCharSQS_PurgeFlow(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSSpace(v)
 	charSQSDown(v)
 	charSQSSpace(v)
 
-	// Divergence #24: changes in PR 2. The prompt names only a count.
+	// Divergence #24 (fixed in PR 2). The prompt lists the queue names.
 	assert.Equal(t, msg.RequestConfirmMsg{
-		Message: "Purge 2 queue(s)? This removes all messages and cannot be undone.",
+		Message: "Purge 2 queue(s)?\n  qa\n  qb\nThis removes all messages and cannot be undone.",
 		Action:  "sqs_purge",
 	}, charSQSConfirm(t, v, "Purge Queue"))
 
@@ -1054,8 +1055,12 @@ func TestCharSQS_PurgeFlow(t *testing.T) {
 		Return(&aws.Queue{URL: charSQSURL("qb"), Name: "qb", Type: "Standard"}, nil).Once()
 
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
-	// Divergence #27: changes in PR 2. No spinner after the confirm.
-	assert.Equal(t, "3/3 queues  (2 selected)", plain(v.Footer()))
+	// Divergence #27 (fixed in PR 2). The spinner shows after the confirm.
+	assert.Equal(t, "3/3 queues  (2 selected)  ⣾  Purging 2 queue(s)...", plain(v.Footer()))
+	batch, ok := cmd().(tea.BatchMsg)
+	require.True(t, ok)
+	require.NotEmpty(t, batch)
+	assert.IsType(t, spinner.TickMsg{}, batch[0](), "the spinner ticks")
 
 	seen := pump(v, cmd, 4)
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Purged 1 of 2 queue(s). Failed: qa (AccessDenied)")}, toasts(seen))
@@ -1076,6 +1081,7 @@ func TestCharSQS_PurgeFlow(t *testing.T) {
 }
 
 func TestCharSQS_DeleteFlow(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSSpace(v)
 	charSQSDown(v)
@@ -1083,9 +1089,9 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 	charSQSDown(v)
 	charSQSSpace(v)
 
-	// Divergence #24: changes in PR 2. The prompt names only a count.
+	// Divergence #24 (fixed in PR 2). The prompt lists the queue names.
 	assert.Equal(t, msg.RequestConfirmMsg{
-		Message: "Delete 3 queue(s)? All messages will be lost.",
+		Message: "Delete 3 queue(s)?\n  qa\n  qb\n  qc\nAll messages will be lost.",
 		Action:  "sqs_delete",
 	}, charSQSConfirm(t, v, "Delete Queue"))
 
@@ -1094,6 +1100,8 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qc")).Return(nil).Once()
 
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	// Divergence #27 (fixed in PR 2). The spinner shows after the confirm.
+	assert.Equal(t, "3/3 queues  (3 selected)  ⣾  Deleting 3 queue(s)...", plain(v.Footer()))
 	seen := pump(v, cmd, 3)
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Deleted 2 of 3 queue(s). Failed: qb (AccessDenied)")}, toasts(seen))
 	assert.Equal(t, []string{"qb Standard 10 0 0"}, charSQSRows(v), "only the deleted rows go")
@@ -1109,6 +1117,7 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 }
 
 func TestCharSQS_ConfirmDeclineClearsTargets(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSConfirm(t, v, "Purge Queue")
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "sqs_purge"})
@@ -1116,53 +1125,51 @@ func TestCharSQS_ConfirmDeclineClearsTargets(t *testing.T) {
 
 	// A late confirm has no targets and calls nothing.
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
-	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Purged 0 queue(s) (60s cooldown before the next purge)")},
-		toasts(pump(v, cmd, 3)))
+	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }
 
-// Divergence #25: changes in PR 2. The confirm Action is not checked against
-// the pending action: a purge prompt answered as sqs_delete deletes.
-func TestCharSQS_ConfirmActionNotChecked(t *testing.T) {
+// Divergence #25 (fixed in PR 2). The confirm Action is checked against the
+// pending action: a purge prompt answered as sqs_delete does nothing and
+// clears the targets.
+func TestCharSQS_ConfirmActionChecked(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSConfirm(t, v, "Purge Queue")
-	svc.On("DeleteQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
-	pump(v, cmd, 3)
-	svc.AssertExpectations(t)
-	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
+	assert.Nil(t, cmd)
+	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	assert.Nil(t, cmd, "the targets were cleared")
 
 	// An unknown Action clears the targets and does nothing.
 	charSQSConfirm(t, v, "Purge Queue")
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "other"})
 	assert.Nil(t, cmd)
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
-	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Purged 0 queue(s) (60s cooldown before the next purge)")},
-		toasts(pump(v, cmd, 3)), "the targets were cleared")
+	assert.Nil(t, cmd, "the targets were cleared")
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
+	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
 
-// Divergence #25: changes in PR 2. A cancelled action picker keeps the
-// targets of m, so a later confirm still acts on them.
-func TestCharSQS_CancelledPickerKeepsTargets(t *testing.T) {
+// Divergence #25 (fixed in PR 2). After a cancelled action picker no confirm
+// was asked, so a confirm reply does nothing.
+func TestCharSQS_CancelledPickerIgnoresConfirm(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
 	_, cmd = v.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
 	require.Nil(t, cmd)
 
-	svc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
-	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).
-		Return(&aws.Queue{URL: charSQSURL("qa"), Name: "qa", Type: "Standard"}, nil).Once()
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
-	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Purged 1 queue(s) (60s cooldown before the next purge)")},
-		toasts(pump(v, cmd, 4)))
-	svc.AssertExpectations(t)
+	assert.Nil(t, cmd)
+	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }
 
-// The view does not check ReadOnly: the app blocks RW keys before they reach
-// it. So m, the picker and the confirm all work at view level in ReadOnly.
-func TestCharSQS_ViewIgnoresReadOnly(t *testing.T) {
+// The app blocks RW keys in ReadOnly mode, so m and the picker still work at
+// view level. When ReadOnly is on at the confirm reply (the mode changed
+// after the picker), the view clears the targets and calls nothing.
+func TestCharSQS_ReadOnlyAtConfirmCallsNothing(t *testing.T) {
 	prev := ui.IsReadOnly()
 	t.Cleanup(func() { ui.SetReadOnly(prev) })
 	ui.SetReadOnly(true)
@@ -1171,15 +1178,21 @@ func TestCharSQS_ViewIgnoresReadOnly(t *testing.T) {
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
 	assert.Equal(t, "Manage Queue", cmd().(msg.RequestActionPickerMsg).Title)
-	svc.On("DeleteQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
 	charSQSConfirm(t, v, "Delete Queue")
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
-	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Deleted 1 queue(s)")}, toasts(pump(v, cmd, 3)))
-	svc.AssertExpectations(t)
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("ReadOnly mode — press W to switch")}, toasts(pump(v, cmd, 3)))
+	assert.Equal(t, "3/3 queues", plain(v.Footer()), "no spinner")
+
+	// The targets are gone, also after a switch to ReadWrite.
+	ui.SetReadOnly(false)
+	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	assert.Nil(t, cmd)
+	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
 
 // Mutations use a detached context: they finish when the user leaves.
 func TestCharSQS_MutationsSurviveLeavingTheView(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	v.SetContext(ctx)
@@ -1303,6 +1316,7 @@ func TestCharSQS_SelectiveRefresh(t *testing.T) {
 }
 
 func TestCharSQS_PurgeRefreshHasOwnTimeouts(t *testing.T) {
+	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSSpace(v)
 	charSQSDown(v)

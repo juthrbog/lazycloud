@@ -92,21 +92,22 @@ var defaultS3ListKeyMap = s3ListKeyMap{
 // S3List displays all S3 buckets.
 type S3List struct {
 	viewCtx
-	keys                 s3ListKeyMap
-	s3                   aws.S3Service
-	defaultRegion        string
-	table                ui.Table
-	buckets              []aws.Bucket
-	filter               ui.Filter
-	createInput          ui.Filter // reuse as text input for new bucket name
-	creating             bool
-	spinner              ui.Spinner
-	loading              bool
-	pendingDeleteBuckets []string
-	err                  error
-	width                int
-	height               int
-	widthTier            ui.WidthTier
+	keys          s3ListKeyMap
+	s3            aws.S3Service
+	defaultRegion string
+	table         ui.Table
+	buckets       []aws.Bucket
+	filter        ui.Filter
+	createInput   ui.Filter // reuse as text input for new bucket name
+	creating      bool
+	spinner       ui.Spinner
+	loading       bool
+	// pendingDelete holds the bucket names of the delete_bucket confirm.
+	pendingDelete pendingConfirm
+	err           error
+	width         int
+	height        int
+	widthTier     ui.WidthTier
 }
 
 func (s *S3List) ID() string    { return "s3_list" }
@@ -192,13 +193,17 @@ func (s *S3List) fetchBuckets() tea.Cmd {
 func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.ConfirmResultMsg:
-		if m.Confirmed && m.Action == "delete_bucket" && len(s.pendingDeleteBuckets) > 0 {
-			buckets := s.pendingDeleteBuckets
-			s.pendingDeleteBuckets = nil
-			return s, s.deleteBuckets(buckets)
+		buckets, ok := s.pendingDelete.take(m)
+		if !ok {
+			return s, nil
 		}
-		s.pendingDeleteBuckets = nil
-		return s, nil
+		// The mode can change while the prompt is open. take has cleared
+		// the targets, so nothing runs. The text is the app's refusal for a
+		// ReadWrite key in ReadOnly mode.
+		if ui.IsReadOnly() {
+			return s, func() tea.Msg { return msg.ToastError("ReadOnly mode — press W to switch") }
+		}
+		return s, s.deleteBuckets(buckets)
 
 	case s3BucketDeletedMsg:
 		s.table.DeselectAll()
@@ -367,15 +372,13 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			if len(names) == 0 {
 				return s, nil
 			}
-			s.pendingDeleteBuckets = names
+			s.pendingDelete.hold(names)
 			message, phrase := deleteBucketsPrompt(names)
-			return s, func() tea.Msg {
-				return msg.RequestConfirmMsg{
-					Message: message,
-					Action:  "delete_bucket",
-					Phrase:  phrase,
-				}
-			}
+			return s, s.pendingDelete.ask(msg.RequestConfirmMsg{
+				Message: message,
+				Action:  "delete_bucket",
+				Phrase:  phrase,
+			})
 		}
 	}
 
