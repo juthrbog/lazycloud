@@ -41,7 +41,7 @@ func (v *VPCList) ID() string     { return "vpc_list" }
 func (v *VPCList) Title() string  { return "VPCs" }
 func (v *VPCList) Init() tea.Cmd  { return v.init() }
 func (v *VPCList) Footer() string { return v.footer() }
-func (v *VPCList) View() tea.View { return tea.NewView(v.render()) }
+func (v *VPCList) View() tea.View { return tea.NewView(v.render("")) }
 
 func (v *VPCList) KeyMap() []ui.HintBinding {
 	return v.hints(listKeys.Details, listKeys.CopyID, vpcSubnetsKey,

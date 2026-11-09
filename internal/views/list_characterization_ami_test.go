@@ -277,9 +277,10 @@ func TestCharAMI_FreshViewAcceptsFirstLoad(t *testing.T) {
 	assert.Equal(t, "2/2 AMIs (owned)", plain(v.Footer()))
 }
 
-// Divergence #35: AMI has no gen, so the reply that arrives last wins, even
-// when it is from the older load. Changes in PR 6.
-func TestCharAMI_StaleReplyLastWins(t *testing.T) {
+// Divergence #35 (fixed in PR 6): the owned load and the search share one
+// load generation, so the load started last wins, also when the reply of
+// the older load arrives last.
+func TestCharAMI_StaleReplyDropped(t *testing.T) {
 	v, svc := newCharAMILoaded(t, charAMIA)
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA, charAMIB}, nil).Once()
 	svc.On("SearchAMIs", mock.Anything, "amzn").Return([]aws.AMI{charAMIP}, nil).Once()
@@ -291,12 +292,12 @@ func TestCharAMI_StaleReplyLastWins(t *testing.T) {
 	deliverAll(v, searchMsgs...) // the newer load ends first
 	assert.Equal(t, `1/1 results for "amzn"`, plain(v.Footer()))
 	deliverAll(v, ownedMsgs...) // then the older load
-	assert.Equal(t, "2/2 AMIs (owned)", plain(v.Footer()), "Divergence #35: changes in PR 6.")
-	assert.Equal(t, []string{"ami-aaa", "ami-bbb"}, charRows(v))
+	assert.Equal(t, `1/1 results for "amzn"`, plain(v.Footer()), "Divergence #35 (fixed in PR 6)")
+	assert.Equal(t, []string{"ami-pub"}, charRows(v))
 }
 
-// Divergence #9: a stale ErrorMsg from a superseded load is applied. Changes in PR 6.
-func TestCharAMI_StaleErrorApplied(t *testing.T) {
+// Divergence #9 (fixed in PR 6): the failure of a superseded load is dropped.
+func TestCharAMI_StaleErrorDropped(t *testing.T) {
 	v, svc := newCharAMILoaded(t, charAMIA)
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI(nil), errors.New("old failure")).Once()
 	svc.On("SearchAMIs", mock.Anything, "amzn").Return([]aws.AMI{charAMIP}, nil).Once()
@@ -305,16 +306,20 @@ func TestCharAMI_StaleErrorApplied(t *testing.T) {
 	search := charSearch(v, "amzn")
 	ownedMsgs, searchMsgs := charRun(owned), charRun(search)
 	deliverAll(v, searchMsgs...)
-	deliverAll(v, ownedMsgs...)
+	require.Len(t, ownedMsgs, 1, "the failure of the owned load")
+	seen := pump(v, func() tea.Msg { return ownedMsgs[0] }, 5)
 
-	assert.Equal(t, "\n  Error: old failure", plain(v.View().Content), "Divergence #9: changes in PR 6.")
+	_, failed := firstOfType[msg.ErrorMsg](seen)
+	assert.False(t, failed, "Divergence #9 (fixed in PR 6): no ErrorMsg for the status bar")
+	assert.Equal(t, []string{"ami-pub"}, charRows(v))
+	assert.Equal(t, `1/1 results for "amzn"`, plain(v.Footer()))
 }
 
 func TestCharAMI_ErrorContexts(t *testing.T) {
 	t.Run("owned", func(t *testing.T) {
 		v, svc := newCharAMI(t)
 		svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI(nil), errors.New("boom")).Once()
-		e, ok := firstOfType[msg.ErrorMsg](charRun(v.Init()))
+		e, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
 		require.True(t, ok)
 		assert.Equal(t, "listing owned AMIs", e.Context)
 		assert.EqualError(t, e.Err, "boom")
@@ -322,16 +327,19 @@ func TestCharAMI_ErrorContexts(t *testing.T) {
 	t.Run("search", func(t *testing.T) {
 		v, svc := newCharAMILoaded(t, charAMIA)
 		svc.On("SearchAMIs", mock.Anything, "amzn").Return([]aws.AMI(nil), errors.New("boom")).Once()
-		e, ok := firstOfType[msg.ErrorMsg](charRun(charSearch(v, "amzn")))
+		e, ok := firstOfType[msg.ErrorMsg](pump(v, charSearch(v, "amzn"), 5))
 		require.True(t, ok)
 		assert.Equal(t, "searching AMIs", e.Context)
 	})
 	t.Run("nil client owned", func(t *testing.T) {
 		v := NewAMIList(nil)
 		v.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
-		e, ok := firstOfType[msg.ErrorMsg](charRun(v.Init()))
+		e, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
 		require.True(t, ok)
-		assert.Equal(t, "EC2", e.Context)
+		// Design change in PR 6 (fetchAll adapter, as in PR 4): a nil
+		// service fails like any load, with the context of the load. It
+		// was "EC2".
+		assert.Equal(t, "listing owned AMIs", e.Context)
 		assert.EqualError(t, e.Err, "AWS client not initialized")
 	})
 	t.Run("nil client search", func(t *testing.T) {
@@ -341,10 +349,11 @@ func TestCharAMI_ErrorContexts(t *testing.T) {
 		require.NotNil(t, cmd)
 		// Divergence #47 (fixed in PR 3): the search checks for a nil
 		// service, like the owned load.
-		e, ok := firstOfType[msg.ErrorMsg](charRun(cmd))
+		e, ok := firstOfType[msg.ErrorMsg](pump(v, cmd, 5))
 		require.True(t, ok)
-		assert.Equal(t, "EC2", e.Context)
-		assert.ErrorIs(t, e.Err, errNoClient)
+		// Design change in PR 6: the context of the search. It was "EC2".
+		assert.Equal(t, "searching AMIs", e.Context)
+		assert.ErrorIs(t, e.Err, errNoClient) // private
 	})
 }
 
@@ -392,17 +401,20 @@ func TestCharAMI_SearchClearsError(t *testing.T) {
 	assert.Equal(t, `1/1 results for "amzn"`, plain(v.Footer()))
 }
 
-// Divergence #8: err is cleared only by r (and by a search), not by a load
-// result that arrives on its own. Changes in PR 6.
-func TestCharAMI_ErrorClearedOnlyByKey(t *testing.T) {
+// Divergence #8 (fixed in PR 6): a good load clears the error, also when it
+// arrives on its own; r clears it too.
+func TestCharAMI_GoodLoadClearsError(t *testing.T) {
 	v, svc := newCharAMI(t)
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA}, nil).Once()
 	loaded := charRun(v.Init())
 	v.Update(msg.ErrorMsg{Err: errors.New("denied"), Context: "x"})
 	deliverAll(v, loaded...)
 
-	assert.Equal(t, "\n  Error: denied", plain(v.View().Content), "Divergence #8: changes in PR 6.")
+	assert.Equal(t, []string{"ami-aaa"}, charRows(v), "Divergence #8 (fixed in PR 6)")
 	assert.Equal(t, "1/1 AMIs (owned)", plain(v.Footer()))
+
+	v.Update(msg.ErrorMsg{Err: errors.New("denied"), Context: "x"})
+	require.Equal(t, "\n  Error: denied", plain(v.View().Content))
 
 	// r clears it.
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA}, nil).Once()
@@ -435,13 +447,14 @@ func TestCharAMI_TableKeepsStateAcrossSetRows(t *testing.T) {
 	assert.Equal(t, []string{"ami-aaa", "*ami-bbb"}, charRows(v))
 
 	// The cursor stayed on ami-bbb: enter opens it.
-	nav, ok := firstOfType[msg.NavigateMsg](charRun(func() tea.Cmd {
+	// Divergence #34 (fixed in PR 6): enter opens the tabbed panel.
+	p, ok := firstOfType[msg.TabbedContentMsg](charRun(func() tea.Cmd {
 		_, c := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		return c
 	}()))
 	require.True(t, ok)
 	// M8: the select marker never leaks into the key, so the AMI is found.
-	assert.Equal(t, "beta-image (ami-bbb)", nav.Params["title"])
+	assert.Equal(t, "beta-image (ami-bbb)", p.PanelTitle)
 }
 
 // C4: the filter deselects rows it hides.
@@ -609,10 +622,10 @@ func TestCharAMI_FocusListedAMI(t *testing.T) {
 	_, cmd := v.Update(msg.FocusResourceMsg{ResourceID: "ami-bbb"})
 	p, ok := firstOfType[msg.TabbedContentMsg](charRun(cmd))
 	require.True(t, ok)
-	// Divergence #34: one tab named like the panel. Changes in PR 6.
 	assert.Equal(t, "beta-image (ami-bbb)", p.PanelTitle)
 	require.Len(t, p.Tabs, 1)
-	assert.Equal(t, "beta-image (ami-bbb)", p.Tabs[0].Title)
+	// Divergence #34 (fixed in PR 6): the one tab is named "JSON".
+	assert.Equal(t, "JSON", p.Tabs[0].Title)
 	assert.Equal(t, "json", p.Tabs[0].Format)
 	assert.Equal(t, charAMIJSON(t, charAMIB), p.Tabs[0].Content)
 	svc.AssertNotCalled(t, "RefreshAMIs", mock.Anything, mock.Anything)
@@ -850,9 +863,9 @@ func TestCharAMI_RefreshAfterSearchLoadsOwned(t *testing.T) {
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA, charAMIB}, nil).Once()
 	_, cmd := v.Update(keyPress('r'))
 	require.NotNil(t, cmd)
-	// Divergence #36: the footer says "(owned)" before the owned data arrives.
-	// Changes in PR 6.
-	assert.Equal(t, "1/1 AMIs (owned)  ⣾  Loading AMIs...", plain(v.Footer()))
+	// Divergence #36 (fixed in PR 6): the footer says what is on screen, the
+	// search results, until the owned load ends.
+	assert.Equal(t, `1/1 results for "amzn"  ⣾  Loading AMIs...`, plain(v.Footer()))
 	assert.Equal(t, []string{"ami-pub"}, charRows(v), "Divergence #7 (kept): rows stay during the reload")
 
 	pump(v, cmd, 5)
@@ -890,8 +903,8 @@ func TestCharAMI_ViewSnapshots(t *testing.T) {
 	})
 }
 
-// Divergence #6: the table is frozen during a load; nav keys go to the
-// spinner. Changes in PR 6.
+// Divergence #6 (fixed in PR 6): the table stays usable during a load; nav
+// keys move the cursor.
 func TestCharAMI_NavKeysDuringLoad(t *testing.T) {
 	v, svc := newCharAMILoaded(t, charAMIA, charAMIB)
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA, charAMIB}, nil).Maybe()
@@ -901,7 +914,7 @@ func TestCharAMI_NavKeysDuringLoad(t *testing.T) {
 	_, cmd := v.Update(keyPress('y'))
 	text, ok := charClipboard(charRun(cmd))
 	require.True(t, ok)
-	assert.Equal(t, "ami-aaa", text, "Divergence #6: the cursor did not move. Changes in PR 6.")
+	assert.Equal(t, "ami-bbb", text, "Divergence #6 (fixed in PR 6): the cursor moved")
 }
 
 // Without a load running, nav keys move the cursor.
@@ -914,8 +927,8 @@ func TestCharAMI_NavKeysAfterLoad(t *testing.T) {
 	assert.Equal(t, "ami-bbb", text)
 }
 
-// Divergence #11: the spinner ticks only while loading; during a selective
-// refresh its tick is dropped and the spinner freezes. Changes in PR 6.
+// Divergence #11 (fixed in PR 6): the spinner ticks whenever it shows, also
+// during a selective refresh.
 func TestCharAMI_SpinnerTicks(t *testing.T) {
 	v, svc := newCharAMI(t)
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA}, nil).Once()
@@ -933,7 +946,7 @@ func TestCharAMI_SpinnerTicks(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, plain(v2.Footer()), "Refreshing 1 AMIs...")
 	_, cmd = v2.Update(tick)
-	assert.Nil(t, cmd, "Divergence #11: changes in PR 6.")
+	assert.NotNil(t, cmd, "Divergence #11 (fixed in PR 6): the spinner asks for the next tick")
 }
 
 func TestCharAMI_Esc(t *testing.T) {
@@ -981,34 +994,33 @@ func TestCharAMI_Copy(t *testing.T) {
 	})
 }
 
-// Divergence #34: enter and d emit NavigateMsg to the content view. Changes in PR 6.
+// Divergence #34 (fixed in PR 6): enter and d open the tabbed panel with one
+// "JSON" tab, as a focus link does. It was a NavigateMsg to the content view.
 func TestCharAMI_DetailsKeys(t *testing.T) {
 	for _, k := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, keyPress('d')} {
 		t.Run(k.String(), func(t *testing.T) {
 			v, _ := newCharAMILoaded(t, charAMIA)
 			_, cmd := v.Update(k)
-			nav, ok := firstOfType[msg.NavigateMsg](charRun(cmd))
+			p, ok := firstOfType[msg.TabbedContentMsg](charRun(cmd))
 			require.True(t, ok)
-			assert.Equal(t, "content", nav.ViewID)
-			assert.Equal(t, map[string]string{
-				"title":   "alpha-image (ami-aaa)",
-				"format":  "json",
-				"content": charAMIJSON(t, charAMIA),
-			}, nav.Params)
+			assert.Equal(t, "alpha-image (ami-aaa)", p.PanelTitle)
+			assert.Equal(t, []msg.TabContent{
+				{Title: "JSON", Content: charAMIJSON(t, charAMIA), Format: "json"},
+			}, p.Tabs)
 		})
 	}
 	t.Run("no name", func(t *testing.T) {
 		v, _ := newCharAMILoaded(t, aws.AMI{ID: "ami-noname", State: "available"})
 		_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-		nav, ok := firstOfType[msg.NavigateMsg](charRun(cmd))
+		p, ok := firstOfType[msg.TabbedContentMsg](charRun(cmd))
 		require.True(t, ok)
-		assert.Equal(t, "ami-noname", nav.Params["title"])
+		assert.Equal(t, "ami-noname", p.PanelTitle)
 	})
 	// Divergence #48 (kept): with no cursor the key falls through to the table.
 	t.Run("no cursor", func(t *testing.T) {
 		v, _ := newCharAMILoaded(t)
 		_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-		_, ok := firstOfType[msg.NavigateMsg](charRun(cmd))
+		_, ok := firstOfType[msg.TabbedContentMsg](charRun(cmd))
 		assert.False(t, ok)
 	})
 }
@@ -1066,23 +1078,25 @@ func TestCharAMI_SelectiveRefreshErrors(t *testing.T) {
 		assert.Equal(t, "1/1 AMIs (owned)  (1 selected)", plain(v.Footer()), "spinner hidden")
 		assert.Equal(t, []string{"*ami-aaa"}, charRows(v))
 	})
-	t.Run("canceled toasts", func(t *testing.T) {
+	t.Run("canceled is silent", func(t *testing.T) {
 		v, svc := newCharAMILoaded(t, charAMIA)
 		svc.On("RefreshAMIs", mock.Anything, []string{"ami-aaa"}).Return([]aws.AMI(nil), context.Canceled).Once()
 		v.Update(keyPress(' '))
 		_, cmd := v.Update(keyPress('r'))
 		seen := pump(v, cmd, 5)
-		// Divergence #37: changes in PR 6.
-		require.Len(t, toasts(seen), 1)
-		assert.Equal(t, "Refresh failed: cancelled", toasts(seen)[0].Text)
+		// Divergence #37 (fixed in PR 6): a cancel gives no toast.
+		assert.Empty(t, toasts(seen))
+		assert.Equal(t, "1/1 AMIs (owned)  (1 selected)", plain(v.Footer()), "spinner hidden")
 	})
 }
 
-// Divergence #10: a refresh reply has no gen and hides the spinner of a full
-// load that started after it. Changes in PR 6.
-func TestCharAMI_RefreshReplyHidesLoadSpinner(t *testing.T) {
+// Divergence #10 (fixed in PR 6): a refresh reply from before a full load
+// keeps the spinner of that load, and its data is dropped.
+func TestCharAMI_RefreshReplyKeepsLoadSpinner(t *testing.T) {
 	v, svc := newCharAMILoaded(t, charAMIA)
-	svc.On("RefreshAMIs", mock.Anything, []string{"ami-aaa"}).Return([]aws.AMI{charAMIA}, nil).Once()
+	stale := charAMIA
+	stale.Name = "alpha-stale"
+	svc.On("RefreshAMIs", mock.Anything, []string{"ami-aaa"}).Return([]aws.AMI{stale}, nil).Once()
 	svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI{charAMIA}, nil).Maybe()
 	v.Update(keyPress(' '))
 	_, refresh := v.Update(keyPress('r'))
@@ -1092,7 +1106,8 @@ func TestCharAMI_RefreshReplyHidesLoadSpinner(t *testing.T) {
 	require.Equal(t, "1/1 AMIs (owned)  ⣾  Loading AMIs...", plain(v.Footer()))
 
 	deliverAll(v, refreshMsgs...)
-	assert.Equal(t, "1/1 AMIs (owned)", plain(v.Footer()), "Divergence #10: changes in PR 6.")
+	assert.Equal(t, "1/1 AMIs (owned)  ⣾  Loading AMIs...", plain(v.Footer()), "Divergence #10 (fixed in PR 6)")
+	assert.NotContains(t, plain(v.View().Content), "alpha-stale")
 }
 
 // Focus on a missing AMI fetches it by ID, adds a row, counts it as linked

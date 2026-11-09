@@ -1,6 +1,9 @@
 package views
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Messages and adapters of the shared list core (see listcore.go).
 
@@ -83,4 +86,35 @@ func nextToken(more bool, tok *string) *string {
 		return tok
 	}
 	return nil
+}
+
+// listRefreshedMsg is the reply of a selective refresh. It carries what the
+// refresh read, also when some keys failed. A reply whose gen is not the
+// current load generation is dropped, because a full load started since
+// and brings newer data.
+type listRefreshedMsg[T any] struct {
+	gen   int
+	items []T
+	err   error
+}
+
+// refreshBy adapts a batch refresh (for example aws.EC2Service.RefreshAMIs)
+// to a refreshFunc, with one timeout for the call. Like fetchAll, it takes
+// the service and a method expression, and a nil service gives errNoClient.
+//
+// Use: refreshBy(ec2, aws.EC2Service.RefreshAMIs, callTimeout)
+func refreshBy[S, T any](svc S, call func(S, context.Context, []string) ([]T, error),
+	timeout time.Duration,
+) refreshFunc[T] {
+	return func(ctx context.Context, keys []string) ([]T, error) {
+		if any(svc) == nil {
+			return nil, errNoClient
+		}
+		if timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+		return call(svc, ctx, keys)
+	}
 }
