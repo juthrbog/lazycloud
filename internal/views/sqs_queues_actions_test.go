@@ -87,8 +87,10 @@ func TestSQSQueues_PromptNamesComeFromRows(t *testing.T) {
 	v, _ := charSQSThree(t)
 	charSQSDown(v)
 	charSQSDown(v)
+	// The row name wins over the name in the URL, and it is made safe.
+	v.queues[2].Name = "shown\x1b[31m"
 	req := charSQSConfirm(t, v, "Purge Queue")
-	assert.Equal(t, "Purge 1 queue(s)?\n  qc\nThis removes all messages and cannot be undone.", req.Message)
+	assert.Equal(t, "Purge 1 queue(s)?\n  shown␛[31m\nThis removes all messages and cannot be undone.", req.Message)
 }
 
 func TestSQSQueues_OtherFormClearsSendTarget(t *testing.T) {
