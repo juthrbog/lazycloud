@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/ui"
@@ -23,22 +24,46 @@ import (
 // in a tea.Cmd goroutine, so it must not read view state that changes.
 type fetchFunc[T any] func(ctx context.Context, token *string) (items []T, next *string, err error)
 
+// refreshFunc reloads the items with the given keys. It returns what it
+// read, also when some keys failed. It sets its own timeouts (see
+// refreshBy). Like a fetchFunc, it runs in a tea.Cmd goroutine.
+type refreshFunc[T any] func(ctx context.Context, keys []string) ([]T, error)
+
+// loadSpec is one full load: what to call and how to report it. The core
+// keeps the spec of the current load. Stale replies are dropped by gen, so
+// the load that finishes is always the kept one.
+type loadSpec[T any] struct {
+	fetch      fetchFunc[T]
+	timeout    time.Duration // per page; 0 = none
+	errContext string        // msg.ErrorMsg.Context of a failure
+	label      string        // spinner text
+	tag        string        // passed to OnLoaded; "" for the default load
+}
+
 // listConfig is the policy of one list. The first block is required:
 // newListCore panics if a field of it is missing (FetchTimeout may be 0).
 //
-// OpenDetail runs inside the core's handle. It must not call update again.
+// OpenDetail, OnLoaded and FocusMissing run inside the core's handle. They
+// must not call update again.
 type listConfig[T any] struct {
 	Noun         string // footer and log noun: "security groups"
-	LoadingLabel string // spinner text of a full load: "Loading security groups..."
-	ErrContext   string // msg.ErrorMsg.Context of a failed load: "listing security groups"
+	LoadingLabel string // spinner text of the default load: "Loading security groups..."
+	ErrContext   string // msg.ErrorMsg.Context of a failed default load: "listing security groups"
 	Key          func(T) string
 	Columns      func(ui.WidthTier) []ui.Column
 	Row          func(T, ui.WidthTier) ui.Row // Row.Key must equal Key(t)
-	Fetch        fetchFunc[T]                 // build with fetchAll or fetchPages
+	Fetch        fetchFunc[T]                 // default load; build with fetchAll or fetchPages
 	FetchTimeout time.Duration                // per page: callTimeout for a page, listTimeout for a whole-list call; 0 = none
 
-	OpenDetail func(T) tea.Cmd // enter/d and focus; nil: the keys go to the table
-	Copy       bool            // y copies the key of the cursor row: "Copied: <key>"
+	OnLoaded func(items []T, tag string) tea.Cmd // after a full load ends, with the tag of that load
+	Refresh  refreshFunc[T]                      // r with a selection refreshes the targets; nil: r always reloads
+
+	OpenDetail   func(T) tea.Cmd         // enter/d and focus; nil: the keys go to the table
+	FocusMissing func(id string) tea.Cmd // focus on an ID that is not in the list; nil: do nothing
+
+	MultiSelect bool   // space selects, esc deselects first, footer "(N selected)"
+	Copy        bool   // y copies. MultiSelect: the targets. Single: the cursor key, "Copied: <key>".
+	CopyNoun    string // toast noun with MultiSelect: "Copied N <CopyNoun>(s)"
 }
 
 // listCore is the state and behavior the lists share. It has no Update,
@@ -50,7 +75,8 @@ type listConfig[T any] struct {
 type listCore[T any] struct {
 	viewCtx // the only viewCtx in the view; promotes SetContext
 
-	cfg listConfig[T]
+	cfg  listConfig[T]
+	load loadSpec[T] // spec of the current load; reload goes back to the default
 
 	table   ui.Table
 	filter  ui.Filter
@@ -84,13 +110,25 @@ func newListCore[T any](cfg listConfig[T]) listCore[T] {
 			panic("views: listConfig." + name + " is required")
 		}
 	}
-	return listCore[T]{
+	c := listCore[T]{
 		cfg:       cfg,
 		table:     ui.NewTable(cfg.Columns(ui.TierMedium)),
 		filter:    ui.NewFilter(),
 		spinner:   ui.NewSpinner(cfg.LoadingLabel),
 		loading:   true,
 		widthTier: ui.TierMedium,
+	}
+	c.load = c.defaultSpec()
+	return c
+}
+
+// defaultSpec is the load of the config: the one Init and r start.
+func (c *listCore[T]) defaultSpec() loadSpec[T] {
+	return loadSpec[T]{
+		fetch:      c.cfg.Fetch,
+		timeout:    c.cfg.FetchTimeout,
+		errContext: c.cfg.ErrContext,
+		label:      c.cfg.LoadingLabel,
 	}
 }
 
@@ -106,40 +144,48 @@ func (c *listCore[T]) init() tea.Cmd {
 	return tea.Batch(c.spinner.Tick(), c.startLoad())
 }
 
-// startLoad starts a new load generation and returns the fetch cmd of its
-// first page. The items stay, so the table stays on screen and usable during
-// a reload; page 1 replaces them.
+// startLoad starts a new load generation of the current spec and returns
+// the fetch cmd of its first page. The items stay, so the table stays on
+// screen and usable during a reload; page 1 replaces them.
 func (c *listCore[T]) startLoad() tea.Cmd {
 	c.loadGen++
 	c.pages = 0
 	return c.fetchCmd(nil, 1)
 }
 
-// reload starts a full load with the loading label in the spinner.
+// reload starts the default load. After another load (an AMI search), it
+// goes back to the default.
 func (c *listCore[T]) reload() tea.Cmd {
-	c.loading = true
-	c.err = nil
-	c.spinner.Show(c.cfg.LoadingLabel)
-	return tea.Batch(c.spinner.Tick(), c.startLoad())
+	return c.loadWith(c.defaultSpec())
 }
 
-// fetchCmd fetches one page. It captures the generation, the config and the
-// view context on the Update goroutine. Each page has its own timeout.
+// loadWith starts a full load of s, with its label in the spinner. It
+// replaces the current load, so a reply of the load before is dropped.
+func (c *listCore[T]) loadWith(s loadSpec[T]) tea.Cmd {
+	c.load = s
+	c.loading = true
+	c.err = nil
+	return tea.Batch(c.busy(s.label), c.startLoad())
+}
+
+// fetchCmd fetches one page of the current load. It captures the
+// generation, the spec and the view context on the Update goroutine. Each
+// page has its own timeout.
 func (c *listCore[T]) fetchCmd(token *string, page int) tea.Cmd {
 	gen := c.loadGen
-	fetch, timeout := c.cfg.Fetch, c.cfg.FetchTimeout
-	noun, errContext := c.cfg.Noun, c.cfg.ErrContext
+	spec := c.load
+	noun := c.cfg.Noun
 	ctx := c.viewContext()
 	return func() tea.Msg {
 		eventlog.Debugf(eventlog.CatAWS, "Fetching %s (page %d)", noun, page)
-		if timeout > 0 {
+		if spec.timeout > 0 {
 			var cancel context.CancelFunc
-			ctx, cancel = context.WithTimeout(ctx, timeout)
+			ctx, cancel = context.WithTimeout(ctx, spec.timeout)
 			defer cancel()
 		}
-		items, next, err := fetch(ctx, token)
+		items, next, err := spec.fetch(ctx, token)
 		if err != nil {
-			return listFailedMsg{gen: gen, err: err, context: errContext}
+			return listFailedMsg{gen: gen, err: err, context: spec.errContext}
 		}
 		return listPageMsg[T]{gen: gen, items: items, next: next, page: page}
 	}
@@ -166,8 +212,16 @@ func (c *listCore[T]) onPage(m listPageMsg[T]) tea.Cmd {
 		return c.finishLoad()
 	}
 	eventlog.Debugf(eventlog.CatAWS, "Loaded page %d of %s (%d so far)", max(m.page, 1), c.cfg.Noun, len(c.items))
-	c.spinner.Show(fmt.Sprintf("Loading %s... %d so far", c.cfg.Noun, len(c.items)))
-	return tea.Batch(c.spinner.Tick(), c.fetchCmd(m.next, max(m.page, 1)+1))
+	return tea.Batch(c.busy(c.loadLabel()), c.fetchCmd(m.next, max(m.page, 1)+1))
+}
+
+// loadLabel is the spinner text of the running load: its label, and the
+// progress once a page arrived with more to come.
+func (c *listCore[T]) loadLabel() string {
+	if c.pages == 0 {
+		return c.load.label
+	}
+	return fmt.Sprintf("Loading %s... %d so far", c.cfg.Noun, len(c.items))
 }
 
 // dedupe returns the items of fresh whose key is neither in have nor
@@ -189,18 +243,23 @@ func dedupe[T any](have, fresh []T, key func(T) string) []T {
 	return out
 }
 
-// finishLoad ends a successful load and opens a focus that waited for it.
+// finishLoad ends a successful load, runs OnLoaded with the tag of the
+// load, and then opens a focus that waited for the load.
 func (c *listCore[T]) finishLoad() tea.Cmd {
 	c.loading = false
 	c.err = nil
 	c.spinner.Hide()
 	eventlog.Infof(eventlog.CatAWS, "Loaded %d %s (%d pages)", len(c.items), c.cfg.Noun, c.pages)
-	if c.pendingFocus == "" {
-		return nil
+	var cmds []tea.Cmd
+	if c.cfg.OnLoaded != nil {
+		cmds = append(cmds, c.cfg.OnLoaded(c.items, c.load.tag))
 	}
-	id := c.pendingFocus
-	c.pendingFocus = ""
-	return c.focus(id)
+	if c.pendingFocus != "" {
+		id := c.pendingFocus
+		c.pendingFocus = ""
+		cmds = append(cmds, c.focus(id))
+	}
+	return tea.Batch(cmds...)
 }
 
 // --- entry points for the view's Update ---
@@ -219,6 +278,8 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 	switch m := m.(type) {
 	case listPageMsg[T]:
 		return c.onPage(m), true
+	case listRefreshedMsg[T]:
+		return c.onRefreshed(m), true
 	case listFailedMsg:
 		return c.onFailed(m), true
 	case msg.ErrorMsg:
@@ -275,6 +336,25 @@ func (c *listCore[T]) onFailed(m listFailedMsg) tea.Cmd {
 	return func() tea.Msg { return e }
 }
 
+// onRefreshed merges the reply of a selective refresh. The items it read
+// are merged also when the refresh failed for others, and then one error
+// toast follows. A cancel is silent. A reply from before the current full
+// load is dropped, because that load brings newer data.
+func (c *listCore[T]) onRefreshed(m listRefreshedMsg[T]) tea.Cmd {
+	c.idle()
+	if m.gen != c.loadGen {
+		return nil
+	}
+	c.mergeItems(m.items)
+	if m.err == nil || errors.Is(m.err, context.Canceled) {
+		eventlog.Infof(eventlog.CatAWS, "Refreshed %d %s", len(m.items), c.cfg.Noun)
+		return nil
+	}
+	eventlog.Errorf(eventlog.CatAWS, "%s refresh failed: %v", c.cfg.Noun, m.err)
+	text := "Refresh failed: " + aws.ErrorText(m.err)
+	return func() tea.Msg { return msg.ToastError(text) }
+}
+
 // resize fits the columns to the width. It rebuilds the rows when the tier
 // or the column count changes; the table keeps cursor, selection and sort.
 func (c *listCore[T]) resize(m tea.WindowSizeMsg) {
@@ -323,11 +403,38 @@ func (c *listCore[T]) cursorItem() *T {
 	return c.find(key)
 }
 
+// targets returns the keys an action works on: the visible selected rows,
+// or the cursor row when nothing is selected.
+func (c *listCore[T]) targets() []string {
+	return c.table.TargetKeys()
+}
+
 // setItems replaces the items and the table rows. The table keeps cursor,
 // selection and sort by key.
 func (c *listCore[T]) setItems(items []T) {
 	c.items = items
 	c.table.SetRows(c.rows(items))
+}
+
+// mergeItems replaces each item that has the key of an item in fresh. An
+// item that fresh does not hold stays, and an item of fresh with an unknown
+// key is ignored.
+func (c *listCore[T]) mergeItems(fresh []T) {
+	if len(fresh) == 0 {
+		return
+	}
+	byKey := make(map[string]T, len(fresh))
+	for _, it := range fresh {
+		byKey[c.cfg.Key(it)] = it
+	}
+	items := make([]T, len(c.items))
+	for i, it := range c.items {
+		if f, ok := byKey[c.cfg.Key(it)]; ok {
+			it = f
+		}
+		items[i] = it
+	}
+	c.setItems(items)
 }
 
 func (c *listCore[T]) rows(items []T) []ui.Row {
@@ -338,13 +445,53 @@ func (c *listCore[T]) rows(items []T) []ui.Row {
 	return rows
 }
 
+// --- async helpers ---
+
+// busy shows the spinner with label and starts its ticks.
+func (c *listCore[T]) busy(label string) tea.Cmd {
+	c.spinner.Show(label)
+	return c.spinner.Tick()
+}
+
+// idle ends the spinner of a side task (a refresh, a fetch by ID). While a
+// full load runs, the spinner stays and shows the text of that load again.
+func (c *listCore[T]) idle() {
+	if c.loading {
+		c.spinner.Show(c.loadLabel())
+		return
+	}
+	c.spinner.Hide()
+}
+
+// refreshKeys refreshes the items with the given keys through cfg.Refresh.
+// The reply carries the current load generation.
+func (c *listCore[T]) refreshKeys(keys []string) tea.Cmd {
+	gen := c.loadGen
+	refresh := c.cfg.Refresh
+	ctx := c.viewContext()
+	eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d %s", len(keys), c.cfg.Noun)
+	return tea.Batch(
+		c.busy(fmt.Sprintf("Refreshing %d %s...", len(keys), c.cfg.Noun)),
+		func() tea.Msg {
+			items, err := refresh(ctx, keys)
+			return listRefreshedMsg[T]{gen: gen, items: items, err: err}
+		},
+	)
+}
+
 // focus moves the cursor to the row with the given ID and opens its detail.
 // A row the filter hides keeps the cursor where it is, but its detail still
-// opens. An ID that is not in the list does nothing.
+// opens. An ID that is not in the list goes to FocusMissing.
 func (c *listCore[T]) focus(id string) tea.Cmd {
-	c.table.SetCursorByKey(id)
 	it := c.find(id)
-	if it == nil || c.cfg.OpenDetail == nil {
+	if it == nil {
+		if c.cfg.FocusMissing == nil {
+			return nil
+		}
+		return c.cfg.FocusMissing(id)
+	}
+	c.table.SetCursorByKey(id)
+	if c.cfg.OpenDetail == nil {
 		return nil
 	}
 	return c.cfg.OpenDetail(*it)

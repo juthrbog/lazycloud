@@ -85,7 +85,7 @@ func TestAMIFocus_OtherAccountAMIGetsARow(t *testing.T) {
 
 	assert.Equal(t, "amzn2-public (ami-pub)", panelTitle(msgs))
 	assert.Equal(t, publicAMI.ID, view.table.CursorKey())
-	assert.NotNil(t, view.findAMI(publicAMI.ID))
+	assert.NotNil(t, view.find(publicAMI.ID))
 	assert.Contains(t, view.Footer(), "1 linked")
 	svc.AssertExpectations(t)
 }
@@ -100,7 +100,7 @@ func TestAMIFocus_PendingFocusFetchesAfterLoad(t *testing.T) {
 	_, cmd := view.Update(msg.FocusResourceMsg{ResourceID: publicAMI.ID})
 	require.Nil(t, cmd)
 
-	_, cmd = view.Update(amiListLoadedMsg{amis: []aws.AMI{testAMI1}, owned: true})
+	_, cmd = view.Update(listPageMsg[aws.AMI]{gen: view.loadGen, items: []aws.AMI{testAMI1}})
 	require.NotNil(t, cmd)
 	var title string
 	for _, m := range collectMsgs(cmd) {
@@ -126,7 +126,7 @@ func TestAMIFocus_ReloadDropsLinkedRow(t *testing.T) {
 
 	loadAMIs(view, []aws.AMI{testAMI1})
 
-	assert.Nil(t, view.findAMI(publicAMI.ID))
+	assert.Nil(t, view.find(publicAMI.ID))
 	assert.NotContains(t, view.Footer(), "linked")
 }
 
@@ -140,7 +140,7 @@ func TestAMIFocus_NotFoundShowsToast(t *testing.T) {
 	assert.Contains(t, toastText(msgs), "ami-gone")
 	assert.Contains(t, toastText(msgs), "not found")
 	assert.Empty(t, panelTitle(msgs))
-	assert.Len(t, view.amis, 1)
+	assert.Len(t, view.items, 1)
 	assert.Equal(t, testAMI1.ID, view.table.CursorKey())
 	assert.False(t, view.spinner.Visible())
 }
@@ -165,4 +165,30 @@ func TestAMIFocus_CanceledIsSilent(t *testing.T) {
 	msgs := focusAMI(t, view, "ami-x")
 
 	assert.Empty(t, toastText(msgs))
+}
+
+// A fetch reply that arrives after a newer full load does not add its row to
+// the rows of that load, but the panel still opens.
+func TestAMIFocus_LateReplyAfterSearchAddsNoRow(t *testing.T) {
+	view, svc := focusView(t)
+	svc.On("RefreshAMIs", mock.Anything, []string{publicAMI.ID}).Return([]aws.AMI{publicAMI}, nil).Once()
+	svc.On("SearchAMIs", mock.Anything, "arm").Return([]aws.AMI{testAMI2}, nil).Once()
+
+	_, cmd := view.Update(msg.FocusResourceMsg{ResourceID: publicAMI.ID})
+	fetched := collectMsgs(cmd)
+	pump(view, view.searchAMIs("arm"), 5)
+	require.Equal(t, `1/1 results for "arm"`, plain(view.Footer()))
+
+	var out []any
+	for _, m := range fetched {
+		_, next := view.Update(m)
+		for _, n := range collectMsgs(next) {
+			out = append(out, n)
+		}
+	}
+
+	assert.Equal(t, "amzn2-public (ami-pub)", panelTitle(out))
+	assert.Equal(t, []string{testAMI2.ID}, view.table.VisibleKeys())
+	assert.Equal(t, `1/1 results for "arm"`, plain(view.Footer()))
+	assert.Zero(t, view.linked)
 }

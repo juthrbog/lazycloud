@@ -158,6 +158,42 @@ var conformanceCases = []conformanceCase{
 		typeName: "SubnetList",
 		coreType: reflect.TypeFor[listCore[aws.Subnet]](),
 	},
+	{
+		name: "ami_list",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockEC2Service)
+			svc.Test(t)
+			svc.On("ListOwnedAMIs", mock.MatchedBy(ok)).Return([]aws.AMI{{ID: "ami-1", Name: "one"}}, nil)
+			svc.On("ListOwnedAMIs", mock.Anything).Return([]aws.AMI(nil), errors.New("wrong context"))
+			return NewAMIList(svc)
+		},
+		buildNil: func() nav.View { return NewAMIList(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*AMIList).listCore
+			return []tea.Msg{
+				listPageMsg[aws.AMI]{gen: c.loadGen, items: []aws.AMI{{ID: "ami-1"}}},
+				listPageMsg[aws.AMI]{gen: c.loadGen - 1, items: []aws.AMI{{ID: "ami-old"}}},
+				listRefreshedMsg[aws.AMI]{gen: c.loadGen - 1, items: []aws.AMI{{ID: "ami-1", Name: "stale"}}},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				amiFocusLoadedMsg{id: "ami-x", err: context.Canceled},
+				keyPress('p'), keyPress('q'), tea.KeyPressMsg{Code: tea.KeyEscape},
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*AMIList).items {
+				ids = append(ids, it.ID)
+			}
+			return ids
+		},
+		wantIDs:      []string{"ami-1"},
+		file:         "ami_list.go",
+		typeName:     "AMIList",
+		coreType:     reflect.TypeFor[listCore[aws.AMI]](),
+		allowMethods: []string{"CapturingInput"}, // the filter or the search input
+	},
 }
 
 // conformanceLoaded builds the view at width 160 and runs its first load.

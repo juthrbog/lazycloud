@@ -217,9 +217,9 @@ func TestEC2List_LaterPagesAppend(t *testing.T) {
 func TestAMIList_SelectedIDsInSortedList(t *testing.T) {
 	v := NewAMIList(new(awstest.MockEC2Service))
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
-	v.Update(amiListLoadedMsg{amis: []aws.AMI{{ID: "ami-b"}, {ID: "ami-a"}}, owned: true})
+	deliverItems(v, &v.listCore, []aws.AMI{{ID: "ami-b"}, {ID: "ami-a"}})
 	v.table.Sort(0)                              // ami-a, ami-b; the cursor stays on ami-b
 	v.Update(tea.KeyPressMsg{Code: tea.KeyHome}) // ami-a
 	v.Update(keyPress(' '))
-	assert.Equal(t, []string{"ami-a"}, v.selectedAMIIDs())
+	assert.Equal(t, []string{"ami-a"}, v.targets())
 }

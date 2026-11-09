@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
@@ -18,94 +17,215 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-type amiListLoadedMsg struct {
-	amis  []aws.AMI
-	owned bool
-	query string // non-empty when this is a search result
-}
-
-type amiRefreshedMsg struct {
-	amis []aws.AMI
-	err  error
-}
-
 // amiFocusLoadedMsg holds the result of a fetch by ID for a focus link to an
-// AMI that is not in the list.
+// AMI that is not in the list. gen is the load generation when the fetch
+// started.
 type amiFocusLoadedMsg struct {
+	gen  int
 	id   string
 	amis []aws.AMI
 	err  error
 }
 
-type amiListKeyMap struct {
-	Esc          key.Binding
-	Details      key.Binding
-	Describe     key.Binding
-	CopyID       key.Binding
-	SearchPublic key.Binding
-	Sort         key.Binding
-	SortReverse  key.Binding
-	Filter       key.Binding
-	Refresh      key.Binding
-	Select       key.Binding
-}
-
-var defaultAMIListKeyMap = amiListKeyMap{
-	Esc:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
-	Details:      key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/d", "details")),
-	Describe:     key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
-	CopyID:       key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy ID")),
-	SearchPublic: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "search public")),
-	Sort:         key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
-	SortReverse:  key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
-	Filter:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	Refresh:      key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
-	Select:       key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
-}
-
-// AMIList displays EC2 AMIs.
-type AMIList struct {
-	viewCtx
-	keys         amiListKeyMap
-	ec2          aws.EC2Service
-	table        ui.Table
-	amis         []aws.AMI
-	filter       ui.Filter
-	search       ui.Filter
-	lastQuery    string // query used for current search results
-	ownedMode    bool
-	spinner      ui.Spinner
-	loading      bool
-	err          error
-	width        int
-	height       int
-	widthTier    ui.WidthTier
-	pendingFocus string // AMI ID to auto-open after data loads
-	linkedAMIs   int    // rows that a focus link added to the list
-}
-
-func (a *AMIList) ID() string    { return "ami_list" }
-func (a *AMIList) Title() string { return "AMIs" }
-
-// CapturingInput implements nav.InputCapturer.
-func (a *AMIList) CapturingInput() bool {
-	return a.filter.Active() || a.search.Active()
-}
+// amiSearchKey opens the search of public AMIs.
+var amiSearchKey = ui.NewHintBinding([]string{"p"}, "p", "search public")
 
 // amiSearchSource marks the messages of the search input.
 const amiSearchSource = "ami-search"
 
-func (a *AMIList) KeyMap() []ui.HintBinding {
-	hints := []ui.HintBinding{
-		{Binding: a.keys.Details},
-		{Binding: a.keys.CopyID},
-		{Binding: a.keys.Select},
-		{Binding: a.keys.SearchPublic},
-		{Binding: a.keys.Sort},
-		{Binding: a.keys.Filter},
-		{Binding: a.keys.Refresh},
+// AMIList displays EC2 AMIs: the owned AMIs, or the result of a search of
+// public AMIs.
+type AMIList struct {
+	listCore[aws.AMI]
+	ec2         aws.EC2Service
+	searchInput ui.Filter
+	shown       string // what the rows are: "" for the owned AMIs, else the search query
+	linked      int    // rows that a focus link added to the list
+}
+
+// NewAMIList creates the AMI list view.
+func NewAMIList(ec2 aws.EC2Service) *AMIList {
+	a := &AMIList{
+		ec2:         ec2,
+		searchInput: ui.NewFilterWithPrompt("?", "search public AMIs...").WithSource(amiSearchSource),
 	}
-	return hints
+	a.listCore = newListCore(listConfig[aws.AMI]{
+		Noun:         "AMIs",
+		LoadingLabel: "Loading AMIs...",
+		ErrContext:   "listing owned AMIs",
+		Key:          func(ami aws.AMI) string { return ami.ID },
+		Columns:      amiColumns,
+		Row:          amiRow,
+		Fetch:        fetchAll(ec2, aws.EC2Service.ListOwnedAMIs),
+		FetchTimeout: listTimeout,
+		OnLoaded:     a.onLoaded,
+		Refresh:      refreshBy(ec2, aws.EC2Service.RefreshAMIs, callTimeout),
+		OpenDetail:   amiDetail,
+		FocusMissing: a.fetchLinked,
+		MultiSelect:  true,
+		Copy:         true,
+		CopyNoun:     "AMI ID",
+	})
+	return a
+}
+
+func (a *AMIList) ID() string     { return "ami_list" }
+func (a *AMIList) Title() string  { return "AMIs" }
+func (a *AMIList) Init() tea.Cmd  { return a.init() }
+func (a *AMIList) Footer() string { return a.footerWith(a.footerBase()) }
+
+// CapturingInput implements nav.InputCapturer: true while the filter or the
+// search is open.
+func (a *AMIList) CapturingInput() bool {
+	return a.filter.Active() || a.searchInput.Active()
+}
+
+func (a *AMIList) KeyMap() []ui.HintBinding {
+	return a.hints(listKeys.Details, listKeys.CopyID, listKeys.Select, amiSearchKey,
+		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+}
+
+func (a *AMIList) View() tea.View {
+	above := ""
+	if a.searchInput.Active() {
+		above = a.searchInput.View() + "\n"
+	}
+	return tea.NewView(a.render(above))
+}
+
+// Update handles the search input, p and the fetch of a linked AMI, and
+// hands the rest to the core. It returns the view itself, so the navigator
+// keeps its identity.
+func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	switch m := m.(type) {
+	case amiFocusLoadedMsg:
+		return a, a.showLinked(m)
+	case tea.WindowSizeMsg:
+		a.searchInput.SetWidth(m.Width)
+	case tea.KeyPressMsg:
+		if a.searchInput.Active() {
+			return a, a.searchKey(m)
+		}
+		if !a.filter.Active() && key.Matches(m, amiSearchKey.Binding) {
+			a.searchInput.Activate()
+			return a, nil
+		}
+	}
+	return a, a.update(m)
+}
+
+// searchKey handles a key while the search is open. esc closes it; enter
+// closes it and starts the search, unless the query is empty.
+func (a *AMIList) searchKey(m tea.KeyPressMsg) tea.Cmd {
+	switch m.String() {
+	case "esc":
+		a.searchInput.Deactivate()
+		return nil
+	case "enter":
+		query := a.searchInput.Value()
+		a.searchInput.Deactivate()
+		if query == "" {
+			return nil
+		}
+		return a.searchAMIs(query)
+	}
+	var cmd tea.Cmd
+	a.searchInput, cmd = a.searchInput.Update(m)
+	return cmd
+}
+
+// searchAMIs starts a search of public AMIs. It replaces the current load,
+// so of a search and an owned load the one started last wins. r goes back
+// to the owned AMIs.
+func (a *AMIList) searchAMIs(query string) tea.Cmd {
+	eventlog.Infof(eventlog.CatAWS, "Searching AMIs: %q", query)
+	return a.loadWith(loadSpec[aws.AMI]{
+		fetch: fetchAll(a.ec2, func(s aws.EC2Service, ctx context.Context) ([]aws.AMI, error) {
+			return s.SearchAMIs(ctx, query)
+		}),
+		// No overall limit: SearchAMIs reads at most 20 pages of the public
+		// catalog, which can take longer than listTimeout for a rare name.
+		// The read timeout of the client still stops a stalled page, and
+		// leaving the view cancels the search.
+		timeout:    0,
+		errContext: "searching AMIs",
+		label:      "Searching AMIs...",
+		tag:        query,
+	})
+}
+
+// onLoaded runs after a full load. The rows are now the owned AMIs or the
+// result of the query in tag, and a linked row is gone.
+func (a *AMIList) onLoaded(_ []aws.AMI, tag string) tea.Cmd {
+	a.shown = tag
+	a.linked = 0
+	return nil
+}
+
+func (a *AMIList) footerBase() string {
+	filtered, total := a.table.RowCount()
+	switch {
+	case a.shown != "":
+		return fmt.Sprintf("%d/%d results for %q", filtered, total, a.shown)
+	case a.linked > 0:
+		return fmt.Sprintf("%d/%d AMIs (owned + %d linked)", filtered, total, a.linked)
+	}
+	return fmt.Sprintf("%d/%d AMIs (owned)", filtered, total)
+}
+
+// fetchLinked fetches an AMI that a focus link asks for but the list does
+// not hold. The list holds only the owned AMIs or a search result, and most
+// instances use an AMI of another account.
+func (a *AMIList) fetchLinked(id string) tea.Cmd {
+	gen := a.loadGen
+	refresh := a.cfg.Refresh
+	ctx := a.viewContext()
+	return tea.Batch(a.busy("Loading AMI..."), func() tea.Msg {
+		amis, err := refresh(ctx, []string{id})
+		return amiFocusLoadedMsg{gen: gen, id: id, amis: amis, err: err}
+	})
+}
+
+// showLinked adds a fetched AMI to the list and opens it. When the fetch
+// finds nothing, a toast says so and the list stays as it is. When a full
+// load started after the fetch, the rows belong to that load: the panel
+// opens, but the AMI gets no row.
+func (a *AMIList) showLinked(m amiFocusLoadedMsg) tea.Cmd {
+	a.idle()
+	if errors.Is(m.err, context.Canceled) {
+		return nil
+	}
+	if m.err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "AMI %s: %v", m.id, m.err)
+		text := fmt.Sprintf("Could not load AMI %s: %s", m.id, aws.ErrorText(m.err))
+		return func() tea.Msg { return msg.ToastError(text) }
+	}
+	i := slices.IndexFunc(m.amis, func(ami aws.AMI) bool { return ami.ID == m.id })
+	if i < 0 {
+		text := fmt.Sprintf("AMI %s not found or not visible to this account", m.id)
+		return func() tea.Msg { return msg.ToastError(text) }
+	}
+	if m.gen != a.loadGen {
+		return amiDetail(m.amis[i])
+	}
+	if a.find(m.id) == nil {
+		a.setItems(append(slices.Clip(a.items), m.amis[i]))
+		a.linked++
+	}
+	return a.focus(m.id)
+}
+
+// amiDetail opens the detail panel of an AMI: its JSON in one tab.
+func amiDetail(ami aws.AMI) tea.Cmd {
+	content, _ := json.MarshalIndent(ami, "", "  ")
+	title := ami.ID
+	if ami.Name != "" {
+		title = ami.Name + " (" + ami.ID + ")"
+	}
+	tabs := []msg.TabContent{{Title: "JSON", Content: string(content), Format: "json"}}
+	return func() tea.Msg {
+		return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
+	}
 }
 
 func amiColumns(tier ui.WidthTier) []ui.Column {
@@ -134,432 +254,25 @@ func amiColumns(tier ui.WidthTier) []ui.Column {
 	}
 }
 
-// NewAMIList creates the AMI list view.
-func NewAMIList(ec2 aws.EC2Service) *AMIList {
-	columns := amiColumns(ui.TierMedium)
-
-	return &AMIList{
-		keys:      defaultAMIListKeyMap,
-		ec2:       ec2,
-		table:     ui.NewTable(columns),
-		filter:    ui.NewFilter(),
-		search:    ui.NewFilterWithPrompt("?", "search public AMIs...").WithSource(amiSearchSource),
-		ownedMode: true,
-		spinner:   ui.NewSpinner("Loading AMIs..."),
-		loading:   true,
-		widthTier: ui.TierMedium,
-	}
-}
-
-func (a *AMIList) Init() tea.Cmd {
-	a.table.DeselectAll()
-	if !a.loading {
-		return nil
-	}
-	return tea.Batch(a.spinner.Tick(), a.fetchOwned())
-}
-
-func (a *AMIList) fetchOwned() tea.Cmd {
-	svc := a.ec2
-	ctx := a.viewContext()
-	return func() tea.Msg {
-		if svc == nil {
-			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
-		}
-		eventlog.Debugf(eventlog.CatAWS, "Fetching owned AMIs")
-		ctx, cancel := context.WithTimeout(ctx, listTimeout)
-		defer cancel()
-		amis, err := svc.ListOwnedAMIs(ctx)
-		if err != nil {
-			return msg.ErrorMsg{Err: err, Context: "listing owned AMIs"}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Loaded %d owned AMIs", len(amis))
-		return amiListLoadedMsg{amis: amis, owned: true}
-	}
-}
-
-func (a *AMIList) fetchSearch(query string) tea.Cmd {
-	svc := a.ec2
-	ctx := a.viewContext()
-	return func() tea.Msg {
-		if svc == nil {
-			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Searching AMIs: %q", query)
-		// No overall limit: SearchAMIs reads at most 20 pages of the public
-		// catalog, which can take longer than listTimeout for a rare name.
-		// The read timeout of the client still stops a stalled page, and
-		// leaving the view cancels the search.
-		amis, err := svc.SearchAMIs(ctx, query)
-		if err != nil {
-			return msg.ErrorMsg{Err: err, Context: "searching AMIs"}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Found %d AMIs for %q", len(amis), query)
-		return amiListLoadedMsg{amis: amis, owned: false, query: query}
-	}
-}
-
-func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	switch m := m.(type) {
-	case ui.PickerResultMsg:
-		if m.ID == "sort" {
-			if m.Value == "_clear" {
-				a.table.ClearSort()
-			} else if m.Selected >= 0 {
-				a.table.Sort(m.Selected)
-			}
-		}
-		return a, nil
-
-	case amiListLoadedMsg:
-		a.loading = false
-		a.spinner.Hide()
-		a.amis = m.amis
-		a.linkedAMIs = 0
-		a.ownedMode = m.owned
-		a.lastQuery = m.query
-		rows := buildAMIRows(m.amis, a.widthTier)
-		a.table.SetRows(rows)
-		if a.pendingFocus != "" {
-			id := a.pendingFocus
-			a.pendingFocus = ""
-			return a, a.focusAndOpenDetail(id)
-		}
-		return a, nil
-
-	case amiRefreshedMsg:
-		a.spinner.Hide()
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "AMI refresh failed: %v", m.err)
-			return a, func() tea.Msg {
-				return msg.ToastError("Refresh failed: " + aws.ErrorText(m.err))
-			}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Refreshed %d AMIs", len(m.amis))
-		for _, updated := range m.amis {
-			for i := range a.amis {
-				if a.amis[i].ID == updated.ID {
-					a.amis[i] = updated
-					break
-				}
-			}
-		}
-		rows := buildAMIRows(a.amis, a.widthTier)
-		a.table.SetRows(rows)
-		return a, nil
-
-	case amiFocusLoadedMsg:
-		a.spinner.Hide()
-		return a, a.showFocusedAMI(m)
-
-	case msg.FocusResourceMsg:
-		if a.loading {
-			a.pendingFocus = m.ResourceID
-			return a, nil
-		}
-		return a, a.focusAndOpenDetail(m.ResourceID)
-
-	case msg.ErrorMsg:
-		a.loading = false
-		a.spinner.Hide()
-		a.err = m.Err
-		return a, nil
-
-	case tea.WindowSizeMsg:
-		a.width = m.Width
-		a.height = m.Height
-		cols, newTier := ui.BestFitTier(m.Width, amiColumns)
-		a.widthTier = newTier
-		if len(cols) != len(a.table.Columns()) {
-			a.table.SetColumns(cols)
-			if len(a.amis) > 0 {
-				a.table.SetRows(buildAMIRows(a.amis, a.widthTier))
-			}
-		}
-		a.table.SetSize(m.Width, m.Height-3)
-		a.filter.SetWidth(m.Width)
-		a.search.SetWidth(m.Width)
-		return a, nil
-
-	case ui.FilterChangedMsg:
-		// The search input sends these too. Its text is a query for AWS,
-		// not a filter for the table.
-		if m.Source == "" {
-			a.table.Filter(m.Text)
-		}
-		return a, nil
-
-	case tea.KeyPressMsg:
-		// Search input active
-		if a.search.Active() {
-			switch m.String() {
-			case "esc":
-				a.search.Deactivate()
-				return a, nil
-			case "enter":
-				query := a.search.Value()
-				a.search.Deactivate()
-				if query == "" {
-					return a, nil
-				}
-				a.loading = true
-				a.err = nil
-				a.spinner.Show("Searching AMIs...")
-				return a, tea.Batch(a.spinner.Tick(), a.fetchSearch(query))
-			}
-			var cmd tea.Cmd
-			a.search, cmd = a.search.Update(m)
-			return a, cmd
-		}
-
-		// Filter input active
-		if a.filter.Active() {
-			var cmd tea.Cmd
-			a.filter, cmd = a.filter.Update(m)
-			return a, cmd
-		}
-
-		switch {
-		case key.Matches(m, a.keys.Esc):
-			if a.table.SelectionCount() > 0 {
-				a.table.DeselectAll()
-				return a, nil
-			}
-			return a, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case key.Matches(m, a.keys.Select):
-			a.table.ToggleSelect()
-			return a, nil
-		case key.Matches(m, a.keys.Sort):
-			columns, currentCol := a.table.SortColumnNames()
-			return a, func() tea.Msg {
-				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
-			}
-		case key.Matches(m, a.keys.SortReverse):
-			a.table.SortReverse()
-			return a, nil
-		case key.Matches(m, a.keys.Filter):
-			a.filter.Activate()
-			return a, nil
-		case key.Matches(m, a.keys.SearchPublic):
-			a.search.Activate()
-			return a, nil
-		case key.Matches(m, a.keys.CopyID):
-			ids := a.selectedAMIIDs()
-			if len(ids) == 0 {
-				return a, nil
-			}
-			text := strings.Join(ids, "\n")
-			return a, tea.Batch(
-				tea.SetClipboard(text),
-				func() tea.Msg {
-					return msg.ToastSuccess(fmt.Sprintf("Copied %d AMI ID(s)", len(ids)))
-				},
-			)
-		case key.Matches(m, a.keys.Refresh):
-			if ids := a.selectedAMIIDs(); len(ids) > 0 && a.table.SelectionCount() > 0 {
-				eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d AMIs", len(ids))
-				a.spinner.Show(fmt.Sprintf("Refreshing %d AMIs...", len(ids)))
-				return a, tea.Batch(a.spinner.Tick(), a.refreshAMIs(ids))
-			}
-			a.loading = true
-			a.err = nil
-			a.ownedMode = true
-			a.lastQuery = ""
-			a.spinner.Show("Loading AMIs...")
-			return a, tea.Batch(a.spinner.Tick(), a.fetchOwned())
-		case key.Matches(m, a.keys.Details, a.keys.Describe):
-			ami := a.findAMI(a.table.CursorKey())
-			if ami == nil {
-				return a, nil
-			}
-			content, _ := json.MarshalIndent(ami, "", "  ")
-			title := ami.ID
-			if ami.Name != "" {
-				title = ami.Name + " (" + ami.ID + ")"
-			}
-			c := string(content)
-			return a, func() tea.Msg {
-				return msg.NavigateMsg{
-					ViewID: "content",
-					Params: map[string]string{
-						"title":   title,
-						"content": c,
-						"format":  "json",
-					},
-				}
-			}
-		}
-	}
-
-	if a.loading {
-		var cmd tea.Cmd
-		a.spinner, cmd = a.spinner.Update(m)
-		return a, cmd
-	}
-
-	var cmd tea.Cmd
-	a.table, cmd = a.table.Update(m)
-	return a, cmd
-}
-
-func (a *AMIList) findAMI(id string) *aws.AMI {
-	for i := range a.amis {
-		if a.amis[i].ID == id {
-			return &a.amis[i]
-		}
-	}
-	return nil
-}
-
-// selectedAMIIDs returns the IDs of the visible selected AMIs, or the
-// cursor AMI ID if none is selected.
-func (a *AMIList) selectedAMIIDs() []string {
-	return a.table.TargetKeys()
-}
-
-func (a *AMIList) refreshAMIs(ids []string) tea.Cmd {
-	svc := a.ec2
-	ctx := a.viewContext()
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
-		amis, err := svc.RefreshAMIs(ctx, ids)
-		return amiRefreshedMsg{amis: amis, err: err}
-	}
-}
-
-// focusAndOpenDetail moves the cursor to an AMI and opens its panel. The list
-// holds only the owned AMIs or a search result, and most instances use an AMI
-// of another account, so an AMI that is not in the list is fetched by ID.
-func (a *AMIList) focusAndOpenDetail(id string) tea.Cmd {
-	ami := a.findAMI(id)
-	if ami == nil {
-		a.spinner.Show("Loading AMI...")
-		return tea.Batch(a.spinner.Tick(), a.fetchFocusedAMI(id))
-	}
-	a.table.SetCursorByKey(id)
-	return a.openDetailCmd(ami)
-}
-
-func (a *AMIList) fetchFocusedAMI(id string) tea.Cmd {
-	svc := a.ec2
-	ctx := a.viewContext()
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
-		amis, err := svc.RefreshAMIs(ctx, []string{id})
-		return amiFocusLoadedMsg{id: id, amis: amis, err: err}
-	}
-}
-
-// showFocusedAMI adds a fetched AMI to the list and opens it. When the fetch
-// finds nothing, a toast says so and the list stays as it is.
-func (a *AMIList) showFocusedAMI(m amiFocusLoadedMsg) tea.Cmd {
-	if errors.Is(m.err, context.Canceled) {
-		return nil
-	}
-	if m.err != nil {
-		eventlog.Errorf(eventlog.CatAWS, "AMI %s: %v", m.id, m.err)
-		text := fmt.Sprintf("Could not load AMI %s: %s", m.id, aws.ErrorText(m.err))
-		return func() tea.Msg { return msg.ToastError(text) }
-	}
-	i := slices.IndexFunc(m.amis, func(ami aws.AMI) bool { return ami.ID == m.id })
-	if i < 0 {
-		text := fmt.Sprintf("AMI %s not found or not visible to this account", m.id)
-		return func() tea.Msg { return msg.ToastError(text) }
-	}
-	if a.findAMI(m.id) == nil {
-		a.amis = append(a.amis, m.amis[i])
-		a.linkedAMIs++
-		a.table.SetRows(buildAMIRows(a.amis, a.widthTier))
-	}
-	return a.focusAndOpenDetail(m.id)
-}
-
-func (a *AMIList) openDetailCmd(ami *aws.AMI) tea.Cmd {
-	content, _ := json.MarshalIndent(ami, "", "  ")
-	title := ami.ID
-	if ami.Name != "" {
-		title = ami.Name + " (" + ami.ID + ")"
-	}
-	c := string(content)
-	return func() tea.Msg {
-		return msg.TabbedContentMsg{
-			PanelTitle: title,
-			Tabs: []msg.TabContent{
-				{Title: title, Content: c, Format: "json"},
-			},
-		}
-	}
-}
-
-func buildAMIRows(amis []aws.AMI, tier ui.WidthTier) []ui.Row {
-	rows := make([]ui.Row, 0, len(amis))
-	for _, ami := range amis {
+// amiRow builds the row of one AMI. The wide row shows the owner alias
+// before the owner ID, and the date only.
+func amiRow(ami aws.AMI, tier ui.WidthTier) ui.Row {
+	var cells table.Row
+	switch tier {
+	case ui.TierNarrow:
+		cells = table.Row{ami.ID, ami.Name, ami.State}
+	case ui.TierMedium:
+		cells = table.Row{ami.ID, ami.Name, ami.Architecture, ami.State}
+	default:
 		owner := ami.OwnerID
 		if ami.OwnerAlias != "" {
 			owner = ami.OwnerAlias
 		}
-		var cells table.Row
-		switch tier {
-		case ui.TierNarrow:
-			cells = table.Row{
-				ami.ID, ami.Name, ami.State,
-			}
-		case ui.TierMedium:
-			cells = table.Row{
-				ami.ID, ami.Name, ami.Architecture,
-				ami.State,
-			}
-		default:
-			created := ami.CreationDate
-			if len(created) >= 10 {
-				created = created[:10]
-			}
-			cells = table.Row{
-				ami.ID, ami.Name, owner, ami.Architecture,
-				ami.State, created,
-			}
+		created := ami.CreationDate
+		if len(created) >= 10 {
+			created = created[:10]
 		}
-		rows = append(rows, ui.Row{Key: ami.ID, Cells: cells})
+		cells = table.Row{ami.ID, ami.Name, owner, ami.Architecture, ami.State, created}
 	}
-	return rows
-}
-
-func (a *AMIList) Footer() string {
-	filtered, total := a.table.RowCount()
-	var footer string
-	if a.ownedMode {
-		footer = fmt.Sprintf("%d/%d AMIs (owned)", filtered, total)
-		if a.linkedAMIs > 0 {
-			footer = fmt.Sprintf("%d/%d AMIs (owned + %d linked)", filtered, total, a.linkedAMIs)
-		}
-	} else {
-		footer = fmt.Sprintf("%d/%d results for %q", filtered, total, a.lastQuery)
-	}
-	if sel := a.table.SelectionCount(); sel > 0 {
-		footer += fmt.Sprintf("  (%d selected)", sel)
-	}
-	if a.spinner.Visible() {
-		footer += "  " + a.spinner.View()
-	}
-	return footer
-}
-
-func (a *AMIList) View() tea.View {
-	var content string
-	switch {
-	case a.loading && len(a.amis) == 0:
-		content = "\n  " + a.spinner.View()
-	case a.err != nil:
-		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(a.err)))
-	default:
-		content = a.table.View()
-		if a.search.Active() {
-			content = a.search.View() + "\n" + content
-		} else if a.filter.Active() {
-			content = a.filter.View() + "\n" + content
-		}
-	}
-	return tea.NewView(content)
+	return ui.Row{Key: ami.ID, Cells: cells}
 }
