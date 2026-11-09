@@ -15,10 +15,6 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-func keyPress(char rune) tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: char, Text: string(char)}
-}
-
 func newTestS3List() (*S3List, *awstest.MockS3Service) {
 	m := new(awstest.MockS3Service)
 	view := NewS3List(m, "us-east-1")
