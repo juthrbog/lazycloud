@@ -301,36 +301,15 @@ func buildSGRows(groups []aws.SecurityGroup, tier ui.WidthTier) []ui.Row {
 }
 
 func buildSGInfoContent(sg *aws.SecurityGroup) (string, []msg.TabLink) {
-	type field struct {
-		k, v   string
-		viewID string
-		params map[string]string
+	fields := []infoField{
+		{K: "Group ID", V: sg.ID},
+		{K: "Name", V: sg.Name},
+		{K: "ARN", V: sg.ARN},
+		{K: "Description", V: sg.Description},
+		{K: "VPC", V: sg.VpcID, ViewID: "vpc_list", Params: map[string]string{"focus": sg.VpcID}},
+		{K: "Owner", V: sg.OwnerID},
 	}
-	fields := []field{
-		{k: "Group ID", v: sg.ID},
-		{k: "Name", v: sg.Name},
-		{k: "ARN", v: sg.ARN},
-		{k: "Description", v: sg.Description},
-		{k: "VPC", v: sg.VpcID, viewID: "vpc_list", params: map[string]string{"focus": sg.VpcID}},
-		{k: "Owner", v: sg.OwnerID},
-	}
-	var b strings.Builder
-	var links []msg.TabLink
-	lineIdx := 0
-	for _, f := range fields {
-		if f.v != "" {
-			fmt.Fprintf(&b, "%-16s %s\n", f.k, f.v)
-			if f.viewID != "" {
-				links = append(links, msg.TabLink{
-					Line:   lineIdx,
-					ViewID: f.viewID,
-					Params: f.params,
-				})
-			}
-			lineIdx++
-		}
-	}
-	return b.String(), links
+	return buildInfo(fields)
 }
 
 func buildRulesContent(rules []aws.SecurityGroupRule) string {

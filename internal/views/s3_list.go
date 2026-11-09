@@ -117,6 +117,9 @@ func (s *S3List) CapturingInput() bool {
 	return s.filter.Active() || (s.creating && s.createInput.Active())
 }
 
+// s3CreateSource marks the messages of the create input.
+const s3CreateSource = "s3-create"
+
 func (s *S3List) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: s.keys.Browse},
@@ -215,7 +218,6 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, nil
 		}
 		eventlog.Infof(eventlog.CatAWS, "Created bucket: %s", m.name)
-		s.table.Filter("") // clear any filter from the create input
 		s.loading = true
 		s.spinner.Show("Loading S3 buckets...")
 		name := m.name
@@ -277,8 +279,9 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case ui.FilterChangedMsg:
-		// Ignore filter messages from the create input
-		if !s.creating {
+		// The create input sends these too. Its text is a bucket name, not a
+		// filter for the table.
+		if m.Source == "" {
 			s.table.Filter(m.Text)
 		}
 		return s, nil
@@ -352,7 +355,7 @@ func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, s.fetchBucketProperties(bucket)
 		case key.Matches(m, s.keys.NewBucket):
 			s.creating = true
-			s.createInput = ui.NewFilterWithPrompt("new bucket", "bucket-name")
+			s.createInput = ui.NewFilterWithPrompt("new bucket", "bucket-name").WithSource(s3CreateSource)
 			s.createInput.SetWidth(s.width)
 			s.createInput.Activate()
 			return s, nil

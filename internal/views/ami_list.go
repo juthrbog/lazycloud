@@ -92,6 +92,9 @@ func (a *AMIList) CapturingInput() bool {
 	return a.filter.Active() || a.search.Active()
 }
 
+// amiSearchSource marks the messages of the search input.
+const amiSearchSource = "ami-search"
+
 func (a *AMIList) KeyMap() []ui.HintBinding {
 	hints := []ui.HintBinding{
 		{Binding: a.keys.Details},
@@ -101,9 +104,6 @@ func (a *AMIList) KeyMap() []ui.HintBinding {
 		{Binding: a.keys.Sort},
 		{Binding: a.keys.Filter},
 		{Binding: a.keys.Refresh},
-	}
-	if !a.ownedMode {
-		hints = append(hints, ui.HintBinding{Binding: a.keys.Refresh})
 	}
 	return hints
 }
@@ -143,7 +143,7 @@ func NewAMIList(ec2 aws.EC2Service) *AMIList {
 		ec2:       ec2,
 		table:     ui.NewTable(columns),
 		filter:    ui.NewFilter(),
-		search:    ui.NewFilterWithPrompt("?", "search public AMIs..."),
+		search:    ui.NewFilterWithPrompt("?", "search public AMIs...").WithSource(amiSearchSource),
 		ownedMode: true,
 		spinner:   ui.NewSpinner("Loading AMIs..."),
 		loading:   true,
@@ -279,7 +279,11 @@ func (a *AMIList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case ui.FilterChangedMsg:
-		a.table.Filter(m.Text)
+		// The search input sends these too. Its text is a query for AWS,
+		// not a filter for the table.
+		if m.Source == "" {
+			a.table.Filter(m.Text)
+		}
 		return a, nil
 
 	case tea.KeyPressMsg:
