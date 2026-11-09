@@ -1,7 +1,6 @@
 package views
 
 import (
-	"context"
 	"errors"
 	"testing"
 	"time"
@@ -34,37 +33,6 @@ func loadAttrs(view *SQSMessages, redrive *aws.RedrivePolicy) {
 		URL: testQueueURL, ARN: "arn:aws:sqs:us-east-1:123:orders",
 		VisibilityTimeout: 30, RedrivePolicy: redrive,
 	}})
-}
-
-// collectMsgs runs a command and every command inside a tea.BatchMsg.
-func collectMsgs(cmd tea.Cmd) []tea.Msg {
-	if cmd == nil {
-		return nil
-	}
-	res := cmd()
-	if op, ok := res.(msg.StartOpMsg); ok {
-		// Run a background operation as the app would.
-		return []tea.Msg{op.Run(context.Background())}
-	}
-	batch, ok := res.(tea.BatchMsg)
-	if !ok {
-		return []tea.Msg{res}
-	}
-	var out []tea.Msg
-	for _, c := range batch {
-		out = append(out, collectMsgs(c)...)
-	}
-	return out
-}
-
-func toasts(msgs []tea.Msg) []msg.ToastMsg {
-	var out []msg.ToastMsg
-	for _, m := range msgs {
-		if t, ok := m.(msg.ToastMsg); ok {
-			out = append(out, t)
-		}
-	}
-	return out
 }
 
 func TestPeekBlockReason(t *testing.T) {

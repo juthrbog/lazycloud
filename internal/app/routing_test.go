@@ -77,6 +77,19 @@ func findMsg(msgs []tea.Msg, typeName string) tea.Msg {
 	return nil
 }
 
+// findMsgPrefix is findMsg for a type name that starts with prefix and ends
+// with suffix. Generic message types print with their full type arguments,
+// for example "views.listPageMsg[github.com/.../aws.Subnet]".
+func findMsgPrefix(msgs []tea.Msg, prefix, suffix string) tea.Msg {
+	for _, m := range msgs {
+		name := fmt.Sprintf("%T", unwrapRouted(m))
+		if strings.HasPrefix(name, prefix) && strings.HasSuffix(name, suffix) {
+			return m
+		}
+	}
+	return nil
+}
+
 func update(t *testing.T, m Model, in tea.Msg) (Model, tea.Cmd) {
 	t.Helper()
 	require.NotNil(t, in, "message to deliver is nil")

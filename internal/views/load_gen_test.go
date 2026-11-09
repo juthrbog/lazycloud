@@ -16,27 +16,6 @@ import (
 // These tests cover load generations: a full reload supersedes the load in
 // progress, so two overlapping loads never append the same rows twice.
 
-// firstOfType returns the first message in msgs with the same type as want.
-func firstOfType[T any](msgs []tea.Msg) (T, bool) {
-	for _, m := range msgs {
-		if v, ok := m.(T); ok {
-			return v, true
-		}
-	}
-	var zero T
-	return zero, false
-}
-
-// deliverAll sends each message to the view and returns the produced messages.
-func deliverAll(v tea.Model, msgs ...tea.Msg) []tea.Msg {
-	var out []tea.Msg
-	for _, m := range msgs {
-		_, cmd := v.Update(m)
-		out = append(out, collectMsgs(cmd)...)
-	}
-	return out
-}
-
 func TestEC2List_DoubleRefreshNoDuplicates(t *testing.T) {
 	svc := new(awstest.MockEC2Service)
 	svc.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
