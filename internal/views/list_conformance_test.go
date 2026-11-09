@@ -36,8 +36,14 @@ type conformanceCase struct {
 	// buildNil returns the view with a nil service.
 	buildNil func() nav.View
 	// coreMsgs returns the private core messages of the view's item type,
-	// built for its current load generation.
+	// built for its current load generation. Call it only after every
+	// earlier message is delivered, because a reload raises the generation.
 	coreMsgs func(v nav.View) []tea.Msg
+	// itemIDs returns the IDs of the items the view holds now.
+	itemIDs func(v nav.View) []string
+	// wantIDs are the items the view holds after the coreMsgs are delivered.
+	// They prove that the current-generation pages ran, not only the drop path.
+	wantIDs []string
 	// rwKeys are the keys that must be marked ModeReadWrite.
 	rwKeys []string
 	// file and typeName name the source of the view, for the shadowing check.
@@ -71,9 +77,86 @@ var conformanceCases = []conformanceCase{
 				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
 			}
 		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*SGList).items {
+				ids = append(ids, it.ID)
+			}
+			return ids
+		},
+		wantIDs:  []string{"sg-1"},
 		file:     "sg_list.go",
 		typeName: "SGList",
 		coreType: reflect.TypeFor[listCore[aws.SecurityGroup]](),
+	},
+	{
+		name: "vpc_list",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockEC2Service)
+			svc.Test(t)
+			svc.On("ListVPCsPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.VPCPage{VPCs: []aws.VPC{{ID: "vpc-1", Name: "one"}}}, nil)
+			svc.On("ListVPCsPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewVPCList(svc)
+		},
+		buildNil: func() nav.View { return NewVPCList(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*VPCList).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.VPC]{gen: c.loadGen, items: []aws.VPC{{ID: "vpc-1"}}, next: &tok, page: 1},
+				listPageMsg[aws.VPC]{gen: c.loadGen, items: []aws.VPC{{ID: "vpc-2"}}, page: 2},
+				listPageMsg[aws.VPC]{gen: c.loadGen - 1, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				keyPress('n'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*VPCList).items {
+				ids = append(ids, it.ID)
+			}
+			return ids
+		},
+		wantIDs:  []string{"vpc-1", "vpc-2"},
+		file:     "vpc_list.go",
+		typeName: "VPCList",
+		coreType: reflect.TypeFor[listCore[aws.VPC]](),
+	},
+	{
+		name: "subnet_list",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockEC2Service)
+			svc.Test(t)
+			svc.On("ListSubnetsPage", mock.MatchedBy(ok), mock.Anything, "vpc-1").Return(&aws.SubnetPage{Subnets: []aws.Subnet{{ID: "subnet-1", Name: "one"}}}, nil)
+			svc.On("ListSubnetsPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context or VPC"))
+			return NewSubnetList(svc, "vpc-1")
+		},
+		buildNil: func() nav.View { return NewSubnetList(nil, "vpc-1") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*SubnetList).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Subnet]{gen: c.loadGen, items: []aws.Subnet{{ID: "subnet-1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Subnet]{gen: c.loadGen, items: []aws.Subnet{{ID: "subnet-2"}}, page: 2},
+				listPageMsg[aws.Subnet]{gen: c.loadGen - 1, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*SubnetList).items {
+				ids = append(ids, it.ID)
+			}
+			return ids
+		},
+		wantIDs:  []string{"subnet-1", "subnet-2"},
+		file:     "subnet_list.go",
+		typeName: "SubnetList",
+		coreType: reflect.TypeFor[listCore[aws.Subnet]](),
 	},
 }
 
@@ -126,12 +209,18 @@ func TestListConformance_UpdateReturnsSamePointer(t *testing.T) {
 				msg.ErrorMsg{Err: errors.New("x")},
 				keyPress('r'),
 			}
-			msgs = append(msgs, tc.coreMsgs(v)...)
-			msgs = append(msgs, tea.KeyPressMsg{Code: tea.KeyEscape}, struct{}{})
-			for _, m := range msgs {
-				got, _ := v.Update(m)
-				require.Same(t, v, got, "%T", m)
+			deliver := func(msgs []tea.Msg) {
+				for _, m := range msgs {
+					got, _ := v.Update(m)
+					require.Same(t, v, got, "%T", m)
+				}
 			}
+			deliver(msgs)
+			// Build the core messages only now: the 'r' above raised the
+			// load generation, and messages built earlier would be stale.
+			deliver(tc.coreMsgs(v))
+			assert.Equal(t, tc.wantIDs, tc.itemIDs(v), "the current-generation pages were applied")
+			deliver([]tea.Msg{tea.KeyPressMsg{Code: tea.KeyEscape}, struct{}{}})
 		})
 	}
 }

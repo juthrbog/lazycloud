@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -17,9 +18,9 @@ import (
 // value, sets its policy in a listConfig[T], and keeps its own type,
 // constructor and Update. See docs/design/phase8-resource-list.md.
 
-// fetchFunc loads the list. It runs in a tea.Cmd goroutine, so it must not
-// read view state that changes. The token and the next token are for paged
-// lists; the core does not page yet, so it passes nil and ignores next.
+// fetchFunc loads one page. The core passes nil for the first page and then
+// the next token of the page before; a nil next token ends the load. It runs
+// in a tea.Cmd goroutine, so it must not read view state that changes.
 type fetchFunc[T any] func(ctx context.Context, token *string) (items []T, next *string, err error)
 
 // listConfig is the policy of one list. The first block is required:
@@ -33,8 +34,8 @@ type listConfig[T any] struct {
 	Key          func(T) string
 	Columns      func(ui.WidthTier) []ui.Column
 	Row          func(T, ui.WidthTier) ui.Row // Row.Key must equal Key(t)
-	Fetch        fetchFunc[T]                 // build with fetchAll
-	FetchTimeout time.Duration                // listTimeout for a whole-list call; 0 = none
+	Fetch        fetchFunc[T]                 // build with fetchAll or fetchPages
+	FetchTimeout time.Duration                // per page: callTimeout for a page, listTimeout for a whole-list call; 0 = none
 
 	OpenDetail func(T) tea.Cmd // enter/d and focus; nil: the keys go to the table
 	Copy       bool            // y copies the key of the cursor row: "Copied: <key>"
@@ -56,6 +57,7 @@ type listCore[T any] struct {
 	spinner ui.Spinner
 
 	items []T // what the table shows; kept during a reload
+	pages int // pages of the current load received so far
 
 	loading      bool
 	loadGen      int
@@ -104,11 +106,13 @@ func (c *listCore[T]) init() tea.Cmd {
 	return tea.Batch(c.spinner.Tick(), c.startLoad())
 }
 
-// startLoad starts a new load generation and returns its fetch cmd. The
-// items stay, so the table stays on screen and usable during a reload.
+// startLoad starts a new load generation and returns the fetch cmd of its
+// first page. The items stay, so the table stays on screen and usable during
+// a reload; page 1 replaces them.
 func (c *listCore[T]) startLoad() tea.Cmd {
 	c.loadGen++
-	return c.fetchCmd()
+	c.pages = 0
+	return c.fetchCmd(nil, 1)
 }
 
 // reload starts a full load with the loading label in the spinner.
@@ -119,26 +123,70 @@ func (c *listCore[T]) reload() tea.Cmd {
 	return tea.Batch(c.spinner.Tick(), c.startLoad())
 }
 
-// fetchCmd captures the generation, the config and the view context on the
-// Update goroutine.
-func (c *listCore[T]) fetchCmd() tea.Cmd {
+// fetchCmd fetches one page. It captures the generation, the config and the
+// view context on the Update goroutine. Each page has its own timeout.
+func (c *listCore[T]) fetchCmd(token *string, page int) tea.Cmd {
 	gen := c.loadGen
 	fetch, timeout := c.cfg.Fetch, c.cfg.FetchTimeout
 	noun, errContext := c.cfg.Noun, c.cfg.ErrContext
 	ctx := c.viewContext()
 	return func() tea.Msg {
-		eventlog.Debugf(eventlog.CatAWS, "Fetching %s", noun)
+		eventlog.Debugf(eventlog.CatAWS, "Fetching %s (page %d)", noun, page)
 		if timeout > 0 {
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithTimeout(ctx, timeout)
 			defer cancel()
 		}
-		items, _, err := fetch(ctx, nil)
+		items, next, err := fetch(ctx, token)
 		if err != nil {
 			return listFailedMsg{gen: gen, err: err, context: errContext}
 		}
-		return listPageMsg[T]{gen: gen, items: items}
+		return listPageMsg[T]{gen: gen, items: items, next: next, page: page}
 	}
+}
+
+// onPage applies a page of the current load. Page 0 or 1 replaces the rows
+// (the table keeps cursor, selection and sort by key); a later page is
+// appended. Items whose key is already in the list are dropped, so the
+// items stay equal to the table rows. A page of a superseded load is
+// dropped.
+func (c *listCore[T]) onPage(m listPageMsg[T]) tea.Cmd {
+	if m.gen != c.loadGen {
+		return nil
+	}
+	c.pages++
+	if m.page <= 1 {
+		c.setItems(dedupe(nil, m.items, c.cfg.Key))
+	} else {
+		fresh := dedupe(c.items, m.items, c.cfg.Key)
+		c.items = append(c.items, fresh...)
+		c.table.AppendRows(c.rows(fresh))
+	}
+	if m.next == nil {
+		return c.finishLoad()
+	}
+	eventlog.Debugf(eventlog.CatAWS, "Loaded page %d of %s (%d so far)", max(m.page, 1), c.cfg.Noun, len(c.items))
+	c.spinner.Show(fmt.Sprintf("Loading %s... %d so far", c.cfg.Noun, len(c.items)))
+	return tea.Batch(c.spinner.Tick(), c.fetchCmd(m.next, max(m.page, 1)+1))
+}
+
+// dedupe returns the items of fresh whose key is neither in have nor
+// earlier in fresh. It always returns a new slice.
+func dedupe[T any](have, fresh []T, key func(T) string) []T {
+	seen := make(map[string]bool, len(have)+len(fresh))
+	for _, it := range have {
+		seen[key(it)] = true
+	}
+	out := make([]T, 0, len(fresh))
+	for _, it := range fresh {
+		k := key(it)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		out = append(out, it)
+	}
+	return out
 }
 
 // finishLoad ends a successful load and opens a focus that waited for it.
@@ -146,7 +194,7 @@ func (c *listCore[T]) finishLoad() tea.Cmd {
 	c.loading = false
 	c.err = nil
 	c.spinner.Hide()
-	eventlog.Infof(eventlog.CatAWS, "Loaded %d %s", len(c.items), c.cfg.Noun)
+	eventlog.Infof(eventlog.CatAWS, "Loaded %d %s (%d pages)", len(c.items), c.cfg.Noun, c.pages)
 	if c.pendingFocus == "" {
 		return nil
 	}
@@ -170,11 +218,7 @@ func (c *listCore[T]) update(m tea.Msg) tea.Cmd {
 func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 	switch m := m.(type) {
 	case listPageMsg[T]:
-		if m.gen != c.loadGen {
-			return nil, true // superseded by a newer load
-		}
-		c.setItems(m.items)
-		return c.finishLoad(), true
+		return c.onPage(m), true
 	case listFailedMsg:
 		return c.onFailed(m), true
 	case msg.ErrorMsg:

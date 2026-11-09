@@ -1,9 +1,11 @@
 package views
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -21,7 +23,7 @@ func newTestSubnetList(vpcID string) *SubnetList {
 }
 
 func loadSubnets(view *SubnetList, subnets []aws.Subnet) {
-	view.Update(subnetPageLoadedMsg{subnets: subnets})
+	deliverItems(view, &view.listCore, subnets)
 }
 
 var testSubnet1 = aws.Subnet{
@@ -46,7 +48,7 @@ func TestSubnetList_LoadedSubnetsPopulateTable(t *testing.T) {
 	loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
 
 	assert.False(t, view.loading)
-	assert.Len(t, view.subnets, 2)
+	assert.Len(t, view.items, 2)
 	_, total := view.table.RowCount()
 	assert.Equal(t, 2, total)
 }
@@ -153,15 +155,61 @@ func TestSubnetList_Footer(t *testing.T) {
 	assert.Contains(t, view.Footer(), "2/2 subnets")
 }
 
-// --- findSubnet ---
+// --- find ---
 
 func TestSubnetList_FindSubnet(t *testing.T) {
 	view := newTestSubnetList("")
 	loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
 
-	found := view.findSubnet("subnet-bbb222")
+	found := view.find("subnet-bbb222")
 	require.NotNil(t, found)
 	assert.Equal(t, "private-1b", found.Name)
 
-	assert.Nil(t, view.findSubnet("subnet-nope"))
+	assert.Nil(t, view.find("subnet-nope"))
+}
+
+// --- resize ---
+
+// Divergence #12 (fixed in PR 5): the narrow and medium tiers both have 5
+// columns, so the widths must follow the tier, not the column count.
+func TestSubnetList_ResizeWideMediumNarrowUsesTierWidths(t *testing.T) {
+	view := newTestSubnetList("") // width 200: wide
+	loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
+	view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+
+	steps := []struct {
+		width int
+		tier  ui.WidthTier
+	}{
+		{200, ui.TierWide},
+		{120, ui.TierMedium},
+		{60, ui.TierNarrow},
+		{120, ui.TierMedium},
+	}
+	for _, s := range steps {
+		view.Update(tea.WindowSizeMsg{Width: s.width, Height: 24})
+		assert.Equal(t, s.tier, view.widthTier, "width %d", s.width)
+		assert.Equal(t, netCols(subnetColumns(s.tier)), netCols(view.table.Columns()), "width %d: column specs of the tier", s.width)
+
+		fresh := newTestSubnetList("")
+		fresh.Update(tea.WindowSizeMsg{Width: s.width, Height: 24})
+		loadSubnets(fresh, []aws.Subnet{testSubnet1, testSubnet2})
+		assert.Equal(t, netLines(fresh)[0], netLines(view)[0], "width %d: same header as a fresh view", s.width)
+		assert.Equal(t, "subnet-bbb222", view.table.CursorKey(), "width %d: the cursor stays", s.width)
+	}
+}
+
+// No line of the list is wider than the window. Before the narrow tier was
+// the smallest set, the table was one column too wide at 80 columns and its
+// header line wrapped. Below the width of the narrow set, DistributeWidths
+// shrinks the columns and every list is a few columns too wide (L28).
+func TestSubnetList_FitsTheWidth(t *testing.T) {
+	for _, w := range []int{80, 100, 120, 160, 200} {
+		view := newTestSubnetList("")
+		view.Update(tea.WindowSizeMsg{Width: w, Height: 24})
+		loadSubnets(view, []aws.Subnet{testSubnet1, testSubnet2})
+		for i, line := range strings.Split(view.View().Content, "\n") {
+			assert.LessOrEqual(t, ansi.StringWidth(line), w, "width %d, line %d", w, i)
+		}
+	}
 }

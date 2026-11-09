@@ -121,7 +121,7 @@ func TestCharVPC_LiteralPageAcceptedOnFreshView(t *testing.T) {
 	for _, page := range []int{0, 1} {
 		v := NewVPCList(new(awstest.MockEC2Service))
 		v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
-		v.Update(vpcPageLoadedMsg{vpcs: []aws.VPC{charVPCMain}, pageNum: page}) // private
+		v.Update(listPageMsg[aws.VPC]{items: []aws.VPC{charVPCMain}, page: page}) // private
 		assert.Equal(t, "1/1 VPCs", netFooter(v), "page %d", page)
 	}
 }
@@ -184,16 +184,18 @@ func TestCharVPC_Paging(t *testing.T) {
 	page1 := netLoadMsg(v.Init())
 	_, next := v.Update(page1)
 	require.NotNil(t, next)
-	// Divergence #5: changes in PR 5. No "N so far" progress label today.
-	assert.Equal(t, "2/2 VPCs  ⣾  Loading VPCs...", netFooter(v))
+	// Divergence #5 (fixed in PR 5): the footer and the spinner show the
+	// progress while more pages load.
+	assert.Equal(t, "2/2 VPCs  (loading... 2 so far)  ⣾  Loading VPCs... 2 so far", netFooter(v))
 	assert.Contains(t, netView(v), "vpc-aaa111", "rows of page 1 show while page 2 loads")
 
 	page2 := netLoadMsg(next)
 	_, done := v.Update(page2)
 	assert.Nil(t, done)
-	// Divergence #14: changes in PR 5. The table drops the duplicate row; the
-	// view's items keep it (not visible through the public surface).
+	// Divergence #14 (fixed in PR 5): the duplicate row is dropped before
+	// the append, so the items stay equal to the table rows.
 	assert.Equal(t, "3/3 VPCs", netFooter(v))
+	assert.Len(t, v.items, 3) // private
 	assert.Equal(t, []string{
 		"vpc-aaa111 | main-vpc | 10.0.0.0/16 | " + ui.IconRunning.Icon() + " available | Yes | default",
 		"vpc-bbb222 | dev-vpc | 172.16.0.0/16 | " + ui.IconPending.Icon() + " pending | No | dedicated",
@@ -222,18 +224,20 @@ func TestCharVPC_RefreshClearsItems(t *testing.T) {
 	v, svc := newCharVPC(t, charVPCMain, charVPCDev)
 	_, cmd := v.Update(keyPress('r'))
 	require.NotNil(t, cmd)
-	// Divergence #7: changes in PR 5. The reload drops the items, so the
-	// full-screen spinner shows, details do nothing and the rows stay only
-	// in the table (footer).
-	assert.Equal(t, "\n  ⣾  Loading VPCs...", netView(v))
+	// Divergence #7 (fixed in PR 5): the reload keeps the items, so the
+	// rows stay on screen with the spinner in the footer, and details work.
+	assert.Contains(t, netView(v), "vpc-aaa111")
+	assert.NotContains(t, netView(v), "Loading")
 	assert.Equal(t, "2/2 VPCs  ⣾  Loading VPCs...", netFooter(v))
 	_, enter := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Nil(t, enter)
+	tm, ok := firstOfType[msg.TabbedContentMsg](collectMsgs(enter))
+	require.True(t, ok, "details work during a reload")
+	assert.Equal(t, "main-vpc (vpc-aaa111)", tm.PanelTitle)
 	// y and n still use the table cursor.
 	assert.Equal(t, []string{"Copied: vpc-aaa111"}, netCopied(v))
 
 	v.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
-	assert.Equal(t, "0/0 VPCs  ⣾  Loading VPCs...", netFooter(v), "Divergence #7: a tier change mid-reload empties the table")
+	assert.Equal(t, "2/2 VPCs  ⣾  Loading VPCs...", netFooter(v), "Divergence #7 (fixed in PR 5): a tier change mid-reload keeps the rows")
 
 	pump(v, cmd, 5)
 	svc.AssertNumberOfCalls(t, "ListVPCsPage", 2)
@@ -244,11 +248,14 @@ func TestCharVPC_NavKeysFrozenDuringReload(t *testing.T) {
 	v, _ := newCharVPC(t, charVPCMain, charVPCDev)
 	_, cmd := v.Update(keyPress('r'))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	// Divergence #6: changes in PR 5. Today the key goes to the spinner.
-	assert.Equal(t, []string{"Copied: vpc-aaa111"}, netCopied(v))
-	pump(v, cmd, 5)
-	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	// Divergence #6 (fixed in PR 5): the table stays usable during a
+	// reload, so the key moves the cursor.
 	assert.Equal(t, []string{"Copied: vpc-bbb222"}, netCopied(v))
+	pump(v, cmd, 5)
+	assert.Equal(t, []string{"Copied: vpc-bbb222"}, netCopied(v), "the cursor stays after the load")
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	assert.Equal(t, []string{"Copied: vpc-aaa111"}, netCopied(v))
 }
 
 func TestCharVPC_ErrorContextAndView(t *testing.T) {
@@ -271,7 +278,9 @@ func TestCharVPC_NilServiceGivesErrorMsg(t *testing.T) {
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
 	em, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
 	require.True(t, ok)
-	assert.Equal(t, "EC2", em.Context)
+	// Design change in PR 5 (fetchPages adapter, as fetchAll in PR 4): a nil
+	// service fails like any load, with the context of the load. It was "EC2".
+	assert.Equal(t, "listing VPCs", em.Context)
 	require.EqualError(t, em.Err, "AWS client not initialized")
 	assert.Equal(t, "\n  Error: AWS client not initialized", netView(v))
 }
@@ -285,8 +294,11 @@ func TestCharVPC_ErrorClearedOnlyByRefresh(t *testing.T) {
 
 	v.Update(msg.ErrorMsg{Err: errors.New("denied")})
 	v.Update(load)
-	// Divergence #8: changes in PR 5. A good load does not clear the error.
-	assert.Equal(t, "\n  Error: denied", netView(v))
+	// Divergence #8 (fixed in PR 5): a good load clears the error.
+	assert.NotContains(t, netView(v), "Error")
+	assert.Equal(t, []string{
+		"vpc-aaa111 | main-vpc | 10.0.0.0/16 | " + ui.IconRunning.Icon() + " available | Yes | default",
+	}, netRows(v))
 	assert.Equal(t, "1/1 VPCs", netFooter(v))
 
 	pump(v, func() tea.Msg { return keyPress('r') }, 5)
@@ -306,9 +318,15 @@ func TestCharVPC_StaleErrorApplied(t *testing.T) {
 	_, second := v.Update(keyPress('r'))
 	old := netLoadMsg(first)
 	cur := netLoadMsg(second)
-	deliverAll(v, cur, old)
-	// Divergence #9: changes in PR 5.
-	assert.Equal(t, "\n  Error: old failure", netView(v))
+	out := deliverAll(v, cur, old)
+	// Divergence #9 (fixed in PR 5): the failure of the older load is
+	// dropped, and no ErrorMsg goes to the status bar.
+	assert.NotContains(t, netView(v), "Error")
+	assert.Equal(t, []string{
+		"vpc-aaa111 | main-vpc | 10.0.0.0/16 | " + ui.IconRunning.Icon() + " available | Yes | default",
+	}, netRows(v))
+	_, isErr := firstOfType[msg.ErrorMsg](out)
+	assert.False(t, isErr, "no ErrorMsg for a stale failure")
 }
 
 func TestCharVPC_SortPicker(t *testing.T) {

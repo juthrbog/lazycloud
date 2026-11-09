@@ -309,7 +309,7 @@ func TestListCore_FetchUsesTimeoutAndContext(t *testing.T) {
 	c := newListCore(cfg)
 	c.SetContext(context.WithValue(t.Context(), ctxKey{}, "nav"))
 	got := loadMsg(t, c.init())
-	assert.Equal(t, listPageMsg[fakeItem]{gen: 1, items: []fakeItem{fakeA}}, got)
+	assert.Equal(t, listPageMsg[fakeItem]{gen: 1, items: []fakeItem{fakeA}, page: 1}, got)
 }
 
 func TestListCore_ConstructorPanicsOnMissingField(t *testing.T) {
@@ -361,4 +361,213 @@ func TestFetchAll_CallsTheService(t *testing.T) {
 	boom := errors.New("boom")
 	_, _, err = fetchAll[fakeService](fakeServiceImpl{err: boom}, fakeService.List)(t.Context(), nil)
 	require.ErrorIs(t, err, boom)
+}
+
+// --- paging ---
+
+// fakePages is a paged fetchFunc. pages maps a token ("" for the first
+// page) to the items of that page; next maps a token to the next token.
+func fakePages(pages map[string][]fakeItem, next map[string]string) fetchFunc[fakeItem] {
+	return func(_ context.Context, tok *string) ([]fakeItem, *string, error) {
+		k := ""
+		if tok != nil {
+			k = *tok
+		}
+		items, ok := pages[k]
+		if !ok {
+			return nil, nil, errors.New("unknown token " + k)
+		}
+		if n, more := next[k]; more {
+			return items, &n, nil
+		}
+		return items, nil, nil
+	}
+}
+
+func TestListCore_PagesAppendAndDedupe(t *testing.T) {
+	c := newFakeCore(t, fakePages(
+		map[string][]fakeItem{"": {fakeA, fakeB, fakeA}, "t2": {fakeB, fakeC}},
+		map[string]string{"": "t2"},
+	))
+	page1 := loadMsg(t, c.init())
+	require.Equal(t, 1, page1.(listPageMsg[fakeItem]).page)
+
+	cmd, _ := c.handle(page1)
+	assert.Equal(t, []fakeItem{fakeA, fakeB}, c.items, "a duplicate inside page 1 is dropped")
+	assert.True(t, c.loading)
+	page2 := loadMsg(t, cmd)
+	require.Equal(t, 2, page2.(listPageMsg[fakeItem]).page)
+
+	cmd, _ = c.handle(page2)
+	assert.Nil(t, cmd, "the last page ends the load")
+	assert.Equal(t, []fakeItem{fakeA, fakeB, fakeC}, c.items, "b is not appended twice")
+	_, total := c.table.RowCount()
+	assert.Len(t, c.items, total, "the items stay equal to the table rows")
+	assert.False(t, c.loading)
+	assert.Equal(t, 2, c.pages)
+}
+
+func TestListCore_ProgressLabelWhileMorePagesLoad(t *testing.T) {
+	c := newFakeCore(t, fakePages(
+		map[string][]fakeItem{"": {fakeA}, "t2": {fakeB}, "t3": {fakeC}},
+		map[string]string{"": "t2", "t2": "t3"},
+	))
+	cmd := c.init()
+	assert.Equal(t, "0/0 fakes  ⣾  Loading fakes...", plain(c.footer()), "no label before the first page")
+
+	cmd, _ = c.handle(loadMsg(t, cmd))
+	assert.Equal(t, "1/1 fakes  (loading... 1 so far)  ⣾  Loading fakes... 1 so far", plain(c.footer()))
+
+	cmd, _ = c.handle(loadMsg(t, cmd))
+	assert.Equal(t, "2/2 fakes  (loading... 2 so far)  ⣾  Loading fakes... 2 so far", plain(c.footer()), "the label counts on page 2")
+
+	c.handle(loadMsg(t, cmd))
+	assert.Equal(t, "3/3 fakes", plain(c.footer()), "no label after the last page")
+}
+
+func TestListCore_PagedReloadReplacesAndKeepsCursor(t *testing.T) {
+	c := newFakeCore(t, fakePages(
+		map[string][]fakeItem{"": {fakeC, fakeB}, "t2": {fakeA}},
+		map[string]string{"": "t2"},
+	))
+	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA, fakeB}})
+	c.update(tea.KeyPressMsg{Code: tea.KeyDown})
+	require.Equal(t, "b", cursorID(c))
+
+	cmd := c.reload()
+	assert.Equal(t, 0, c.pages, "a new load counts its pages from zero")
+	assert.NotContains(t, plain(c.footer()), "so far", "old rows are not progress")
+
+	cmd, _ = c.handle(loadMsg(t, cmd))
+	assert.Equal(t, []fakeItem{fakeC, fakeB}, c.items, "page 1 replaces the rows of the last load")
+	assert.Equal(t, "b", cursorID(c), "the cursor follows the key")
+
+	c.handle(loadMsg(t, cmd))
+	assert.Equal(t, []fakeItem{fakeC, fakeB, fakeA}, c.items)
+	assert.Equal(t, "b", cursorID(c))
+}
+
+func TestListCore_StalePageOfOldLoadDropped(t *testing.T) {
+	c := newFakeCore(t, fakePages(
+		map[string][]fakeItem{"": {fakeA}, "t2": {fakeB}},
+		map[string]string{"": "t2"},
+	))
+	oldNext, _ := c.handle(loadMsg(t, c.init())) // gen 1, page 1 applied
+	oldPage2 := loadMsg(t, oldNext)
+
+	cmd := c.reload() // gen 2
+	cmd, _ = c.handle(loadMsg(t, cmd))
+	require.Equal(t, []fakeItem{fakeA}, c.items)
+
+	got, ok := c.handle(oldPage2)
+	assert.True(t, ok)
+	assert.Nil(t, got, "page 2 of the old load starts no fetch")
+	assert.Equal(t, []fakeItem{fakeA}, c.items, "page 2 of the old load is dropped")
+	assert.True(t, c.loading)
+
+	c.handle(loadMsg(t, cmd))
+	assert.Equal(t, []fakeItem{fakeA, fakeB}, c.items)
+	assert.False(t, c.loading)
+}
+
+func TestListCore_FailureOnLaterPage(t *testing.T) {
+	c := newFakeCore(t, fakePages(
+		map[string][]fakeItem{"": {fakeA}}, // t2 is unknown: the fetch fails
+		map[string]string{"": "t2"},
+	))
+	cmd, _ := c.handle(loadMsg(t, c.init()))
+	failed := loadMsg(t, cmd)
+	fm, ok := failed.(listFailedMsg)
+	require.True(t, ok, "%T", failed)
+	assert.Equal(t, "listing fakes", fm.context)
+
+	c.handle(failed)
+	require.Error(t, c.err)
+	assert.False(t, c.loading)
+	assert.NotContains(t, plain(c.footer()), "so far")
+}
+
+func TestListCore_LiteralPageZeroWithNextFetchesPageTwo(t *testing.T) {
+	var gotTok *string
+	c := newFakeCore(t, func(_ context.Context, tok *string) ([]fakeItem, *string, error) {
+		gotTok = tok
+		return []fakeItem{fakeB}, nil, nil
+	})
+	tok := "t2"
+	cmd, _ := c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA}, next: &tok})
+	next := loadMsg(t, cmd)
+	assert.Equal(t, &tok, gotTok, "the next token goes to the fetch")
+	assert.Equal(t, 2, next.(listPageMsg[fakeItem]).page, "page 0 counts as page 1")
+	c.handle(next)
+	assert.Equal(t, []fakeItem{fakeA, fakeB}, c.items)
+}
+
+func TestDedupe(t *testing.T) {
+	key := func(it fakeItem) string { return it.ID }
+	assert.Empty(t, dedupe(nil, nil, key))
+	assert.Equal(t, []fakeItem{fakeA, fakeB}, dedupe(nil, []fakeItem{fakeA, fakeB, fakeA}, key))
+	assert.Equal(t, []fakeItem{fakeC}, dedupe([]fakeItem{fakeA, fakeB}, []fakeItem{fakeB, fakeC, fakeA}, key))
+
+	fresh := []fakeItem{fakeA}
+	out := dedupe(nil, fresh, key)
+	out[0].Name = "changed"
+	assert.Equal(t, "alpha", fresh[0].Name, "dedupe returns a new slice")
+}
+
+func TestNextToken(t *testing.T) {
+	tok, empty := "t2", ""
+	assert.Equal(t, &tok, nextToken(true, &tok))
+	assert.Nil(t, nextToken(false, &tok), "no more pages")
+	assert.Nil(t, nextToken(true, nil), "more pages but no token would load page 1 again")
+	assert.Nil(t, nextToken(true, &empty), "an empty token too")
+}
+
+type fakePagedService interface {
+	ListPage(ctx context.Context, token *string) (*aws.VPCPage, error)
+}
+
+type fakePagedImpl struct {
+	err  error
+	seen *string
+}
+
+func (f *fakePagedImpl) ListPage(_ context.Context, token *string) (*aws.VPCPage, error) {
+	f.seen = token
+	if f.err != nil {
+		return nil, f.err
+	}
+	next := "t3"
+	return &aws.VPCPage{VPCs: []aws.VPC{{ID: "vpc-1"}}, HasMorePages: true, Token: &next}, nil
+}
+
+func TestFetchPages_NilServiceGivesErrNoClient(t *testing.T) {
+	split := func(*aws.VPCPage) ([]aws.VPC, *string) {
+		t.Error("split must not run without a service")
+		return nil, nil
+	}
+	items, next, err := fetchPages(aws.EC2Service(nil), aws.EC2Service.ListVPCsPage, split)(t.Context(), nil)
+	require.ErrorIs(t, err, errNoClient)
+	assert.Nil(t, items)
+	assert.Nil(t, next)
+
+	_, _, err = fetchPages(fakePagedService(nil), fakePagedService.ListPage, split)(t.Context(), nil)
+	require.ErrorIs(t, err, errNoClient)
+}
+
+func TestFetchPages_CallsTheServiceWithTheToken(t *testing.T) {
+	split := func(p *aws.VPCPage) ([]aws.VPC, *string) { return p.VPCs, nextToken(p.HasMorePages, p.Token) }
+	svc := &fakePagedImpl{}
+	tok := "t2"
+	items, next, err := fetchPages[fakePagedService](svc, fakePagedService.ListPage, split)(t.Context(), &tok)
+	require.NoError(t, err)
+	assert.Equal(t, &tok, svc.seen)
+	assert.Equal(t, []aws.VPC{{ID: "vpc-1"}}, items)
+	require.NotNil(t, next)
+	assert.Equal(t, "t3", *next)
+
+	boom := errors.New("boom")
+	items, next, err = fetchPages[fakePagedService](&fakePagedImpl{err: boom}, fakePagedService.ListPage, split)(t.Context(), nil)
+	require.ErrorIs(t, err, boom)
+	assert.Nil(t, items)
+	assert.Nil(t, next)
 }

@@ -43,10 +43,14 @@ func (c *listCore[T]) hints(bs ...ui.HintBinding) []ui.HintBinding {
 	return out
 }
 
-// footer returns "<shown>/<total> <noun>", plus the spinner while it shows.
+// footer returns "<shown>/<total> <noun>", plus "(loading... N so far)"
+// while more pages of a load come, plus the spinner while it shows.
 func (c *listCore[T]) footer() string {
 	shown, total := c.table.RowCount()
 	s := fmt.Sprintf("%d/%d %s", shown, total, c.cfg.Noun)
+	if c.loading && c.pages > 0 {
+		s += fmt.Sprintf("  (loading... %d so far)", len(c.items))
+	}
 	if c.spinner.Visible() {
 		s += "  " + c.spinner.View()
 	}
