@@ -21,7 +21,7 @@ func newTestVPCList() *VPCList {
 }
 
 func loadVPCs(view *VPCList, vpcs []aws.VPC) {
-	view.Update(vpcPageLoadedMsg{vpcs: vpcs})
+	deliverItems(view, &view.listCore, vpcs)
 }
 
 var testVPC1 = aws.VPC{
@@ -45,7 +45,7 @@ func TestVPCList_LoadedVPCsPopulateTable(t *testing.T) {
 	loadVPCs(view, []aws.VPC{testVPC1, testVPC2})
 
 	assert.False(t, view.loading)
-	assert.Len(t, view.vpcs, 2)
+	assert.Len(t, view.items, 2)
 	_, total := view.table.RowCount()
 	assert.Equal(t, 2, total)
 }
@@ -163,15 +163,15 @@ func TestVPCList_Footer(t *testing.T) {
 	assert.Contains(t, view.Footer(), "2/2 VPCs")
 }
 
-// --- findVPC ---
+// --- find ---
 
 func TestVPCList_FindVPC(t *testing.T) {
 	view := newTestVPCList()
 	loadVPCs(view, []aws.VPC{testVPC1, testVPC2})
 
-	found := view.findVPC("vpc-bbb222")
+	found := view.find("vpc-bbb222")
 	require.NotNil(t, found)
 	assert.Equal(t, "dev-vpc", found.Name)
 
-	assert.Nil(t, view.findVPC("vpc-nope"))
+	assert.Nil(t, view.find("vpc-nope"))
 }

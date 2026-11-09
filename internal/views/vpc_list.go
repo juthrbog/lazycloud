@@ -1,7 +1,6 @@
 package views
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -10,78 +9,62 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
-	"github.com/juthrbog/lazycloud/internal/eventlog"
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-type vpcPageLoadedMsg struct {
-	gen          int // load generation that requested this page
-	vpcs         []aws.VPC
-	hasMorePages bool
-	token        *string
-	pageNum      int
-}
-
-type vpcListKeyMap struct {
-	Esc         key.Binding
-	Details     key.Binding
-	Describe    key.Binding
-	CopyID      key.Binding
-	Subnets     key.Binding
-	Sort        key.Binding
-	SortReverse key.Binding
-	Filter      key.Binding
-	Refresh     key.Binding
-}
-
-var defaultVPCListKeyMap = vpcListKeyMap{
-	Esc:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
-	Details:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/d", "details")),
-	Describe:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
-	CopyID:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy ID")),
-	Subnets:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "subnets")),
-	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
-	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
-	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
-}
+// vpcSubnetsKey opens the subnets of the VPC under the cursor.
+var vpcSubnetsKey = ui.NewHintBinding([]string{"n"}, "n", "subnets")
 
 // VPCList displays EC2 VPCs.
 type VPCList struct {
-	viewCtx
-	keys         vpcListKeyMap
-	ec2          aws.EC2Service
-	table        ui.Table
-	vpcs         []aws.VPC
-	filter       ui.Filter
-	spinner      ui.Spinner
-	loading      bool
-	loadGen      int // generation of the current full load; see startLoad
-	err          error
-	width        int
-	height       int
-	widthTier    ui.WidthTier
-	pendingFocus string
+	listCore[aws.VPC]
 }
 
-func (v *VPCList) ID() string    { return "vpc_list" }
-func (v *VPCList) Title() string { return "VPCs" }
-
-// CapturingInput implements nav.InputCapturer.
-func (v *VPCList) CapturingInput() bool {
-	return v.filter.Active()
+// NewVPCList creates the VPC list view.
+func NewVPCList(ec2 aws.EC2Service) *VPCList {
+	return &VPCList{listCore: newListCore(listConfig[aws.VPC]{
+		Noun:         "VPCs",
+		LoadingLabel: "Loading VPCs...",
+		ErrContext:   "listing VPCs",
+		Key:          func(v aws.VPC) string { return v.ID },
+		Columns:      vpcColumns,
+		Row:          vpcRow,
+		Fetch:        fetchPages(ec2, aws.EC2Service.ListVPCsPage, splitVPCPage),
+		FetchTimeout: callTimeout,
+		OpenDetail:   vpcDetail,
+		Copy:         true,
+	})}
 }
+
+func (v *VPCList) ID() string     { return "vpc_list" }
+func (v *VPCList) Title() string  { return "VPCs" }
+func (v *VPCList) Init() tea.Cmd  { return v.init() }
+func (v *VPCList) Footer() string { return v.footer() }
+func (v *VPCList) View() tea.View { return tea.NewView(v.render()) }
 
 func (v *VPCList) KeyMap() []ui.HintBinding {
-	return []ui.HintBinding{
-		{Binding: v.keys.Details},
-		{Binding: v.keys.CopyID},
-		{Binding: v.keys.Subnets},
-		{Binding: v.keys.Sort},
-		{Binding: v.keys.Filter},
-		{Binding: v.keys.Refresh},
+	return v.hints(listKeys.Details, listKeys.CopyID, vpcSubnetsKey,
+		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+}
+
+// Update handles n (subnets of the cursor VPC) and hands the rest to the
+// core. It returns the view itself, so the navigator keeps its identity.
+func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := m.(tea.KeyPressMsg); ok && !v.CapturingInput() && key.Matches(k, vpcSubnetsKey.Binding) {
+		id := v.table.CursorKey()
+		if id == "" {
+			return v, nil
+		}
+		return v, func() tea.Msg {
+			return msg.NavigateMsg{ViewID: "subnet_list", Params: map[string]string{"vpc_id": id}}
+		}
 	}
+	return v, v.update(m)
+}
+
+func splitVPCPage(p *aws.VPCPage) ([]aws.VPC, *string) {
+	return p.VPCs, nextToken(p.HasMorePages, p.Token)
 }
 
 func vpcColumns(tier ui.WidthTier) []ui.Column {
@@ -103,214 +86,27 @@ func vpcColumns(tier ui.WidthTier) []ui.Column {
 	}
 }
 
-// NewVPCList creates the VPC list view.
-func NewVPCList(ec2 aws.EC2Service) *VPCList {
-	return &VPCList{
-		keys:      defaultVPCListKeyMap,
-		ec2:       ec2,
-		table:     ui.NewTable(vpcColumns(ui.TierMedium)),
-		filter:    ui.NewFilter(),
-		spinner:   ui.NewSpinner("Loading VPCs..."),
-		loading:   true,
-		widthTier: ui.TierMedium,
+// vpcRow builds the row of one VPC.
+func vpcRow(vpc aws.VPC, tier ui.WidthTier) ui.Row {
+	if tier == ui.TierNarrow {
+		return ui.Row{Key: vpc.ID, Cells: table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, vpc.State}}
+	}
+	return ui.Row{
+		Key:   vpc.ID,
+		Cells: table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, vpc.State, yesNo(vpc.IsDefault), vpc.InstanceTenancy},
 	}
 }
 
-func (v *VPCList) Init() tea.Cmd {
-	if !v.loading {
-		return nil
-	}
-	return v.startLoad()
-}
-
-// startLoad begins a full load from page 1. Pages from an older load are
-// dropped, so a refresh during a load cannot duplicate rows.
-func (v *VPCList) startLoad() tea.Cmd {
-	v.loadGen++
-	v.vpcs = nil
-	return tea.Batch(v.spinner.Tick(), v.fetchPage(nil, 1))
-}
-
-func (v *VPCList) fetchPage(token *string, pageNum int) tea.Cmd {
-	svc := v.ec2
-	gen := v.loadGen
-	ctx := v.viewContext()
-	return func() tea.Msg {
-		if svc == nil {
-			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
-		}
-		eventlog.Debugf(eventlog.CatAWS, "Fetching VPCs (page %d)", pageNum)
-		ctx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
-		page, err := svc.ListVPCsPage(ctx, token)
-		if err != nil {
-			return msg.ErrorMsg{Err: err, Context: "listing VPCs"}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Loaded %d VPCs (page %d)", len(page.VPCs), pageNum)
-		return vpcPageLoadedMsg{
-			gen:          gen,
-			vpcs:         page.VPCs,
-			hasMorePages: page.HasMorePages,
-			token:        page.Token,
-			pageNum:      pageNum,
-		}
-	}
-}
-
-func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	switch m := m.(type) {
-	case ui.PickerResultMsg:
-		if m.ID == "sort" {
-			if m.Value == "_clear" {
-				v.table.ClearSort()
-			} else if m.Selected >= 0 {
-				v.table.Sort(m.Selected)
-			}
-		}
-		return v, nil
-
-	case vpcPageLoadedMsg:
-		if m.gen != v.loadGen {
-			return v, nil // page from a superseded load
-		}
-		v.vpcs = append(v.vpcs, m.vpcs...)
-		if m.pageNum == 1 {
-			v.table.SetRows(buildVPCRows(m.vpcs, v.widthTier)) // replaces the rows of the last load
-		} else {
-			v.table.AppendRows(buildVPCRows(m.vpcs, v.widthTier))
-		}
-		if m.hasMorePages {
-			return v, v.fetchPage(m.token, m.pageNum+1)
-		}
-		v.loading = false
-		v.spinner.Hide()
-		if v.pendingFocus != "" {
-			id := v.pendingFocus
-			v.pendingFocus = ""
-			return v, v.focusAndOpenDetail(id)
-		}
-		return v, nil
-
-	case msg.FocusResourceMsg:
-		if v.loading {
-			v.pendingFocus = m.ResourceID
-			return v, nil
-		}
-		return v, v.focusAndOpenDetail(m.ResourceID)
-
-	case msg.ErrorMsg:
-		v.loading = false
-		v.spinner.Hide()
-		v.err = m.Err
-		return v, nil
-
-	case tea.WindowSizeMsg:
-		v.width = m.Width
-		v.height = m.Height
-		cols, newTier := ui.BestFitTier(m.Width, vpcColumns)
-		v.widthTier = newTier
-		if len(cols) != len(v.table.Columns()) {
-			v.table.SetColumns(cols)
-			if len(v.vpcs) > 0 {
-				v.table.SetRows(buildVPCRows(v.vpcs, v.widthTier))
-			}
-		}
-		v.table.SetSize(m.Width, m.Height-3)
-		v.filter.SetWidth(m.Width)
-		return v, nil
-
-	case ui.FilterChangedMsg:
-		v.table.Filter(m.Text)
-		return v, nil
-
-	case tea.KeyPressMsg:
-		if v.filter.Active() {
-			var cmd tea.Cmd
-			v.filter, cmd = v.filter.Update(m)
-			return v, cmd
-		}
-
-		switch {
-		case key.Matches(m, v.keys.Esc):
-			return v, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case key.Matches(m, v.keys.Sort):
-			columns, currentCol := v.table.SortColumnNames()
-			return v, func() tea.Msg {
-				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
-			}
-		case key.Matches(m, v.keys.SortReverse):
-			v.table.SortReverse()
-			return v, nil
-		case key.Matches(m, v.keys.Filter):
-			v.filter.Activate()
-			return v, nil
-		case key.Matches(m, v.keys.CopyID):
-			if id := v.table.CursorKey(); id != "" {
-				return v, tea.Batch(
-					tea.SetClipboard(id),
-					func() tea.Msg { return msg.ToastSuccess("Copied: " + id) },
-				)
-			}
-		case key.Matches(m, v.keys.Refresh):
-			v.loading = true
-			v.err = nil
-			v.spinner.Show("Loading VPCs...")
-			return v, v.startLoad()
-		case key.Matches(m, v.keys.Subnets):
-			vpcID := v.table.CursorKey()
-			if vpcID == "" {
-				return v, nil
-			}
-			return v, func() tea.Msg {
-				return msg.NavigateMsg{ViewID: "subnet_list", Params: map[string]string{"vpc_id": vpcID}}
-			}
-		case key.Matches(m, v.keys.Details, v.keys.Describe):
-			vpc := v.findVPC(v.table.CursorKey())
-			if vpc == nil {
-				return v, nil
-			}
-			return v, v.openDetailCmd(vpc)
-		}
-	}
-
-	if v.loading {
-		var cmd tea.Cmd
-		v.spinner, cmd = v.spinner.Update(m)
-		return v, cmd
-	}
-
-	var cmd tea.Cmd
-	v.table, cmd = v.table.Update(m)
-	return v, cmd
-}
-
-func (v *VPCList) findVPC(id string) *aws.VPC {
-	for i := range v.vpcs {
-		if v.vpcs[i].ID == id {
-			return &v.vpcs[i]
-		}
-	}
-	return nil
-}
-
-func (v *VPCList) focusAndOpenDetail(id string) tea.Cmd {
-	v.table.SetCursorByKey(id)
-	vpc := v.findVPC(id)
-	if vpc == nil {
-		return nil
-	}
-	return v.openDetailCmd(vpc)
-}
-
-func (v *VPCList) openDetailCmd(vpc *aws.VPC) tea.Cmd {
+// vpcDetail opens the detail panel of a VPC.
+func vpcDetail(vpc aws.VPC) tea.Cmd {
 	title := vpc.ID
 	if vpc.Name != "" {
 		title = vpc.Name + " (" + vpc.ID + ")"
 	}
-	infoContent, infoLinks := buildVPCInfoContent(vpc)
+	infoContent, infoLinks := buildVPCInfoContent(&vpc)
 	tabs := []msg.TabContent{
 		{Title: "Info", Content: infoContent, Format: "text", Links: infoLinks},
-		{Title: "CIDR Blocks", Content: buildVPCCIDRContent(vpc), Format: "text"},
+		{Title: "CIDR Blocks", Content: buildVPCCIDRContent(&vpc), Format: "text"},
 		{Title: "JSON", Content: vpc.DetailJSON(), Format: "json"},
 	}
 	if len(vpc.Tags) > 0 {
@@ -321,26 +117,6 @@ func (v *VPCList) openDetailCmd(vpc *aws.VPC) tea.Cmd {
 	return func() tea.Msg {
 		return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
 	}
-}
-
-func buildVPCRows(vpcs []aws.VPC, tier ui.WidthTier) []ui.Row {
-	rows := make([]ui.Row, 0, len(vpcs))
-	narrow := tier == ui.TierNarrow
-	for _, vpc := range vpcs {
-		state := vpc.State
-		var cells table.Row
-		if narrow {
-			cells = table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state}
-		} else {
-			def := "No"
-			if vpc.IsDefault {
-				def = "Yes"
-			}
-			cells = table.Row{vpc.ID, vpc.Name, vpc.CIDRBlock, state, def, vpc.InstanceTenancy}
-		}
-		rows = append(rows, ui.Row{Key: vpc.ID, Cells: cells})
-	}
-	return rows
 }
 
 func buildVPCInfoContent(vpc *aws.VPC) (string, []msg.TabLink) {
@@ -379,29 +155,4 @@ func buildVPCCIDRContent(vpc *aws.VPC) string {
 	}
 
 	return b.String()
-}
-
-func (v *VPCList) Footer() string {
-	filtered, total := v.table.RowCount()
-	footer := fmt.Sprintf("%d/%d VPCs", filtered, total)
-	if v.spinner.Visible() {
-		footer += "  " + v.spinner.View()
-	}
-	return footer
-}
-
-func (v *VPCList) View() tea.View {
-	var content string
-	switch {
-	case v.loading && len(v.vpcs) == 0:
-		content = "\n  " + v.spinner.View()
-	case v.err != nil:
-		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(v.err)))
-	default:
-		content = v.table.View()
-		if v.filter.Active() {
-			content = v.filter.View() + "\n" + content
-		}
-	}
-	return tea.NewView(content)
 }

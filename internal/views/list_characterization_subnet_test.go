@@ -135,7 +135,7 @@ func TestCharSubnet_LiteralPageAcceptedOnFreshView(t *testing.T) {
 	for _, page := range []int{0, 1} {
 		v := NewSubnetList(new(awstest.MockEC2Service), "")
 		v.Update(tea.WindowSizeMsg{Width: 200, Height: 12})
-		v.Update(subnetPageLoadedMsg{subnets: []aws.Subnet{charSubnetPub}, pageNum: page}) // private
+		v.Update(listPageMsg[aws.Subnet]{items: []aws.Subnet{charSubnetPub}, page: page}) // private
 		assert.Equal(t, "1/1 subnets", netFooter(v), "page %d", page)
 	}
 }
@@ -166,13 +166,13 @@ func TestCharSubnet_ColumnsPerWidth(t *testing.T) {
 		return out
 	}
 	assert.Equal(t, []col{
-		{"Subnet ID", 24, 1, 35}, {"Name", 24, 2, 60}, {"AZ", 14, 0, 0},
-		{"CIDR Block", 18, 0, 0}, {"State", 16, 0, 0},
-	}, flat(subnetColumns(ui.TierNarrow))) // private
-	assert.Equal(t, []col{
 		{"Subnet ID", 15, 1, 35}, {"Name", 15, 2, 60}, {"AZ", 13, 0, 0},
 		{"CIDR Block", 15, 0, 0}, {"State", 10, 0, 0},
-	}, flat(subnetColumns(ui.TierMedium))) // private
+	}, flat(subnetColumns(ui.TierNarrow)), "PR 5: narrow is the smallest set") // private
+	assert.Equal(t, []col{
+		{"Subnet ID", 24, 1, 35}, {"Name", 24, 2, 60}, {"AZ", 14, 0, 0},
+		{"CIDR Block", 18, 0, 0}, {"State", 16, 0, 0},
+	}, flat(subnetColumns(ui.TierMedium)), "PR 5: medium has more room") // private
 	assert.Equal(t, []col{
 		{"Subnet ID", 24, 1, 35}, {"Name", 24, 2, 60}, {"VPC ID", 21, 1, 35},
 		{"AZ", 14, 0, 0}, {"CIDR Block", 18, 0, 0}, {"Avail IPs", 10, 0, 0},
@@ -180,8 +180,9 @@ func TestCharSubnet_ColumnsPerWidth(t *testing.T) {
 	}, flat(subnetColumns(ui.TierWide))) // private
 }
 
-// The narrow and medium tiers have 5 columns each, and the view looks only
-// at the column count, so the widths depend on the resize history.
+// The narrow and medium tiers have 5 columns each. Divergence #12 (fixed in
+// PR 5): the view now looks at the tier, not only the column count, so the
+// widths no longer depend on the resize history.
 func TestCharSubnet_TierChangeByColumnCount(t *testing.T) {
 	header := func(widths ...int) string {
 		svc := new(awstest.MockEC2Service)
@@ -196,13 +197,12 @@ func TestCharSubnet_TierChangeByColumnCount(t *testing.T) {
 	wideToNarrow := header(200, 60)
 	viaMedium := header(200, 100, 60)
 	fresh := header(60)
-	// Divergence #12: changes in PR 5. All three should use the narrow
-	// widths; only the wide-to-narrow path does today.
-	assert.Equal(t, " Subnet ID      Name           AZ        CIDR Block  State", wideToNarrow, "narrow widths")
-	assert.Equal(t, " Subnet ID     Name          AZ          CIDR Block    State", viaMedium, "medium widths kept at width 60")
-	assert.Equal(t, fresh, viaMedium, "a fresh view at width 60 keeps the medium widths too")
-	assert.Equal(t, " Subnet ID               Name                            AZ             CIDR Block       State", header(100))
-	assert.Equal(t, header(200, 100), header(100), "medium at width 100")
+	// Divergence #12 (fixed in PR 5): all three use the narrow widths.
+	assert.Equal(t, " Subnet ID     Name          AZ          CIDR Block    State", wideToNarrow, "narrow widths")
+	assert.Equal(t, wideToNarrow, viaMedium, "narrow widths at width 60 after medium")
+	assert.Equal(t, wideToNarrow, fresh, "a fresh view at width 60 uses the narrow widths too")
+	assert.Equal(t, " Subnet ID                     Name                                AZ              CIDR Block          State", header(120))
+	assert.Equal(t, header(200, 120), header(120), "medium at width 120")
 }
 
 func TestCharSubnet_StateCellPlainAndColoredByColumn(t *testing.T) {
@@ -237,13 +237,16 @@ func TestCharSubnet_Paging(t *testing.T) {
 
 	_, next := v.Update(netLoadMsg(v.Init()))
 	require.NotNil(t, next)
-	// Divergence #5: changes in PR 5. No "N so far" progress label today.
-	assert.Equal(t, "1/1 subnets  ⣾  Loading subnets...", netFooter(v))
+	// Divergence #5 (fixed in PR 5): the footer and the spinner show the
+	// progress while more pages load.
+	assert.Equal(t, "1/1 subnets  (loading... 1 so far)  ⣾  Loading subnets... 1 so far", netFooter(v))
 
 	_, done := v.Update(netLoadMsg(next))
 	assert.Nil(t, done)
-	// Divergence #14: changes in PR 5. The table drops the duplicate row.
+	// Divergence #14 (fixed in PR 5): the duplicate row is dropped before
+	// the append, so the items stay equal to the table rows.
 	assert.Equal(t, "2/2 subnets", netFooter(v))
+	assert.Len(t, v.items, 2) // private
 	svc.AssertNumberOfCalls(t, "ListSubnetsPage", 2)
 }
 
@@ -267,14 +270,18 @@ func TestCharSubnet_RefreshClearsItems(t *testing.T) {
 	v, svc := newCharSubnet(t, "", charSubnetPub, charSubnetPriv)
 	_, cmd := v.Update(keyPress('r'))
 	require.NotNil(t, cmd)
-	// Divergence #7: changes in PR 5.
-	assert.Equal(t, "\n  ⣾  Loading subnets...", netView(v))
+	// Divergence #7 (fixed in PR 5): the reload keeps the items, so the
+	// rows stay on screen with the spinner in the footer.
+	assert.Contains(t, netView(v), "subnet-aaa111")
+	assert.NotContains(t, netView(v), "Loading")
 	assert.Equal(t, "2/2 subnets  ⣾  Loading subnets...", netFooter(v))
 	_, enter := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Nil(t, enter, "Divergence #7: details do nothing during a reload")
+	tm, ok := firstOfType[msg.TabbedContentMsg](collectMsgs(enter))
+	require.True(t, ok, "Divergence #7 (fixed in PR 5): details work during a reload")
+	assert.Equal(t, "public-1a (subnet-aaa111)", tm.PanelTitle)
 
 	v.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
-	assert.Equal(t, "0/0 subnets  ⣾  Loading subnets...", netFooter(v), "Divergence #7: a tier change mid-reload empties the table")
+	assert.Equal(t, "2/2 subnets  ⣾  Loading subnets...", netFooter(v), "Divergence #7 (fixed in PR 5): a tier change mid-reload keeps the rows")
 
 	pump(v, cmd, 5)
 	svc.AssertNumberOfCalls(t, "ListSubnetsPage", 2)
@@ -285,11 +292,14 @@ func TestCharSubnet_NavKeysFrozenDuringReload(t *testing.T) {
 	v, _ := newCharSubnet(t, "", charSubnetPub, charSubnetPriv)
 	_, cmd := v.Update(keyPress('r'))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	// Divergence #6: changes in PR 5.
-	assert.Equal(t, []string{"Copied: subnet-aaa111"}, netCopied(v))
-	pump(v, cmd, 5)
-	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	// Divergence #6 (fixed in PR 5): the table stays usable during a
+	// reload, so the key moves the cursor.
 	assert.Equal(t, []string{"Copied: subnet-bbb222"}, netCopied(v))
+	pump(v, cmd, 5)
+	assert.Equal(t, []string{"Copied: subnet-bbb222"}, netCopied(v), "the cursor stays after the load")
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	assert.Equal(t, []string{"Copied: subnet-aaa111"}, netCopied(v))
 }
 
 func TestCharSubnet_ErrorContextAndView(t *testing.T) {
@@ -310,7 +320,9 @@ func TestCharSubnet_NilServiceGivesErrorMsg(t *testing.T) {
 	v.Update(tea.WindowSizeMsg{Width: 200, Height: 12})
 	em, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
 	require.True(t, ok)
-	assert.Equal(t, "EC2", em.Context)
+	// Design change in PR 5 (fetchPages adapter, as fetchAll in PR 4): a nil
+	// service fails like any load, with the context of the load. It was "EC2".
+	assert.Equal(t, "listing subnets", em.Context)
 	require.EqualError(t, em.Err, "AWS client not initialized")
 	assert.Equal(t, "\n  Error: AWS client not initialized", netView(v))
 }
@@ -323,8 +335,11 @@ func TestCharSubnet_ErrorClearedOnlyByRefresh(t *testing.T) {
 	load := netLoadMsg(v.Init())
 	v.Update(msg.ErrorMsg{Err: errors.New("denied")})
 	v.Update(load)
-	// Divergence #8: changes in PR 5.
-	assert.Equal(t, "\n  Error: denied", netView(v))
+	// Divergence #8 (fixed in PR 5): a good load clears the error.
+	assert.NotContains(t, netView(v), "Error")
+	assert.Equal(t, []string{
+		"subnet-aaa111 | public-1a | vpc-aaa111 | us-east-1a | 10.0.1.0/24 | 251 | " + ui.IconRunning.Icon() + " available | Public | No",
+	}, netRows(v))
 	assert.Equal(t, "1/1 subnets", netFooter(v))
 
 	pump(v, func() tea.Msg { return keyPress('r') }, 5)
@@ -343,9 +358,15 @@ func TestCharSubnet_StaleErrorApplied(t *testing.T) {
 	_, second := v.Update(keyPress('r'))
 	old := netLoadMsg(first)
 	cur := netLoadMsg(second)
-	deliverAll(v, cur, old)
-	// Divergence #9: changes in PR 5.
-	assert.Equal(t, "\n  Error: old failure", netView(v))
+	out := deliverAll(v, cur, old)
+	// Divergence #9 (fixed in PR 5): the failure of the older load is
+	// dropped, and no ErrorMsg goes to the status bar.
+	assert.NotContains(t, netView(v), "Error")
+	assert.Equal(t, []string{
+		"subnet-aaa111 | public-1a | vpc-aaa111 | us-east-1a | 10.0.1.0/24 | 251 | " + ui.IconRunning.Icon() + " available | Public | No",
+	}, netRows(v))
+	_, isErr := firstOfType[msg.ErrorMsg](out)
+	assert.False(t, isErr, "no ErrorMsg for a stale failure")
 }
 
 func TestCharSubnet_SortPicker(t *testing.T) {
@@ -368,18 +389,18 @@ func TestCharSubnet_SortPicker(t *testing.T) {
 
 	v.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
 	assert.Equal(t, "Subnet ID | Name ▲ | AZ | CIDR Block | State", netHeader(v), "the sort survives a tier change")
-	assert.Equal(t, "subnet-bbb222", netRows(v)[0][:13])
+	assert.Equal(t, "subnet-bbb2", netRows(v)[0][:11])
 
 	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
-	assert.Equal(t, "subnet-bbb222", netRows(v)[0][:13], "a cancelled picker keeps the sort")
+	assert.Equal(t, "subnet-bbb2", netRows(v)[0][:11], "a cancelled picker keeps the sort")
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, "Subnet ID | Name ▼ | AZ | CIDR Block | State", netHeader(v))
-	assert.Equal(t, "subnet-aaa111", netRows(v)[0][:13], "S reverses the sort")
+	assert.Equal(t, "subnet-aaa1", netRows(v)[0][:11], "S reverses the sort")
 
 	v.Update(ui.PickerResultMsg{ID: "sort", Value: "_clear"})
 	assert.Equal(t, "Subnet ID | Name | AZ | CIDR Block | State", netHeader(v))
-	assert.Equal(t, "subnet-aaa111", netRows(v)[0][:13])
+	assert.Equal(t, "subnet-aaa1", netRows(v)[0][:11])
 	_, cmd = v.Update(keyPress('s'))
 	req, _ = firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
 	assert.Equal(t, -1, req.CurrentCol, "_clear clears the sort")

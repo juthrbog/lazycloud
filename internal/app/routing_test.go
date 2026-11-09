@@ -311,8 +311,8 @@ func TestRouting_SubnetPagesStayInTheirView(t *testing.T) {
 	viewB := m.nav.Current()
 	require.NotEqual(t, viewA.ID(), viewB.ID())
 
-	m, _ = update(t, m, findMsg(collectMsgs(cmdB), "views.subnetPageLoadedMsg"))
-	_, _ = update(t, m, findMsg(collectMsgs(cmdA), "views.subnetPageLoadedMsg"))
+	m, _ = update(t, m, findMsgPrefix(collectMsgs(cmdB), "views.listPageMsg[", "aws.Subnet]"))
+	_, _ = update(t, m, findMsgPrefix(collectMsgs(cmdA), "views.listPageMsg[", "aws.Subnet]"))
 	assert.NotContains(t, viewB.Footer(), "subnet-A1")
 	assert.Contains(t, viewB.Footer(), "0/0", "vpc-A subnets appended to the vpc-B list")
 	assert.False(t, m.nav.Contains(viewA), "a popped view is gone")
