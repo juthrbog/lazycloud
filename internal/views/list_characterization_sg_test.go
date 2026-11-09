@@ -127,11 +127,11 @@ func TestCharSG_FirstLoadViewAndFooter(t *testing.T) {
 	assert.Equal(t, "2/2 security groups", netFooter(v))
 }
 
-// A load message built by hand is accepted on a fresh view (sg has no gen).
+// A load message built by hand with gen 0 is accepted on a fresh view.
 func TestCharSG_LiteralLoadAcceptedOnFreshView(t *testing.T) {
 	v := NewSGList(new(awstest.MockEC2Service))
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
-	v.Update(sgListLoadedMsg{groups: []aws.SecurityGroup{charSGWeb}}) // private
+	v.Update(listPageMsg[aws.SecurityGroup]{items: []aws.SecurityGroup{charSGWeb}}) // private
 	assert.Equal(t, "1/1 security groups", netFooter(v))
 }
 
@@ -193,15 +193,17 @@ func TestCharSG_NavKeysFrozenDuringReload(t *testing.T) {
 	v, _ := newCharSG(t, charSGWeb, charSGDB)
 	_, cmd := v.Update(keyPress('r'))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	// Divergence #6: changes in PR 4. Today the key goes to the spinner.
-	assert.Equal(t, []string{"Copied: sg-111"}, netCopied(v))
-	pump(v, cmd, 5)
-
-	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	// Divergence #6 (fixed in PR 4): the table stays usable during a
+	// reload, so the key moves the cursor.
 	assert.Equal(t, []string{"Copied: sg-222"}, netCopied(v))
+	pump(v, cmd, 5)
+	assert.Equal(t, []string{"Copied: sg-222"}, netCopied(v), "the cursor stays after the load")
+
+	v.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	assert.Equal(t, []string{"Copied: sg-111"}, netCopied(v))
 }
 
-// sg has no load generation: the last reply wins, even from an older load.
+// A reply from an older load is dropped: the last started load wins.
 func TestCharSG_StaleReplyLastWins(t *testing.T) {
 	svc := new(awstest.MockEC2Service)
 	svc.On("ListSecurityGroups", mock.Anything).Return([]aws.SecurityGroup{charSGWeb}, nil).Once()
@@ -214,8 +216,9 @@ func TestCharSG_StaleReplyLastWins(t *testing.T) {
 	old := netLoadMsg(first)
 	cur := netLoadMsg(second)
 	deliverAll(v, cur, old)
-	// No divergence row; the gen guard is a deliberate change: changes in PR 4.
-	assert.Equal(t, []string{"sg-111 | web-sg | vpc-aaa | Web servers | 2 | 1"}, netRows(v))
+	// Deliberate change (fixed in PR 4, gen guard; no divergence row): the
+	// older reply is dropped, so the newer one stays.
+	assert.Equal(t, []string{"sg-222 | db-sg | vpc-aaa | Database | 1 | 0"}, netRows(v))
 }
 
 func TestCharSG_ErrorContextAndView(t *testing.T) {
@@ -242,7 +245,9 @@ func TestCharSG_NilServiceGivesErrorMsg(t *testing.T) {
 	seen := pump(v, v.Init(), 5)
 	em, ok := firstOfType[msg.ErrorMsg](seen)
 	require.True(t, ok)
-	assert.Equal(t, "EC2", em.Context)
+	// Design change in PR 4 (fetchAll adapter): a nil service fails like
+	// any load, with the context of the load. It was "EC2".
+	assert.Equal(t, "listing security groups", em.Context)
 	require.EqualError(t, em.Err, "AWS client not initialized")
 	assert.Equal(t, "\n  Error: AWS client not initialized", netView(v))
 }
@@ -256,8 +261,9 @@ func TestCharSG_ErrorClearedOnlyByRefresh(t *testing.T) {
 
 	v.Update(msg.ErrorMsg{Err: errors.New("denied"), Context: "x"})
 	v.Update(load)
-	// Divergence #8: changes in PR 4. A good load does not clear the error.
-	assert.Equal(t, "\n  Error: denied", netView(v))
+	// Divergence #8 (fixed in PR 4): a good load clears the error.
+	assert.NotContains(t, netView(v), "Error")
+	assert.Equal(t, []string{"sg-111 | web-sg | vpc-aaa | Web servers | 2 | 1"}, netRows(v))
 	assert.Equal(t, "1/1 security groups", netFooter(v))
 
 	pump(v, func() tea.Msg { return keyPress('r') }, 5)
@@ -275,9 +281,13 @@ func TestCharSG_StaleErrorApplied(t *testing.T) {
 	_, second := v.Update(keyPress('r'))
 	old := netLoadMsg(first)
 	cur := netLoadMsg(second)
-	deliverAll(v, cur, old)
-	// Divergence #9: changes in PR 4.
-	assert.Equal(t, "\n  Error: old failure", netView(v))
+	out := deliverAll(v, cur, old)
+	// Divergence #9 (fixed in PR 4): the failure of the older load is
+	// dropped, and no ErrorMsg goes to the status bar.
+	assert.NotContains(t, netView(v), "Error")
+	assert.Equal(t, []string{"sg-111 | web-sg | vpc-aaa | Web servers | 2 | 1"}, netRows(v))
+	_, isErr := firstOfType[msg.ErrorMsg](out)
+	assert.False(t, isErr, "no ErrorMsg for a stale failure")
 }
 
 func TestCharSG_SortPicker(t *testing.T) {
