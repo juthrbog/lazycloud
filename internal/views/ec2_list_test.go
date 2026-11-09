@@ -1,6 +1,8 @@
 package views
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -194,32 +196,87 @@ func setReadWrite(t *testing.T) {
 }
 
 // ReadOnly mode turned on while the prompt is open: the confirm clears the
-// targets, shows the app's ReadOnly toast, and makes no API call.
+// targets, shows the app's ReadOnly toast, and makes no API call. This holds
+// for each Manage action.
 func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
-	setReadWrite(t)
-	view, mockSvc := newTestEC2List()
-	loadInstances(view, []aws.Instance{testRunningInstance})
+	cases := []struct {
+		action, method string
+		inst           aws.Instance
+	}{
+		{"Start", "StartInstances", testStoppedInstance},
+		{"Stop", "StopInstances", testRunningInstance},
+		{"Reboot", "RebootInstances", testRunningInstance},
+		{"Terminate", "TerminateInstances", testRunningInstance},
+	}
+	for _, tc := range cases {
+		t.Run(tc.action, func(t *testing.T) {
+			setReadWrite(t)
+			view, mockSvc := newTestEC2List()
+			loadInstances(view, []aws.Instance{tc.inst})
 
-	_, cmd := view.Update(keyPress('m'))
-	require.NotNil(t, cmd)
-	_, cmd = view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+			_, cmd := view.Update(keyPress('m'))
+			require.NotNil(t, cmd)
+			_, cmd = view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: tc.action})
+			require.NotNil(t, cmd)
+			confirm, ok := cmd().(msg.RequestConfirmMsg)
+			require.True(t, ok)
+
+			ui.SetReadOnly(true)
+			_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
+			require.NotNil(t, cmd)
+			assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
+			assert.Empty(t, view.pending.keys)
+			assert.Equal(t, tc.inst.State, view.findInstance(tc.inst.ID).State, "no optimistic state")
+			assert.False(t, view.spinner.Visible())
+			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
+
+			// The targets are gone: a second confirm in ReadWrite mode does nothing.
+			ui.SetReadOnly(false)
+			_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
+			assert.Nil(t, cmd)
+			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+// A canceled picker clears the targets, so no later reply can use them.
+func TestEC2List_PickerCancelClearsTargets(t *testing.T) {
+	view, _ := newTestEC2List()
+	loadInstances(view, []aws.Instance{testRunningInstance})
+	view.pending.hold([]string{"i-running"})
+
+	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
+	assert.Nil(t, cmd)
+	assert.Empty(t, view.pending.keys)
+}
+
+// The names in the prompt go through promptNameList: they are made safe and
+// capped, in the order of the targets.
+func TestEC2List_ConfirmNamesSanitizedAndCapped(t *testing.T) {
+	view, _ := newTestEC2List()
+	n := maxPromptNames + 2
+	insts := make([]aws.Instance, 0, n)
+	ids := make([]string, 0, n)
+	for i := range n {
+		id := fmt.Sprintf("i-%02d", i)
+		insts = append(insts, aws.Instance{ID: id, Name: fmt.Sprintf("n%02d", i), State: "running"})
+		ids = append(ids, id)
+	}
+	insts[0].Name = "evil\x1b[31m"
+	loadInstances(view, insts)
+	view.pending.hold(ids)
+
+	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
-
-	ui.SetReadOnly(true)
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
-	require.NotNil(t, cmd)
-	assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
-	assert.Empty(t, view.pending.keys)
-	assert.Equal(t, "running", view.findInstance("i-running").State, "no optimistic state")
-	assert.False(t, view.spinner.Visible())
-	mockSvc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
-
-	// The targets are gone: a second confirm in ReadWrite mode does nothing.
-	ui.SetReadOnly(false)
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
-	assert.Nil(t, cmd)
+	assert.NotContains(t, confirm.Message, "\x1b")
+	lines := strings.Split(strings.TrimSuffix(confirm.Message, "\n"), "\n")
+	require.Len(t, lines, 1+maxPromptNames+1, "title, the capped names, the rest line")
+	assert.Equal(t, fmt.Sprintf("Stop %d instance(s)?", n), lines[0])
+	assert.Equal(t, "  n01 (i-01)", lines[2])
+	assert.Equal(t, fmt.Sprintf("  n%02d (i-%02d)", maxPromptNames-1, maxPromptNames-1), lines[maxPromptNames])
+	assert.Equal(t, "  and 2 more", lines[maxPromptNames+1])
 }
 
 // The prompt names each target: "<Name> (<id>)", or the ID alone.

@@ -283,16 +283,19 @@ func (e *EC2List) fetchDetail(instanceID string) tea.Cmd {
 func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.PickerResultMsg:
-		if m.ID == "sort" {
+		switch m.ID {
+		case "sort":
 			if m.Value == "_clear" {
 				e.table.ClearSort()
 			} else if m.Selected >= 0 {
 				e.table.Sort(m.Selected)
 			}
-		} else if m.ID == "action" && m.Selected >= 0 {
-			if a, ok := ec2ActionByLabel(m.Value); ok {
+		case "action":
+			if a, ok := ec2ActionByLabel(m.Value); ok && m.Selected >= 0 {
 				return e, e.pending.ask(e.confirmRequest(a))
 			}
+			// The picker was canceled: forget the targets.
+			e.pending.clear()
 		}
 		return e, nil
 
