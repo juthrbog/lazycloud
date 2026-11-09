@@ -803,12 +803,13 @@ func TestCharS3_OtherConfirmResultClearsPending(t *testing.T) {
 	assert.Nil(t, cmd, "no pending delete")
 }
 
-// The view does not check ReadOnly; the app gates the RW keys. A confirm
-// that arrives in ReadOnly mode still deletes. PR 2 adds a ReadOnly recheck
-// on confirm (a deliberate change with no divergence row).
-func TestCharS3_ViewDoesNotCheckReadOnly(t *testing.T) {
+// The app gates the RW keys, so the view does not check ReadOnly on a key.
+// A confirm that arrives in ReadOnly mode does not delete: the view shows
+// the app's ReadOnly toast and clears the targets (deliberate change in
+// PR 2, with no divergence row).
+func TestCharS3_ViewChecksReadOnlyOnConfirm(t *testing.T) {
 	charS3SetReadOnly(t, true)
-	v, _ := charS3Loaded(t, "a-logs")
+	v, svc := charS3Loaded(t, "a-logs")
 
 	v.Update(keyPress('n'))
 	assert.True(t, v.CapturingInput(), "n opens the create input in ReadOnly mode")
@@ -819,8 +820,13 @@ func TestCharS3_ViewDoesNotCheckReadOnly(t *testing.T) {
 	require.True(t, ok, "x asks in ReadOnly mode")
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
 	require.NotNil(t, cmd)
-	_, ok = cmd().(msg.StartOpMsg)
-	assert.True(t, ok)
+	assert.Equal(t, []tea.Msg{msg.ToastError("ReadOnly mode — press W to switch")}, collectMsgs(cmd))
+
+	// The targets are gone: a second confirm in ReadWrite mode does nothing.
+	ui.SetReadOnly(false)
+	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	assert.Nil(t, cmd)
+	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 }
 
 // charS3ConfirmDelete presses x on the current targets, confirms, and

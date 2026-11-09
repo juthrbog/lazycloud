@@ -87,7 +87,7 @@ func TestConfirmMessage_NamesCappedAndSanitized(t *testing.T) {
 	assert.NotContains(t, got, "\x1b")
 	assert.Contains(t, got, "  and 2 more\n")
 	assert.NotContains(t, got, "q10")
-	assert.Equal(t, 1+maxPromptNames+1, len(strings.Split(strings.TrimSuffix(got, "\n"), "\n")), "title, 10 names, the rest line")
+	assert.Len(t, strings.Split(strings.TrimSuffix(got, "\n"), "\n"), 1+maxPromptNames+1, "title, 10 names, the rest line")
 }
 
 func TestRunEach_GoesOnAfterFailure(t *testing.T) {
