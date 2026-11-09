@@ -213,8 +213,7 @@ func TestCharAMI_KeyMapSearchResults(t *testing.T) {
 		"p|p|search public|mode=0|cat=",
 		"s|s/S|sort|mode=0|cat=",
 		"/|/|filter|mode=0|cat=",
-		"r|r|refresh|mode=0|cat=",
-		"r|r|refresh|mode=0|cat=", // Divergence #33: changes in PR 1.
+		"r|r|refresh|mode=0|cat=", // Divergence #33: fixed in PR 1, one hint.
 	}, charKeyMap(v))
 }
 
@@ -808,18 +807,18 @@ func TestCharAMI_SearchOpenClose(t *testing.T) {
 	svc.AssertNotCalled(t, "SearchAMIs", mock.Anything, mock.Anything)
 }
 
-// Divergence #32: typing in the search filters the table, and esc leaves the
-// filter applied with no filter input shown. Changes in PR 1.
-func TestCharAMI_SearchLiveFiltersTable(t *testing.T) {
+// Divergence #32 (fixed in PR 1): typing in the search does not filter the
+// table, and esc leaves no hidden filter.
+func TestCharAMI_SearchDoesNotFilterTable(t *testing.T) {
 	v, _ := newCharAMILoaded(t, charAMIA, charAMIB)
 	v.Update(keyPress('p'))
 	charType(t, v, "be")
-	assert.Equal(t, "1/2 AMIs (owned)", plain(v.Footer()), "Divergence #32: changes in PR 1.")
+	assert.Equal(t, "2/2 AMIs (owned)", plain(v.Footer()))
 
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	assert.Nil(t, cmd, "esc in the search sends no FilterChangedMsg")
-	assert.Equal(t, "1/2 AMIs (owned)", plain(v.Footer()), "Divergence #32: changes in PR 1.")
-	assert.Equal(t, []string{"ami-bbb"}, charRows(v))
+	assert.Equal(t, "2/2 AMIs (owned)", plain(v.Footer()))
+	assert.Len(t, charRows(v), 2)
 }
 
 // A search: enter shows the spinner, calls SearchAMIs, and shows the results.

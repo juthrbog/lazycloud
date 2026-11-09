@@ -3,7 +3,6 @@ package views
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -805,48 +804,35 @@ func (e *EC2List) buildRows(instances []aws.Instance) []ui.Row {
 }
 
 func buildEC2InfoContentWithLinks(d *aws.InstanceDetail) (string, []msg.TabLink) {
-	type field struct {
-		k, v   string
-		viewID string
-		params map[string]string
+	fields := []infoField{
+		{K: "Instance ID", V: d.InstanceID},
+		{K: "Name", V: d.Name},
+		{K: "State", V: d.State},
+		{K: "Type", V: d.InstanceType},
+		{K: "Platform", V: d.Platform},
+		{K: "Architecture", V: d.Architecture},
+		{K: "Private IP", V: d.PrivateIP},
+		{K: "Public IP", V: d.PublicIP},
+		{K: "Private DNS", V: d.PrivateDNS},
+		{K: "Public DNS", V: d.PublicDNS},
+		{K: "VPC", V: d.VpcID, ViewID: "vpc_list", Params: map[string]string{"focus": d.VpcID}},
+		{K: "Subnet", V: d.SubnetID, ViewID: "subnet_list", Params: map[string]string{"focus": d.SubnetID}},
+		{K: "AZ", V: d.AvailabilityZone},
+		{K: "Key Name", V: d.KeyName},
+		{K: "AMI", V: d.AMI, ViewID: "ami_list", Params: map[string]string{"focus": d.AMI}},
+		{K: "IAM Role", V: d.IAMRole},
+		{K: "Launch Time", V: d.LaunchTime},
+		{K: "Root Device", V: rootDevice(d)},
 	}
-	fields := []field{
-		{k: "Instance ID", v: d.InstanceID},
-		{k: "Name", v: d.Name},
-		{k: "State", v: d.State},
-		{k: "Type", v: d.InstanceType},
-		{k: "Platform", v: d.Platform},
-		{k: "Architecture", v: d.Architecture},
-		{k: "Private IP", v: d.PrivateIP},
-		{k: "Public IP", v: d.PublicIP},
-		{k: "Private DNS", v: d.PrivateDNS},
-		{k: "Public DNS", v: d.PublicDNS},
-		{k: "VPC", v: d.VpcID, viewID: "vpc_list", params: map[string]string{"focus": d.VpcID}},
-		{k: "Subnet", v: d.SubnetID, viewID: "subnet_list", params: map[string]string{"focus": d.SubnetID}},
-		{k: "AZ", v: d.AvailabilityZone},
-		{k: "Key Name", v: d.KeyName},
-		{k: "AMI", v: d.AMI, viewID: "ami_list", params: map[string]string{"focus": d.AMI}},
-		{k: "IAM Role", v: d.IAMRole},
-		{k: "Launch Time", v: d.LaunchTime},
-		{k: "Root Device", v: d.RootDeviceType + " (" + d.RootDeviceName + ")"},
+	return buildInfo(fields)
+}
+
+// rootDevice returns "type (name)", or "" when the instance has neither.
+func rootDevice(d *aws.InstanceDetail) string {
+	if d.RootDeviceType == "" && d.RootDeviceName == "" {
+		return ""
 	}
-	var b strings.Builder
-	var links []msg.TabLink
-	lineIdx := 0
-	for _, f := range fields {
-		if f.v != "" && f.v != " ()" {
-			fmt.Fprintf(&b, "%-16s %s\n", f.k, f.v)
-			if f.viewID != "" {
-				links = append(links, msg.TabLink{
-					Line:   lineIdx,
-					ViewID: f.viewID,
-					Params: f.params,
-				})
-			}
-			lineIdx++
-		}
-	}
-	return b.String(), links
+	return d.RootDeviceType + " (" + d.RootDeviceName + ")"
 }
 
 func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink) {
@@ -861,19 +847,6 @@ func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink)
 		})
 	}
 	return b.String(), links
-}
-
-func buildTagsContent(tags map[string]string) string {
-	keys := make([]string, 0, len(tags))
-	for k := range tags {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		fmt.Fprintf(&b, "%-24s %s\n", k, tags[k])
-	}
-	return b.String()
 }
 
 func (e *EC2List) Footer() string {

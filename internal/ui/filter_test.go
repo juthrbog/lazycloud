@@ -51,3 +51,19 @@ func TestFilterReportsOnlyTextChanges(t *testing.T) {
 	_, cmd = f.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	assert.Equal(t, []FilterChangedMsg{{Text: ""}}, filterChanges(cmd))
 }
+
+// A side input marks its messages with its source, also the one for esc.
+// The list filter leaves Source empty.
+func TestFilter_SourceTagged(t *testing.T) {
+	f := NewFilter().WithSource("search")
+	f.Activate()
+	f, cmd := f.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	assert.Equal(t, []FilterChangedMsg{{Text: "a", Source: "search"}}, filterChanges(cmd))
+	_, cmd = f.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	assert.Equal(t, []FilterChangedMsg{{Source: "search"}}, filterChanges(cmd))
+
+	list := NewFilter()
+	list.Activate()
+	_, cmd = list.Update(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	assert.Equal(t, []FilterChangedMsg{{Text: "a"}}, filterChanges(cmd))
+}

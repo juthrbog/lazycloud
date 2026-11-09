@@ -344,43 +344,18 @@ func buildVPCRows(vpcs []aws.VPC, tier ui.WidthTier) []ui.Row {
 }
 
 func buildVPCInfoContent(vpc *aws.VPC) (string, []msg.TabLink) {
-	type field struct {
-		k, v   string
-		viewID string
-		params map[string]string
+	fields := []infoField{
+		{K: "VPC ID", V: vpc.ID},
+		{K: "Name", V: vpc.Name},
+		{K: "State", V: vpc.State},
+		{K: "CIDR Block", V: vpc.CIDRBlock},
+		{K: "Default", V: yesNo(vpc.IsDefault)},
+		{K: "Tenancy", V: vpc.InstanceTenancy},
+		{K: "DHCP Options", V: vpc.DHCPOptionsID},
+		{K: "Owner", V: vpc.OwnerID},
+		{K: "Subnets", V: "View subnets", ViewID: "subnet_list", Params: map[string]string{"vpc_id": vpc.ID}},
 	}
-	def := "No"
-	if vpc.IsDefault {
-		def = "Yes"
-	}
-	fields := []field{
-		{k: "VPC ID", v: vpc.ID},
-		{k: "Name", v: vpc.Name},
-		{k: "State", v: vpc.State},
-		{k: "CIDR Block", v: vpc.CIDRBlock},
-		{k: "Default", v: def},
-		{k: "Tenancy", v: vpc.InstanceTenancy},
-		{k: "DHCP Options", v: vpc.DHCPOptionsID},
-		{k: "Owner", v: vpc.OwnerID},
-		{k: "Subnets", v: "View subnets", viewID: "subnet_list", params: map[string]string{"vpc_id": vpc.ID}},
-	}
-	var b strings.Builder
-	var links []msg.TabLink
-	lineIdx := 0
-	for _, f := range fields {
-		if f.v != "" {
-			fmt.Fprintf(&b, "%-16s %s\n", f.k, f.v)
-			if f.viewID != "" {
-				links = append(links, msg.TabLink{
-					Line:   lineIdx,
-					ViewID: f.viewID,
-					Params: f.params,
-				})
-			}
-			lineIdx++
-		}
-	}
-	return b.String(), links
+	return buildInfo(fields)
 }
 
 func buildVPCCIDRContent(vpc *aws.VPC) string {

@@ -379,40 +379,19 @@ func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []ui.Row {
 }
 
 func buildSubnetInfoContent(subnet *aws.Subnet) (string, []msg.TabLink) {
-	type field struct {
-		k, v   string
-		viewID string
-		params map[string]string
+	fields := []infoField{
+		{K: "Subnet ID", V: subnet.ID},
+		{K: "Name", V: subnet.Name},
+		{K: "ARN", V: subnet.ARN},
+		{K: "VPC", V: subnet.VpcID, ViewID: "vpc_list", Params: map[string]string{"focus": subnet.VpcID}},
+		{K: "AZ", V: subnet.AvailabilityZone},
+		{K: "AZ ID", V: subnet.AvailabilityZoneID},
+		{K: "CIDR Block", V: subnet.CIDRBlock},
+		{K: "Available IPs", V: fmt.Sprintf("%d", subnet.AvailableIPCount)},
+		{K: "State", V: subnet.State},
+		{K: "Owner", V: subnet.OwnerID},
 	}
-	fields := []field{
-		{k: "Subnet ID", v: subnet.ID},
-		{k: "Name", v: subnet.Name},
-		{k: "ARN", v: subnet.ARN},
-		{k: "VPC", v: subnet.VpcID, viewID: "vpc_list", params: map[string]string{"focus": subnet.VpcID}},
-		{k: "AZ", v: subnet.AvailabilityZone},
-		{k: "AZ ID", v: subnet.AvailabilityZoneID},
-		{k: "CIDR Block", v: subnet.CIDRBlock},
-		{k: "Available IPs", v: fmt.Sprintf("%d", subnet.AvailableIPCount)},
-		{k: "State", v: subnet.State},
-		{k: "Owner", v: subnet.OwnerID},
-	}
-	var b strings.Builder
-	var links []msg.TabLink
-	lineIdx := 0
-	for _, f := range fields {
-		if f.v != "" {
-			fmt.Fprintf(&b, "%-16s %s\n", f.k, f.v)
-			if f.viewID != "" {
-				links = append(links, msg.TabLink{
-					Line:   lineIdx,
-					ViewID: f.viewID,
-					Params: f.params,
-				})
-			}
-			lineIdx++
-		}
-	}
-	return b.String(), links
+	return buildInfo(fields)
 }
 
 func buildSubnetConfigContent(subnet *aws.Subnet) string {

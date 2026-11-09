@@ -9,6 +9,10 @@ import (
 // FilterChangedMsg is emitted when the filter text changes.
 type FilterChangedMsg struct {
 	Text string
+	// Source is empty for the list filter. A side input, such as a search
+	// box, sets it with WithSource, so that the view does not filter the
+	// table with the text of that input.
+	Source string
 }
 
 // Filter provides an inline search input activated by a keybinding.
@@ -17,6 +21,7 @@ type Filter struct {
 	prompt string
 	active bool
 	width  int
+	source string
 }
 
 // NewFilter creates an inactive filter with the default "/" prompt.
@@ -42,6 +47,13 @@ func (f *Filter) applyStyles() {
 	s.Focused.Text = lipgloss.NewStyle().Foreground(t.BrightText)
 	s.Focused.Placeholder = lipgloss.NewStyle().Foreground(t.Muted)
 	f.input.SetStyles(s)
+}
+
+// WithSource returns the filter with its messages marked with id. Use it
+// for an input that is not the list filter.
+func (f Filter) WithSource(id string) Filter {
+	f.source = id
+	return f
 }
 
 // Activate shows and focuses the filter input.
@@ -96,7 +108,8 @@ func (f Filter) Update(msg tea.Msg) (Filter, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			f.Deactivate()
-			return f, func() tea.Msg { return FilterChangedMsg{Text: ""} }
+			source := f.source
+			return f, func() tea.Msg { return FilterChangedMsg{Source: source} }
 		case "enter":
 			f.DeactivateKeepValue()
 			return f, nil
@@ -113,8 +126,9 @@ func (f Filter) Update(msg tea.Msg) (Filter, tea.Cmd) {
 	if text == before {
 		return f, cmd
 	}
+	source := f.source
 	return f, tea.Batch(cmd, func() tea.Msg {
-		return FilterChangedMsg{Text: text}
+		return FilterChangedMsg{Text: text, Source: source}
 	})
 }
 

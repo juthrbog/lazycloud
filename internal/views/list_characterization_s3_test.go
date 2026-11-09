@@ -1033,8 +1033,9 @@ func TestCharS3_CreateInputEmptyAndEsc(t *testing.T) {
 	svc.AssertNotCalled(t, "CreateBucket", mock.Anything, mock.Anything, mock.Anything)
 }
 
-// Divergence #32: changes in PR 1 (FilterChangedMsg.Source).
-func TestCharS3_CreateInputFilterLeak(t *testing.T) {
+// Divergence #32 (fixed in PR 1): the messages of the create input carry a
+// Source, so they never filter the table, not even when one arrives late.
+func TestCharS3_CreateInputDoesNotFilterTable(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, svc := charS3Loaded(t, "a-logs", "b-tmp")
 
@@ -1042,14 +1043,14 @@ func TestCharS3_CreateInputFilterLeak(t *testing.T) {
 	typed := charS3TypeMsgs(v, "b")
 	fc, ok := firstOfType[ui.FilterChangedMsg](typed)
 	require.True(t, ok, "the create input sends FilterChangedMsg")
+	assert.Equal(t, s3CreateSource, fc.Source)
 	deliverAll(v, fc)
 	assert.Equal(t, "2/2 buckets", v.Footer(), "ignored while the input is open")
 
 	v.Update(charS3Esc)
 	deliverAll(v, fc) // the same message, arriving after the input closed
-	assert.Equal(t, "1/2 buckets", v.Footer(), "a late message filters the table")
+	assert.Equal(t, "2/2 buckets", v.Footer(), "ignored after the input closed")
 
-	// A create success clears any table filter with table.Filter("").
 	svc.On("CreateBucket", mock.Anything, "c-new", "us-east-1").Return(nil)
 	charS3NextList(svc, "a-logs", "b-tmp", "c-new")
 	v.Update(keyPress('n'))
@@ -1059,7 +1060,9 @@ func TestCharS3_CreateInputFilterLeak(t *testing.T) {
 	assert.Equal(t, "3/3 buckets", v.Footer())
 }
 
-func TestCharS3_CreateClearsUserFilter(t *testing.T) {
+// Divergence #32 (fixed in PR 1): a create no longer clears the user's own
+// filter. The new list keeps the filter "b".
+func TestCharS3_CreateKeepsUserFilter(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, svc := charS3Loaded(t, "a-logs", "b-tmp")
 	v.Update(keyPress('/'))
@@ -1073,8 +1076,7 @@ func TestCharS3_CreateClearsUserFilter(t *testing.T) {
 	charS3Type(v, "c-new")
 	_, cmd := v.Update(charS3Enter)
 	pump(v, cmd, 3)
-	// Divergence #32: changes in PR 1 (the table.Filter("") hack goes away).
-	assert.Equal(t, "3/3 buckets", v.Footer())
+	assert.Equal(t, "1/3 buckets", v.Footer())
 }
 
 // Divergence #41: changes in PR 9 (the input width follows a resize).
