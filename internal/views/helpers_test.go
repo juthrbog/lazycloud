@@ -136,3 +136,9 @@ func collectMsgsTimed(cmd tea.Cmd, wait time.Duration) []tea.Msg {
 
 // plain removes ANSI escape codes from s.
 func plain(s string) string { return ansi.Strip(s) }
+
+// deliverItems sends items to a list view as the result of its current
+// load (gen c.loadGen), through the view's Update.
+func deliverItems[T any](v tea.Model, c *listCore[T], items []T) {
+	v.Update(listPageMsg[T]{gen: c.loadGen, items: items})
+}

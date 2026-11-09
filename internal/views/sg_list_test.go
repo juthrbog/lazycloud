@@ -21,7 +21,7 @@ func newTestSGList() *SGList {
 }
 
 func loadSGs(view *SGList, groups []aws.SecurityGroup) {
-	view.Update(sgListLoadedMsg{groups: groups})
+	deliverItems(view, &view.listCore, groups)
 }
 
 var testSG1 = aws.SecurityGroup{
@@ -50,7 +50,7 @@ func TestSGList_LoadedGroupsPopulateTable(t *testing.T) {
 	loadSGs(view, []aws.SecurityGroup{testSG1, testSG2})
 
 	assert.False(t, view.loading)
-	assert.Len(t, view.groups, 2)
+	assert.Len(t, view.items, 2)
 	_, total := view.table.RowCount()
 	assert.Equal(t, 2, total)
 }
@@ -112,17 +112,17 @@ func TestSGList_MediumTierColumns(t *testing.T) {
 	assert.Equal(t, "Description", cols[3].Title)
 }
 
-// --- findSG ---
+// --- find ---
 
-func TestSGList_FindSG(t *testing.T) {
+func TestSGList_Find(t *testing.T) {
 	view := newTestSGList()
 	loadSGs(view, []aws.SecurityGroup{testSG1, testSG2})
 
-	found := view.findSG("sg-222")
+	found := view.find("sg-222")
 	require.NotNil(t, found)
 	assert.Equal(t, "db-sg", found.Name)
 
-	assert.Nil(t, view.findSG("sg-nope"))
+	assert.Nil(t, view.find("sg-nope"))
 }
 
 // --- Footer ---
@@ -184,13 +184,13 @@ func TestBuildSGRows_CountSortKeys(t *testing.T) {
 		InboundRules:  make([]aws.SecurityGroupRule, 9),
 		OutboundRules: make([]aws.SecurityGroupRule, 10),
 	}
-	wide := buildSGRows([]aws.SecurityGroup{sg}, ui.TierWide)[0]
+	wide := sgRow(sg, ui.TierWide)
 	assert.Len(t, wide.Sort, len(wide.Cells))
 	assert.Equal(t, ui.SortKeyInt(9), wide.Sort[4], "In")
 	assert.Equal(t, ui.SortKeyInt(10), wide.Sort[5], "Out")
 	assert.Equal(t, "d", wide.Sort[3], "Description")
 
-	narrow := buildSGRows([]aws.SecurityGroup{sg}, ui.TierNarrow)[0]
+	narrow := sgRow(sg, ui.TierNarrow)
 	assert.Len(t, narrow.Sort, len(narrow.Cells))
 	assert.Equal(t, ui.SortKeyInt(9), narrow.Sort[3], "In")
 	assert.Equal(t, ui.SortKeyInt(10), narrow.Sort[4], "Out")

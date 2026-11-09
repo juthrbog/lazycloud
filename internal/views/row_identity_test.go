@@ -97,7 +97,7 @@ func newSGList(groups ...string) *SGList {
 	for i, id := range groups {
 		sgs[i] = aws.SecurityGroup{ID: id}
 	}
-	v.Update(sgListLoadedMsg{groups: sgs})
+	deliverItems(v, &v.listCore, sgs)
 	return v
 }
 
