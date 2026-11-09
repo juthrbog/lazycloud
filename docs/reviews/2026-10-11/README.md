@@ -51,7 +51,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] Phase 5, AWS services bundle and session switch (A4): H6, M11, L3. Done in #215, with L5 and D8.
 - [x] Phase 6, CI and release: H10, H11, H12, I1 to I9. I1, I3, I4, and I6 are done in #216. I5 is done in #226. I7 is done in #227.
 - [x] Phase 7, the remaining medium findings. M1, M2, M24, M26, and part of M25 are done in #223. M23 is done in #224. M28 is done in #225. M3, L2, and L6 are done in #232. M25 is done in #233. M21 is done in #234. M15, M16, and M19 are done in #235. M18 is done in #236. M4 is done in #237. M12 is done in #238. M10 is done in #239. The NO_COLOR part of M20 is done in #240, and the rest in #241.
-- [ ] Phase 8, generic resource list (A10). Design and PR 0 (characterization tests): #246. PR 1 (detail helpers, filter source): #247. PR 2 (action helpers): #248. PR 3 (small fixes): #249. The PR plan is in `docs/design/phase8-resource-list.md`.
+- [ ] Phase 8, generic resource list (A10). Design and PR 0 (characterization tests): #246. PR 1 (detail helpers, filter source): #247. PR 2 (action helpers): #248. PR 3 (small fixes): #249. PR 4 (core + sg): #250. The PR plan is in `docs/design/phase8-resource-list.md`.
 - [ ] Phase 9, product roadmap. See [`market-research.md`](market-research.md).
 
 ## Critical
