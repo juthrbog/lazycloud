@@ -325,16 +325,16 @@ func TestCharSG_SortPicker(t *testing.T) {
 	assert.Equal(t, -1, req.CurrentCol, "_clear clears the sort")
 }
 
-func TestCharSG_InCountSortsAsText(t *testing.T) {
+func TestCharSG_InCountSortsAsNumber(t *testing.T) {
 	many := aws.SecurityGroup{ID: "sg-many", Name: "many", InboundRules: make([]aws.SecurityGroupRule, 10)}
 	few := aws.SecurityGroup{ID: "sg-few", Name: "few", InboundRules: make([]aws.SecurityGroupRule, 9)}
 	v, _ := newCharSG(t, few, many)
 	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 4, Value: "In"})
 	rows := netRows(v)
 	require.Len(t, rows, 2)
-	// Divergence #46: changes in PR 3. "10" sorts before "9" as text.
-	assert.Equal(t, "sg-many | many | 10 | 0", rows[0])
-	assert.Equal(t, "sg-few | few | 9 | 0", rows[1])
+	// Divergence #46 (fixed in PR 3): 9 sorts before 10.
+	assert.Equal(t, "sg-few | few | 9 | 0", rows[0])
+	assert.Equal(t, "sg-many | many | 10 | 0", rows[1])
 }
 
 func TestCharSG_CursorAndSortKeptAcrossReload(t *testing.T) {

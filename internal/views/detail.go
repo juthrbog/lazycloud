@@ -5,6 +5,9 @@ import (
 	"sort"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
@@ -59,4 +62,14 @@ func buildTagsContent(tags map[string]string) string {
 		fmt.Fprintf(&b, "%-24s %s\n", k, tags[k])
 	}
 	return b.String()
+}
+
+// detailErrorToast is the toast for a failed detail fetch. The list stays.
+// A canceled fetch (the user left the view) shows nothing.
+func detailErrorToast(err error) tea.Cmd {
+	if canceled(err) {
+		return nil
+	}
+	text := "Details failed: " + aws.ErrorText(err)
+	return func() tea.Msg { return msg.ToastError(text) }
 }

@@ -339,9 +339,12 @@ func TestCharAMI_ErrorContexts(t *testing.T) {
 		v.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
 		cmd := charSearch(v, "amzn")
 		require.NotNil(t, cmd)
-		// Divergence #47 (and #38): search has no nil-service guard and
-		// panics. Changes in PR 3.
-		assert.Panics(t, func() { collectMsgs(cmd) })
+		// Divergence #47 (fixed in PR 3): the search checks for a nil
+		// service, like the owned load.
+		e, ok := firstOfType[msg.ErrorMsg](charRun(cmd))
+		require.True(t, ok)
+		assert.Equal(t, "EC2", e.Context)
+		assert.ErrorIs(t, e.Err, errNoClient)
 	})
 }
 

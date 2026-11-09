@@ -1087,9 +1087,10 @@ func TestCharEC2_DetailError(t *testing.T) {
 	svc.On("GetInstanceDetail", mock.Anything, "i-1").Return(nil, errors.New("denied")).Once()
 	_, cmd := v.Update(keyPress('d'))
 	seen := pump(v, cmd, 3)
-	assert.Empty(t, toasts(seen))
-	// Divergence #19: the error replaces the list; changes in PR 3.
-	assert.Equal(t, "  Error: denied", charEC2Text(v))
+	// Divergence #19 (fixed in PR 3): a toast, and the list stays.
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Details failed: denied")}, toasts(seen))
+	assert.Contains(t, charEC2Text(v), " i-1 ", "the list stays")
+	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 
 	// A nil detail with no error does nothing.
 	v2, svc2 := charEC2Loaded(t, nil, charEC2Instances()...)

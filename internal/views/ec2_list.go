@@ -244,7 +244,7 @@ func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
 	ctx := e.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching EC2 instances (page %d)", pageNum)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -406,8 +406,8 @@ func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ec2InstanceDetailMsg:
 		if m.err != nil {
-			e.err = m.err
-			return e, nil
+			eventlog.Errorf(eventlog.CatAWS, "Instance details failed: %v", m.err)
+			return e, detailErrorToast(m.err)
 		}
 		if m.detail == nil {
 			return e, nil

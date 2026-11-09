@@ -333,7 +333,7 @@ func (s *S3Objects) fetchPage(token *string, pageNum int) tea.Cmd {
 	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "S3"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "S3"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching objects in s3://%s/%s (page %d)", bucket, prefix, pageNum)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)

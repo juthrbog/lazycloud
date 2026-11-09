@@ -700,26 +700,27 @@ func TestCharS3_Properties(t *testing.T) {
 	assert.Nil(t, cmd, "d with no cursor does nothing")
 }
 
-func TestCharS3_PropertiesErrorReplacesList(t *testing.T) {
+// Divergence #19 (fixed in PR 3): a toast, and the list stays.
+func TestCharS3_PropertiesErrorToast(t *testing.T) {
 	v, svc := charS3Loaded(t, "a-logs")
 	svc.On("GetBucketProperties", mock.Anything, "a-logs").Return((*aws.BucketProperties)(nil), errCharS3Denied)
 
 	_, cmd := v.Update(keyPress('d'))
 	got := pump(v, cmd, 2)
-	assert.Empty(t, toasts(got))
-	// Divergence #19: changes in PR 3 (a toast, the list stays).
-	assert.Equal(t, []string{"Error: AccessDenied"}, charS3Text(v))
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Details failed: AccessDenied")}, toasts(got))
+	assert.Equal(t, "1/1 buckets", v.Footer())
+	assert.Contains(t, charS3Text(v), "Bucket Created", "the list stays")
 }
 
-// Divergence #43: changes in PR 3 (guards in the fetch closure).
-func TestCharS3_PropertiesPanics(t *testing.T) {
+// Divergence #43 (fixed in PR 3): nil properties and a nil service give an
+// error toast, not a panic.
+func TestCharS3_PropertiesGuards(t *testing.T) {
 	v, svc := charS3Loaded(t, "a-logs")
 	svc.On("GetBucketProperties", mock.Anything, "a-logs").Return((*aws.BucketProperties)(nil), nil)
 	_, cmd := v.Update(keyPress('d'))
-	reply := cmd()
-	_, open := v.Update(reply)
-	require.NotNil(t, open)
-	assert.Panics(t, func() { open() }, "nil props panic")
+	got := pump(v, cmd, 2)
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Details failed: no properties for bucket a-logs")}, toasts(got))
+	assert.Equal(t, "1/1 buckets", v.Footer())
 
 	// A view with a nil service gets its rows from the reply of another
 	// view's load, so d has a cursor.
@@ -732,7 +733,8 @@ func TestCharS3_PropertiesPanics(t *testing.T) {
 	require.Equal(t, "1/1 buckets", nilView.Footer())
 	_, cmd = nilView.Update(keyPress('d'))
 	require.NotNil(t, cmd)
-	assert.Panics(t, func() { cmd() }, "nil service panics")
+	got = pump(nilView, cmd, 2)
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Details failed: AWS client not initialized")}, toasts(got))
 }
 
 func TestCharS3_DeletePromptOneBucket(t *testing.T) {
@@ -764,14 +766,16 @@ func TestCharS3_DeletePromptSeveralBuckets(t *testing.T) {
 	}}, collectMsgs(cmd))
 }
 
-// Divergence #42: changes in PR 3 (the name is sanitized).
-func TestCharS3_DeletePromptNotSanitized(t *testing.T) {
+// Divergence #42 (fixed in PR 3): the name in the message is sanitized.
+// The phrase stays the real name, because the user types it.
+func TestCharS3_DeletePromptSanitized(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, _ := charS3Loaded(t, "a\x1b[7mb")
 	_, cmd := v.Update(keyPress('x'))
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.True(t, strings.HasPrefix(req.Message, "Delete bucket 'a\x1b[7mb'?\n"))
+	assert.True(t, strings.HasPrefix(req.Message, "Delete bucket '"+ui.Sanitize("a\x1b[7mb")+"'?\n"))
+	assert.NotContains(t, req.Message, "\x1b")
 	assert.Equal(t, "a\x1b[7mb", req.Phrase)
 }
 
@@ -997,12 +1001,14 @@ func TestCharS3_CreateSuccessReloads(t *testing.T) {
 	_, cmd = v.Update(reply)
 	assert.Equal(t, []string{"⣾ Loading S3 buckets..."}, charS3Text(v))
 	got := pump(v, cmd, 3)
-	// Divergence #40: changes in PR 3 (the toast uses m.Outcome()); the text stays.
+	// Divergence #40 (fixed in PR 3): the toast uses m.Outcome(); the text stays.
 	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Bucket created: b-new")}, toasts(got))
 	assert.Equal(t, "2/2 buckets", v.Footer())
 }
 
-func TestCharS3_CreateErrorReplacesList(t *testing.T) {
+// Divergence #40 (fixed in PR 3): a failed create shows the Outcome toast,
+// and the list stays.
+func TestCharS3_CreateErrorToast(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, svc := charS3Loaded(t, "a-logs")
 	svc.On("CreateBucket", mock.Anything, "Bad", "us-east-1").Return(errors.New("InvalidBucketName"))
@@ -1011,9 +1017,9 @@ func TestCharS3_CreateErrorReplacesList(t *testing.T) {
 	charS3Type(v, "Bad")
 	_, cmd := v.Update(charS3Enter)
 	got := pump(v, cmd, 2)
-	assert.Empty(t, toasts(got))
-	// Divergence #40: changes in PR 3 (a toast "Bucket Bad not created: ...").
-	assert.Equal(t, []string{"Error: InvalidBucketName"}, charS3Text(v))
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Bucket Bad not created: InvalidBucketName")}, toasts(got))
+	assert.Equal(t, "1/1 buckets", v.Footer())
+	assert.Contains(t, charS3Text(v), "Bucket Created", "the list stays")
 	svc.AssertNumberOfCalls(t, "ListBuckets", 1)
 }
 

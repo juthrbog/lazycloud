@@ -1579,14 +1579,15 @@ func TestCharSQS_DetailFIFOWithRedrive(t *testing.T) {
 		"Throughput Limit       perMessageGroupId\n", panel.Tabs[5].Content)
 }
 
-// Divergence #19: changes in PR 3. A failed detail fetch replaces the list
-// with the error.
-func TestCharSQS_DetailErrorReplacesList(t *testing.T) {
+// Divergence #19 (fixed in PR 3): a failed detail fetch shows a toast, and
+// the list stays.
+func TestCharSQS_DetailErrorToast(t *testing.T) {
 	v, svc := charSQSThree(t)
 	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).Return(nil, errors.New("gone")).Once()
 	_, cmd := v.Update(keyPress('d'))
-	assert.Empty(t, charSQSDeliver(v, charSQSRun(cmd)...))
-	assert.Equal(t, "\n  Error: gone", plain(v.View().Content))
+	got := charSQSDeliver(v, charSQSRun(cmd)...)
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Details failed: gone")}, toasts(got))
+	assert.NotContains(t, plain(v.View().Content), "Error:")
 	assert.Equal(t, "3/3 queues", v.Footer())
 	svc.AssertNotCalled(t, "ListDeadLetterSourceQueues", mock.Anything, mock.Anything)
 }

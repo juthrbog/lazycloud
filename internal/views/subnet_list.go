@@ -162,7 +162,7 @@ func (s *SubnetList) fetchPage(token *string, pageNum int) tea.Cmd {
 	ctx := s.viewContext()
 	return func() tea.Msg {
 		if svc == nil {
-			return msg.ErrorMsg{Err: fmt.Errorf("AWS client not initialized"), Context: "EC2"}
+			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
 		}
 		eventlog.Debugf(eventlog.CatAWS, "Fetching subnets (page %d)", pageNum)
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
@@ -351,7 +351,7 @@ func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []ui.Row {
 	rows := make([]ui.Row, 0, len(subnets))
 	for _, s := range subnets {
 		state := s.State
-		var cells table.Row
+		var cells, sortKeys table.Row
 		switch tier {
 		case ui.TierNarrow:
 			cells = table.Row{s.ID, s.Name, s.AvailabilityZone, s.CIDRBlock, state}
@@ -372,8 +372,12 @@ func buildSubnetRows(subnets []aws.Subnet, tier ui.WidthTier) []ui.Row {
 				s.ID, s.Name, s.VpcID, s.AvailabilityZone, s.CIDRBlock,
 				fmt.Sprintf("%d", s.AvailableIPCount), state, pub, def,
 			}
+			sortKeys = table.Row{
+				s.ID, s.Name, s.VpcID, s.AvailabilityZone, s.CIDRBlock,
+				ui.SortKeyInt(int64(s.AvailableIPCount)), state, pub, def,
+			}
 		}
-		rows = append(rows, ui.Row{Key: s.ID, Cells: cells})
+		rows = append(rows, ui.Row{Key: s.ID, Cells: cells, Sort: sortKeys})
 	}
 	return rows
 }
