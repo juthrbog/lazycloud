@@ -54,9 +54,11 @@ func (c *listCore[T]) footer() string {
 
 // footerWith returns base, plus "(loading... N so far)" while more pages
 // of a load come, plus "(N selected)", plus the spinner while it shows.
+// With Complete, the rows change only at the end of the load, so the
+// progress is in the spinner text only.
 func (c *listCore[T]) footerWith(base string) string {
 	s := base
-	if c.loading && c.pages > 0 {
+	if c.loading && c.pages > 0 && c.cfg.Complete == nil {
 		s += fmt.Sprintf("  (loading... %d so far)", len(c.items))
 	}
 	if n := c.table.SelectionCount(); n > 0 {

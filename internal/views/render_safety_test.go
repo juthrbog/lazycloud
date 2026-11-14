@@ -159,7 +159,7 @@ func TestViews_StateColumnKeepsColor(t *testing.T) {
 func TestSQSQueues_CountColumnsKeepColor(t *testing.T) {
 	v, _ := newQueueList()
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
-	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{
+	v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{
 		{Name: "orders", URL: "u1", Type: "Standard", ApproximateMessageCount: 8},
 		{Name: "broken", URL: "u2", Err: errors.New("denied")},
 	}})
@@ -213,7 +213,7 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 		},
 		"sqs_queues": func(*testing.T) tea.Model {
 			v, _ := newQueueList()
-			v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{
+			v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{
 				{Name: "orders", URL: "u1", Type: "Standard", ApproximateMessageCount: 8, ApproximateInFlightCount: 1},
 			}})
 			return v

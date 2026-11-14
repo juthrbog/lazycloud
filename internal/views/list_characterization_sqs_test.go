@@ -285,13 +285,13 @@ func TestCharSQS_InitDeselectsAndLoadsOnlyWhileLoading(t *testing.T) {
 // A fresh view has load generation 0, so a gen-0 message is accepted.
 func TestCharSQS_FreshViewAcceptsGenZero(t *testing.T) {
 	v, svc := charSQSNew(100)
-	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{charSQSQueue("qa", 1)}}) // private
+	v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{charSQSQueue("qa", 1)}}) // private
 	assert.Equal(t, []string{"qa Standard 1 0 0"}, charSQSRows(v))
 
 	v2, svc2 := charSQSNew(100)
 	svc2.On("FetchAllQueueAttributes", mock.Anything, []string{charSQSURL("qa")}).
 		Return([]aws.Queue{charSQSQueue("qa", 2)}, nil).Once()
-	_, cmd := v2.Update(sqsQueuesPageMsg{urls: []string{charSQSURL("qa")}, pageNum: 1}) // private
+	_, cmd := v2.Update(listPageMsg[aws.Queue]{items: []aws.Queue{{URL: charSQSURL("qa")}}, page: 1}) // private
 	pump(v2, cmd, 3)
 	assert.Equal(t, []string{"qa Standard 2 0 0"}, charSQSRows(v2))
 	svc.AssertExpectations(t)
@@ -348,16 +348,36 @@ func TestCharSQS_ReloadSnapshot(t *testing.T) {
 	charSQSExpectLoad(svc, charSQSQueue("qb", 5), charSQSQueue("qa", 4))
 
 	_, cmd := v.Update(keyPress('r'))
-	// Divergence #7: changes in PR 8. The reload clears the items, so the
-	// full-screen spinner hides the rows that the table still holds.
-	assert.Equal(t, "\n  ⣾  Loading SQS queues...", plain(v.View().Content))
-	assert.Equal(t, "2/2 queues  (loading... 2 so far)  ⣾  Loading SQS queues...", plain(v.Footer()))
+	// Divergence #7 (fixed in PR 8): the rows stay during a reload, with the
+	// spinner in the footer.
+	assert.Equal(t, []string{"qa Standard 3 0 0", "qb Standard 0 0 0"}, charSQSRows(v))
+	assert.NotContains(t, plain(v.View().Content), "Loading")
+	// Divergence #15 (fixed in PR 8): "so far" does not count the old rows.
+	// The rows change only when the attributes arrive, so the progress is
+	// in the spinner text only.
+	assert.Equal(t, "2/2 queues  ⣾  Loading SQS queues...", plain(v.Footer()))
 
 	pump(v, cmd, 6)
 	assert.Equal(t, []string{"qb Standard 5 0 0", "qa Standard 4 0 0"}, charSQSRows(v))
 	assert.Equal(t, "2/2 queues", plain(v.Footer()))
 	svc.AssertNumberOfCalls(t, "ListQueuesPage", 2)
 	svc.AssertNumberOfCalls(t, "FetchAllQueueAttributes", 2)
+}
+
+// Divergence #15 (fixed in PR 8): after page 1 of a reload with two pages,
+// the footer does not count the old rows as progress. The spinner counts the
+// URLs of this load.
+func TestCharSQS_MultiPageReloadFooter(t *testing.T) {
+	v, svc := charSQSLoaded(t, 100, charSQSQueue("qa", 3), charSQSQueue("qb", 0))
+	token := "t1"
+	svc.On("ListQueuesPage", mock.Anything, (*string)(nil)).
+		Return(&aws.QueuePage{QueueURLs: []string{charSQSURL("qc")}, HasMorePages: true, Token: &token}, nil).Once()
+	_, cmd := v.Update(keyPress('r'))
+	page1 := charSQSRun(cmd)
+	require.Len(t, page1, 1)
+	v.Update(page1[0]) // the fetch of page 2 is not run
+	assert.Equal(t, []string{"qa Standard 3 0 0", "qb Standard 0 0 0"}, charSQSRows(v), "the old rows stay")
+	assert.Equal(t, "2/2 queues  ⣾  Loading queues... 1 so far", plain(v.Footer()))
 }
 
 func TestCharSQS_StalePageDropped(t *testing.T) {
@@ -428,7 +448,9 @@ func TestCharSQS_ErrorContexts(t *testing.T) {
 	t.Run("list", func(t *testing.T) {
 		v, svc := charSQSNew(100)
 		svc.On("ListQueuesPage", mock.Anything, (*string)(nil)).Return(nil, errors.New("boom"))
-		got, ok := firstOfType[msg.ErrorMsg](charSQSRun(v.Init()))
+		// The failure goes to the view first, and the view emits the
+		// ErrorMsg for the app (listFailedMsg, PR 4).
+		got, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 3))
 		require.True(t, ok)
 		assert.Equal(t, "listing SQS queues", got.Context)
 	})
@@ -437,7 +459,7 @@ func TestCharSQS_ErrorContexts(t *testing.T) {
 		svc.On("ListQueuesPage", mock.Anything, (*string)(nil)).
 			Return(&aws.QueuePage{QueueURLs: []string{charSQSURL("qa")}}, nil)
 		svc.On("FetchAllQueueAttributes", mock.Anything, mock.Anything).Return(nil, errors.New("boom"))
-		got, ok := firstOfType[msg.ErrorMsg](charSQSDeliver(v, charSQSRun(v.Init())...))
+		got, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 4))
 		require.True(t, ok)
 		assert.Equal(t, "fetching SQS queue attributes", got.Context)
 	})
@@ -467,16 +489,28 @@ func TestCharSQS_ErrorDuringReload(t *testing.T) {
 	assert.Equal(t, "\n  Error: boom", plain(v.View().Content))
 	assert.Equal(t, "2/2 queues", plain(v.Footer()), "the table keeps the old rows")
 
-	// Divergence #8: changes in PR 8. Only r clears the error.
 	charSQSExpectLoad(svc, charSQSQueue("qa", 1))
 	_, cmd = v.Update(keyPress('r'))
 	pump(v, cmd, 6)
 	assert.Equal(t, []string{"qa Standard 1 0 0"}, charSQSRows(v))
 }
 
-// Divergence #9: changes in PR 8. A failure of a superseded load still
-// replaces the list with the error.
-func TestCharSQS_StaleErrorApplied(t *testing.T) {
+// Divergence #8 (fixed in PR 8): a good load clears the error, also when it
+// was not started by r.
+func TestCharSQS_GoodLoadClearsError(t *testing.T) {
+	v, svc := charSQSNew(100)
+	charSQSExpectLoad(svc, charSQSQueue("qa", 1))
+	attrs := charSQSDeliver(v, charSQSRun(v.Init())...)
+	v.Update(msg.ErrorMsg{Err: errors.New("throttled")})
+	require.Equal(t, "\n  Error: throttled", plain(v.View().Content))
+	charSQSDeliver(v, attrs...)
+	assert.Equal(t, []string{"qa Standard 1 0 0"}, charSQSRows(v))
+	assert.NotContains(t, plain(v.View().Content), "Error")
+}
+
+// Divergence #9 (fixed in PR 8): the failure of a superseded load is
+// dropped. It reaches neither the view nor the status bar.
+func TestCharSQS_StaleErrorDropped(t *testing.T) {
 	v, svc := charSQSNew(100)
 	svc.On("ListQueuesPage", mock.Anything, (*string)(nil)).Return(nil, errors.New("old failure")).Once()
 	charSQSExpectLoad(svc, charSQSQueue("qa", 1))
@@ -486,8 +520,30 @@ func TestCharSQS_StaleErrorApplied(t *testing.T) {
 	pump(v, cmd, 6)
 	require.Equal(t, []string{"qa Standard 1 0 0"}, charSQSRows(v))
 
-	charSQSDeliver(v, stale...)
-	assert.Equal(t, "\n  Error: old failure", plain(v.View().Content))
+	_, failed := firstOfType[msg.ErrorMsg](charSQSDeliver(v, stale...))
+	assert.False(t, failed, "no ErrorMsg for the status bar")
+	assert.Equal(t, []string{"qa Standard 1 0 0"}, charSQSRows(v))
+	assert.NotContains(t, plain(v.View().Content), "old failure")
+}
+
+// Divergence #9 (fixed in PR 8): a failed attribute call of a superseded
+// load is dropped too.
+func TestCharSQS_StaleAttributeErrorDropped(t *testing.T) {
+	v, svc := charSQSNew(100)
+	urls := []string{charSQSURL("qa")}
+	svc.On("ListQueuesPage", mock.Anything, (*string)(nil)).Return(&aws.QueuePage{QueueURLs: urls}, nil)
+	svc.On("FetchAllQueueAttributes", mock.Anything, urls).Return(nil, errors.New("old failure")).Once()
+	svc.On("FetchAllQueueAttributes", mock.Anything, urls).Return([]aws.Queue{charSQSQueue("qa", 1)}, nil).Once()
+
+	oldAttrs := charSQSDeliver(v, charSQSRun(v.Init())...)
+	require.Len(t, oldAttrs, 1)
+	_, cmd := v.Update(keyPress('r'))
+	pump(v, cmd, 6)
+	require.Equal(t, []string{"qa Standard 1 0 0"}, charSQSRows(v))
+
+	_, failed := firstOfType[msg.ErrorMsg](charSQSDeliver(v, oldAttrs...))
+	assert.False(t, failed)
+	assert.NotContains(t, plain(v.View().Content), "old failure")
 }
 
 func TestCharSQS_ColumnsPerWidth(t *testing.T) {
@@ -597,8 +653,7 @@ func TestCharSQS_CountCellsArePlainAndColumnColored(t *testing.T) {
 func TestCharSQS_EscWithAndWithoutSelection(t *testing.T) {
 	v, _ := charSQSThree(t)
 	charSQSSpace(v)
-	// Divergence #1: sqs keeps MultiSelect, so esc still deselects first
-	// after PR 8.
+	// Divergence #1 (kept): sqs uses MultiSelect, so esc deselects first.
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	assert.Nil(t, cmd, "the first esc deselects")
 	assert.Equal(t, "3/3 queues", v.Footer())
@@ -1299,9 +1354,12 @@ func TestCharSQS_SelectiveRefresh(t *testing.T) {
 		"the table stays usable")
 
 	seen := pump(v, cmd, 3)
-	// Divergence #4: changes in PR 8. One call per queue, no toast for the
-	// failed queue.
-	assert.Empty(t, toasts(seen))
+	// Divergence #4 (fixed in PR 8): still one call per queue, each with its
+	// own timeout, but one reply, and one toast for the failed queue.
+	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Refresh failed: 1 of 3 failed: " +
+		"access denied (AccessDenied). The credentials of this profile do not allow this call")}, toasts(seen))
+	_, n := charSQSRefreshReplies(seen)
+	assert.Equal(t, 1, n, "one reply for all queues")
 	assert.Equal(t, []string{"✓ qa Standard 99 0 0", "✓ qb Standard 10 0 0", "✓ qc FIFO 0 0 7"}, charSQSRows(v),
 		"a failed queue does not stop the others")
 	assert.Equal(t, "3/3 queues  (3 selected)", plain(v.Footer()))
@@ -1328,7 +1386,18 @@ func TestCharSQS_PurgeRefreshHasOwnTimeouts(t *testing.T) {
 
 	charSQSConfirm(t, v, "Purge Queue")
 	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
-	pump(v, cmd, 4)
+	purged := charSQSRun(cmd)
+	require.Len(t, purged, 1)
+	_, cmd = v.Update(purged[0])
+	// Design change in PR 8: the refresh of the purged queues goes through
+	// the core, so it shows a spinner and one toast for a failed queue.
+	assert.Equal(t, "3/3 queues  (2 selected)  ⣾  Refreshing 2 queues...", plain(v.Footer()))
+	seen := pump(v, cmd, 3)
+	assert.Equal(t, []msg.ToastMsg{
+		msg.ToastSuccess("Purged 2 queue(s) (60s cooldown before the next purge)"),
+		msg.ToastError("Refresh failed: 1 of 2 failed: access denied (AccessDenied). The credentials of this profile do not allow this call"),
+	}, toasts(seen))
+	assert.Equal(t, "3/3 queues  (2 selected)", plain(v.Footer()))
 	assert.Equal(t, []string{"✓ qa Standard 0 0 0", "✓ qb Standard 10 0 0", "qc Standard 3 0 0"}, charSQSRows(v))
 	got := limits()
 	require.Len(t, got, 2)
@@ -1337,8 +1406,25 @@ func TestCharSQS_PurgeRefreshHasOwnTimeouts(t *testing.T) {
 	}
 }
 
-// Divergence #30: changes in PR 8. A refreshed queue keeps its old IsDLQ.
-func TestCharSQS_RefreshKeepsStaleDLQMark(t *testing.T) {
+// charSQSRefreshReplies returns the first refresh reply in msgs and how many
+// there are.
+func charSQSRefreshReplies(msgs []tea.Msg) (listRefreshedMsg[aws.Queue], int) { // private
+	var first listRefreshedMsg[aws.Queue]
+	n := 0
+	for _, m := range msgs {
+		if r, ok := m.(listRefreshedMsg[aws.Queue]); ok {
+			if n == 0 {
+				first = r
+			}
+			n++
+		}
+	}
+	return first, n
+}
+
+// Divergence #30 (fixed in PR 8): the DLQ marks are worked out again after a
+// refresh.
+func TestCharSQS_RefreshUpdatesDLQMark(t *testing.T) {
 	src := charSQSQueue("src", 0)
 	src.RedrivePolicy = &aws.RedrivePolicy{DeadLetterTargetArn: "arn:aws:sqs:us-east-1:123456789012:dlq"}
 	v, svc := charSQSLoaded(t, 160, src, charSQSQueue("dlq", 0))
@@ -1348,32 +1434,32 @@ func TestCharSQS_RefreshKeepsStaleDLQMark(t *testing.T) {
 	charSQSSpace(v)
 	_, cmd := v.Update(keyPress('r'))
 	pump(v, cmd, 3)
-	assert.Equal(t, []string{"✓ src Standard 0 0 0", "dlq Standard 0 0 0 Yes"}, charSQSRows(v),
-		"src no longer names dlq, but dlq keeps its mark")
+	assert.Equal(t, []string{"✓ src Standard 0 0 0", "dlq Standard 0 0 0"}, charSQSRows(v),
+		"src no longer names dlq, so dlq loses its mark")
 }
 
-// Divergence #10: changes in PR 8. A refresh reply has no generation: during
-// a full reload it sets the empty item list on the table and hides the load
-// spinner.
+// Divergence #10 (fixed in PR 8): a refresh reply from before a full reload
+// is dropped. The rows stay, and the load keeps its spinner.
 func TestCharSQS_RefreshReplyDuringReload(t *testing.T) {
 	v, svc := charSQSThree(t)
 	charSQSSpace(v)
-	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).Return(&aws.Queue{URL: charSQSURL("qa"), Name: "qa"}, nil)
+	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).
+		Return(&aws.Queue{URL: charSQSURL("qa"), Name: "qa", ApproximateMessageCount: 99}, nil)
 	_, cmd := v.Update(keyPress('r'))
 	replies := charSQSRun(cmd)
 	require.Len(t, replies, 1)
 
 	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape}) // deselect
 	_, _ = v.Update(keyPress('r'))                 // full reload, not run
-	require.Equal(t, "\n  ⣾  Loading SQS queues...", plain(v.View().Content))
 
 	charSQSDeliver(v, replies...)
-	assert.Equal(t, "\n  ", plain(v.View().Content), "the spinner is gone")
-	assert.Equal(t, "0/0 queues", plain(v.Footer()), "the table is empty")
+	assert.Equal(t, []string{"qa Standard 8 0 0", "qb Standard 10 0 0", "qc Standard 3 0 0"}, charSQSRows(v),
+		"the old reply does not change the rows")
+	assert.Equal(t, "3/3 queues  ⣾  Loading SQS queues...", plain(v.Footer()), "the load keeps its spinner")
 }
 
-// Divergence #11: changes in PR 8. Spinner ticks reach the spinner only while
-// loading, so the selective refresh spinner does not move.
+// Divergence #11 (fixed in PR 8): the spinner ticks whenever it shows, also
+// during a selective refresh.
 func TestCharSQS_SpinnerTicks(t *testing.T) {
 	v, svc := charSQSThree(t)
 	charSQSSpace(v)
@@ -1382,50 +1468,73 @@ func TestCharSQS_SpinnerTicks(t *testing.T) {
 	tick, ok := firstOfType[spinner.TickMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	_, cmd = v.Update(tick)
-	assert.Nil(t, cmd, "no next tick")
-
-	// While loading, the same tick asks for the next tick.
-	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
-	v.Update(keyPress('r')) // full reload, not run
-	_, cmd = v.Update(tick)
-	assert.NotNil(t, cmd)
+	assert.NotNil(t, cmd, "the next tick")
 }
 
-// Divergence #13: changes in PR 8. A reload that finds zero queues keeps the
+// Divergence #13 (fixed in PR 8): a reload that finds zero queues clears the
 // old rows.
-func TestCharSQS_ZeroQueuesKeepStaleRows(t *testing.T) {
+func TestCharSQS_ZeroQueuesClearRows(t *testing.T) {
 	v, svc := charSQSLoaded(t, 100, charSQSQueue("qa", 1), charSQSQueue("qb", 2))
 	charSQSExpectLoad(svc)
 	_, cmd := v.Update(keyPress('r'))
 	pump(v, cmd, 4)
-	assert.Equal(t, []string{"qa Standard 1 0 0", "qb Standard 2 0 0"}, charSQSRows(v))
-	assert.Equal(t, "2/2 queues", plain(v.Footer()))
-	svc.AssertNumberOfCalls(t, "FetchAllQueueAttributes", 1)
-
-	// The rows have no items behind them: details and peek do nothing.
-	assert.Empty(t, charSQSCursorURL(t, v))
+	assert.Empty(t, charSQSRows(v))
+	assert.Equal(t, "0/0 queues", plain(v.Footer()))
+	svc.AssertNumberOfCalls(t, "FetchAllQueueAttributes", 1) // only the first load; zero queues need no call
 }
 
-// Divergence #6 and #7: changes in PR 8. During a reload the items are empty,
-// so keys that read items do nothing, while keys that read table rows still
-// act on the old rows. Navigation keys go to the spinner, not the table.
+// Divergence #6 and #7 (fixed in PR 8): the queues stay during a reload, so
+// p, d, y, m and the nav keys act on the real rows.
 func TestCharSQS_KeysDuringReload(t *testing.T) {
 	v, svc := charSQSThree(t)
 	charSQSExpectLoad(svc, charSQSQueue("qa", 8), charSQSQueue("qb", 10), charSQSQueue("qc", 3))
+	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).Return(charSQSQueue("qa", 8), nil).Maybe()
+	svc.On("ListDeadLetterSourceQueues", mock.Anything, mock.Anything).Return([]string(nil), nil).Maybe()
 	_, reload := v.Update(keyPress('r'))
 
-	assert.Empty(t, charSQSCursorURL(t, v), "p does nothing")
+	assert.Equal(t, charSQSURL("qa"), charSQSCursorURL(t, v), "p opens the cursor queue")
 	_, cmd := v.Update(keyPress('d'))
-	assert.Nil(t, cmd, "d does nothing")
-	assert.Equal(t, []string{charSQSURL("qa")}, charSQSTargets(t, v), "y copies the old cursor row")
+	require.NotNil(t, cmd, "d fetches the details")
+	_, ok := firstOfType[sqsQueueDetailMsg](collectMsgs(cmd)) // private
+	assert.True(t, ok)
+	assert.Equal(t, []string{charSQSURL("qa")}, charSQSTargets(t, v), "y copies the cursor row")
 	_, cmd = v.Update(keyPress('m'))
-	require.NotNil(t, cmd, "m opens the picker for the old cursor row")
+	require.NotNil(t, cmd, "m opens the picker for the cursor row")
 	assert.Equal(t, "Manage Queue", cmd().(msg.RequestActionPickerMsg).Title)
 	v.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
 	charSQSDown(v)
+	assert.Equal(t, charSQSURL("qb"), charSQSCursorURL(t, v), "the down key moves the cursor")
 
 	pump(v, reload, 6)
-	assert.Equal(t, charSQSURL("qa"), charSQSCursorURL(t, v), "the down key did not move the cursor")
+	assert.Equal(t, charSQSURL("qb"), charSQSCursorURL(t, v), "the cursor stays on qb after the load")
+}
+
+// p and m do nothing while the error screen hides the rows.
+func TestCharSQS_ErrorScreenBlocksPeekAndManage(t *testing.T) {
+	charSQSReadWrite(t)
+	v, _ := charSQSThree(t)
+	v.Update(msg.ErrorMsg{Err: errors.New("throttled")})
+	require.Equal(t, "\n  Error: throttled", plain(v.View().Content))
+	for _, k := range []rune{'p', 'm'} {
+		_, cmd := v.Update(keyPress(k))
+		assert.Nil(t, cmd, string(k))
+	}
+}
+
+// While the filter is open, p and m are text for the filter.
+func TestCharSQS_FilterTakesPeekAndManageKeys(t *testing.T) {
+	charSQSReadWrite(t)
+	v, _ := charSQSThree(t)
+	v.Update(keyPress('/'))
+	require.True(t, v.CapturingInput())
+	for _, k := range []rune{'p', 'm'} {
+		_, cmd := v.Update(keyPress(k))
+		msgs := collectMsgs(cmd)
+		_, nav := firstOfType[msg.NavigateMsg](msgs)
+		_, picker := firstOfType[msg.RequestActionPickerMsg](msgs)
+		assert.False(t, nav || picker, string(k))
+	}
+	assert.Contains(t, plain(v.View().Content), "pm")
 }
 
 // During the first load nothing reacts before the rows arrive.

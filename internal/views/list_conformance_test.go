@@ -236,6 +236,51 @@ var conformanceCases = []conformanceCase{
 		typeName: "EC2List",
 		coreType: reflect.TypeFor[listCore[aws.Instance]](),
 	},
+	{
+		name: "sqs_queues",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockSQSService)
+			svc.Test(t)
+			svc.On("ListQueuesPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.QueuePage{QueueURLs: []string{"u1"}}, nil)
+			svc.On("ListQueuesPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			svc.On("FetchAllQueueAttributes", mock.MatchedBy(ok), mock.Anything).Return([]aws.Queue{{URL: "u1", Name: "one"}}, nil)
+			svc.On("FetchAllQueueAttributes", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewSQSQueues(svc)
+		},
+		buildNil: func() nav.View { return NewSQSQueues(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*SQSQueues).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Queue]{gen: c.loadGen, items: []aws.Queue{{URL: "u1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Queue]{gen: c.loadGen, items: []aws.Queue{{URL: "u2"}}, page: 2},
+				listCompleteMsg[aws.Queue]{gen: c.loadGen, items: []aws.Queue{{URL: "u1", Name: "one"}, {URL: "u2", Name: "two"}}},
+				listCompleteMsg[aws.Queue]{gen: c.loadGen - 1, items: []aws.Queue{{URL: "u-old"}}},
+				listRefreshedMsg[aws.Queue]{gen: c.loadGen - 1, items: []aws.Queue{{URL: "u1", Name: "stale"}}},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				sqsQueueDetailMsg{err: context.Canceled},
+				ui.ConfirmResultMsg{Confirmed: false, Action: "sqs_purge"},
+				ui.PickerResultMsg{ID: "action", Selected: -1},
+				msg.FormResultMsg{ID: "sqs_send_message", Aborted: true},
+				keyPress('p'),
+				keyPress('m'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*SQSQueues).items {
+				ids = append(ids, it.URL)
+			}
+			return ids
+		},
+		wantIDs:  []string{"u1", "u2"},
+		rwKeys:   []string{"m"},
+		file:     "sqs_queues.go",
+		typeName: "SQSQueues",
+		coreType: reflect.TypeFor[listCore[aws.Queue]](),
+	},
 }
 
 // conformanceLoaded builds the view at width 160 and runs its first load.

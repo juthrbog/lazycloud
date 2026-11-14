@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
@@ -40,6 +41,16 @@ type loadSpec[T any] struct {
 	tag        string        // passed to OnLoaded; "" for the default load
 }
 
+// completePhase is a second load phase (the SQS attributes). With it, the
+// pages collect in a buffer, Run turns the buffer into the items, and the
+// rows change only when Run returns.
+type completePhase[T any] struct {
+	Run     func(ctx context.Context, items []T) ([]T, error)
+	Timeout time.Duration // for the one Run call; 0 = none
+	Label   string        // spinner text, with %d for the count: "Loading attributes for %d queues..."
+	Context string        // msg.ErrorMsg.Context of a failed Run: "fetching SQS queue attributes"
+}
+
 // listConfig is the policy of one list. The first block is required:
 // newListCore panics if a field of it is missing (FetchTimeout may be 0).
 //
@@ -55,9 +66,12 @@ type listConfig[T any] struct {
 	Fetch        fetchFunc[T]                 // default load; build with fetchAll or fetchPages
 	FetchTimeout time.Duration                // per page: callTimeout for a page, listTimeout for a whole-list call; 0 = none
 
+	Complete *completePhase[T]                   // second load phase; nil for every view but sqs
+	Derive   func(items []T)                     // sets fields that depend on other rows, after each data change (sqs IsDLQ)
 	OnLoaded func(items []T, tag string) tea.Cmd // after a full load ends, with the tag of that load
 	Refresh  refreshFunc[T]                      // r with a selection refreshes the targets; nil: r always reloads
 
+	FocusKey     func(T) string          // what a focus ID matches; nil: Key (sqs focuses by name)
 	OpenDetail   func(T) tea.Cmd         // enter/d and focus; nil: the keys go to the table
 	FocusMissing func(id string) tea.Cmd // focus on an ID that is not in the list; nil: do nothing
 
@@ -84,6 +98,18 @@ type listCore[T any] struct {
 
 	items []T // what the table shows; kept during a reload
 	pages int // pages of the current load received so far
+	buf   []T // with Complete: the pages of the current load
+
+	completing bool // with Complete: the second phase of the current load runs
+
+	// refreshed holds the items that a selective refresh read while the
+	// current full load ran. That load may have read them before the
+	// refresh did (before a purge, for example), so its result does not
+	// replace them.
+	refreshed map[string]T
+
+	tasks     int    // side tasks of the view that have not ended (sqs purge and delete)
+	taskLabel string // spinner text of the last task started
 
 	loading      bool // the view shows a load: progress in the footer, a focus waits
 	running      bool // a full load is in flight, also a background reload
@@ -110,6 +136,9 @@ func newListCore[T any](cfg listConfig[T]) listCore[T] {
 		if missing {
 			panic("views: listConfig." + name + " is required")
 		}
+	}
+	if cfg.Complete != nil && (cfg.Complete.Run == nil || cfg.Complete.Label == "" || cfg.Complete.Context == "") {
+		panic("views: listConfig.Complete needs Run, Label and Context")
 	}
 	c := listCore[T]{
 		cfg:       cfg,
@@ -151,6 +180,9 @@ func (c *listCore[T]) init() tea.Cmd {
 func (c *listCore[T]) startLoad() tea.Cmd {
 	c.loadGen++
 	c.pages = 0
+	c.buf = nil
+	c.completing = false
+	c.refreshed = nil
 	c.running = true
 	return c.fetchCmd(nil, 1)
 }
@@ -209,34 +241,118 @@ func (c *listCore[T]) fetchCmd(token *string, page int) tea.Cmd {
 // onPage applies a page of the current load. Page 0 or 1 replaces the rows
 // (the table keeps cursor, selection and sort by key); a later page is
 // appended. Items whose key is already in the list are dropped, so the
-// items stay equal to the table rows. A page of a superseded load is
-// dropped.
+// items stay equal to the table rows. With Complete, the pages go to the
+// buffer instead, and the last page starts the second phase. A page of a
+// superseded load is dropped.
 func (c *listCore[T]) onPage(m listPageMsg[T]) tea.Cmd {
 	if m.gen != c.loadGen {
 		return nil
 	}
 	c.pages++
-	if m.page <= 1 {
-		c.setItems(dedupe(nil, m.items, c.cfg.Key))
-	} else {
-		fresh := dedupe(c.items, m.items, c.cfg.Key)
+	switch {
+	case c.cfg.Complete != nil:
+		if m.page <= 1 {
+			c.buf = nil
+		}
+		c.buf = append(c.buf, dedupe(c.buf, m.items, c.cfg.Key)...)
+	case m.page <= 1:
+		c.setItems(c.keepRefreshed(dedupe(nil, m.items, c.cfg.Key)))
+	case c.cfg.Derive != nil:
+		// A new row can change the derived fields of the rows before it.
+		c.setItems(append(c.items, c.keepRefreshed(dedupe(c.items, m.items, c.cfg.Key))...))
+	default:
+		fresh := c.keepRefreshed(dedupe(c.items, m.items, c.cfg.Key))
 		c.items = append(c.items, fresh...)
 		c.table.AppendRows(c.rows(fresh))
 	}
 	if m.next == nil {
+		if c.cfg.Complete != nil {
+			return c.startComplete()
+		}
 		return c.finishLoad()
 	}
-	eventlog.Debugf(eventlog.CatAWS, "Loaded page %d of %s (%d so far)", max(m.page, 1), c.cfg.Noun, len(c.items))
+	eventlog.Debugf(eventlog.CatAWS, "Loaded page %d of %s (%d so far)", max(m.page, 1), c.cfg.Noun, c.loadCount())
 	return tea.Batch(c.busy(c.loadLabel()), c.fetchCmd(m.next, max(m.page, 1)+1))
 }
 
-// loadLabel is the spinner text of the running load: its label, and the
-// progress once a page arrived with more to come.
+// startComplete starts the second phase after the last page. Zero items
+// end the load at once and clear the rows of the load before.
+func (c *listCore[T]) startComplete() tea.Cmd {
+	if len(c.buf) == 0 {
+		c.setItems(nil)
+		return c.finishLoad()
+	}
+	c.completing = true
+	return tea.Batch(c.busy(c.loadLabel()), c.completeCmd(c.buf))
+}
+
+// completeCmd runs the second phase on a copy of items. Like fetchCmd, it
+// captures the generation and the view context on the Update goroutine.
+func (c *listCore[T]) completeCmd(items []T) tea.Cmd {
+	gen := c.loadGen
+	phase := *c.cfg.Complete
+	ctx := c.viewContext()
+	in := slices.Clone(items)
+	return func() tea.Msg {
+		if phase.Timeout > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, phase.Timeout)
+			defer cancel()
+		}
+		out, err := phase.Run(ctx, in)
+		if err != nil {
+			return listFailedMsg{gen: gen, err: err, context: phase.Context}
+		}
+		return listCompleteMsg[T]{gen: gen, items: out}
+	}
+}
+
+// onComplete applies the second phase: its items replace the rows, and the
+// load ends. A reply of a superseded load is dropped.
+func (c *listCore[T]) onComplete(m listCompleteMsg[T]) tea.Cmd {
+	if m.gen != c.loadGen {
+		return nil
+	}
+	c.completing = false
+	c.buf = nil
+	c.setItems(c.keepRefreshed(dedupe(nil, m.items, c.cfg.Key)))
+	return c.finishLoad()
+}
+
+// keepRefreshed replaces each item of a load result with the item that a
+// selective refresh read during that load. items is a new slice (dedupe),
+// so it is changed in place.
+func (c *listCore[T]) keepRefreshed(items []T) []T {
+	if len(c.refreshed) == 0 {
+		return items
+	}
+	for i, it := range items {
+		if r, ok := c.refreshed[c.cfg.Key(it)]; ok {
+			items[i] = r
+		}
+	}
+	return items
+}
+
+// loadCount is the number of items the running load has received so far.
+func (c *listCore[T]) loadCount() int {
+	if c.cfg.Complete != nil {
+		return len(c.buf)
+	}
+	return len(c.items)
+}
+
+// loadLabel is the spinner text of the running load: its label, the
+// progress once a page arrived with more to come, or the text of the
+// second phase.
 func (c *listCore[T]) loadLabel() string {
-	if c.pages == 0 {
+	switch {
+	case c.completing:
+		return fmt.Sprintf(c.cfg.Complete.Label, len(c.buf))
+	case c.pages == 0:
 		return c.load.label
 	}
-	return fmt.Sprintf("Loading %s... %d so far", c.cfg.Noun, len(c.items))
+	return fmt.Sprintf("Loading %s... %d so far", c.cfg.Noun, c.loadCount())
 }
 
 // dedupe returns the items of fresh whose key is neither in have nor
@@ -263,6 +379,8 @@ func dedupe[T any](have, fresh []T, key func(T) string) []T {
 func (c *listCore[T]) finishLoad() tea.Cmd {
 	c.loading = false
 	c.running = false
+	c.completing = false
+	c.refreshed = nil
 	c.err = nil
 	c.spinner.Hide()
 	eventlog.Infof(eventlog.CatAWS, "Loaded %d %s (%d pages)", len(c.items), c.cfg.Noun, c.pages)
@@ -294,6 +412,8 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 	switch m := m.(type) {
 	case listPageMsg[T]:
 		return c.onPage(m), true
+	case listCompleteMsg[T]:
+		return c.onComplete(m), true
 	case listRefreshedMsg[T]:
 		return c.onRefreshed(m), true
 	case listFailedMsg:
@@ -303,7 +423,7 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 			return nil, true // our own echo; listFailedMsg already applied it
 		}
 		// A bare ErrorMsg (tests) is applied as before.
-		c.loading, c.running, c.err = false, false, m.Err
+		c.loading, c.running, c.completing, c.err = false, false, false, m.Err
 		c.spinner.Hide()
 		return nil, true
 	case msg.FocusResourceMsg:
@@ -346,7 +466,7 @@ func (c *listCore[T]) onFailed(m listFailedMsg) tea.Cmd {
 		eventlog.Debugf(eventlog.CatAWS, "Dropped stale %s error", m.context)
 		return nil
 	}
-	c.loading, c.running, c.err = false, false, m.err
+	c.loading, c.running, c.completing, c.err = false, false, false, m.err
 	c.spinner.Hide()
 	e := msg.ErrorMsg{Err: &loadError{err: m.err}, Context: m.context}
 	return func() tea.Msg { return e }
@@ -355,13 +475,22 @@ func (c *listCore[T]) onFailed(m listFailedMsg) tea.Cmd {
 // onRefreshed merges the reply of a selective refresh. The items it read
 // are merged also when the refresh failed for others, and then one error
 // toast follows. A cancel is silent. A reply from before the current full
-// load is dropped, because that load brings newer data.
+// load is dropped, because that load brings newer data. A reply during the
+// current full load is kept for its result (keepRefreshed).
 func (c *listCore[T]) onRefreshed(m listRefreshedMsg[T]) tea.Cmd {
 	c.idle()
 	if m.gen != c.loadGen {
 		return nil
 	}
 	c.mergeItems(m.items)
+	if c.running {
+		if c.refreshed == nil {
+			c.refreshed = make(map[string]T, len(m.items))
+		}
+		for _, it := range m.items {
+			c.refreshed[c.cfg.Key(it)] = it
+		}
+	}
 	if m.err == nil || errors.Is(m.err, context.Canceled) {
 		eventlog.Infof(eventlog.CatAWS, "Refreshed %d %s", len(m.items), c.cfg.Noun)
 		return nil
@@ -410,6 +539,19 @@ func (c *listCore[T]) find(key string) *T {
 	return nil
 }
 
+// findFocus returns the item that a focus ID names, or nil.
+func (c *listCore[T]) findFocus(id string) *T {
+	if c.cfg.FocusKey == nil {
+		return c.find(id)
+	}
+	for i := range c.items {
+		if c.cfg.FocusKey(c.items[i]) == id {
+			return &c.items[i]
+		}
+	}
+	return nil
+}
+
 // cursorItem returns the item under the cursor, or nil.
 func (c *listCore[T]) cursorItem() *T {
 	key := c.table.CursorKey()
@@ -425,9 +567,12 @@ func (c *listCore[T]) targets() []string {
 	return c.table.TargetKeys()
 }
 
-// setItems replaces the items and the table rows. The table keeps cursor,
-// selection and sort by key.
+// setItems replaces the items and the table rows, after Derive. The table
+// keeps cursor, selection and sort by key.
 func (c *listCore[T]) setItems(items []T) {
+	if c.cfg.Derive != nil {
+		c.cfg.Derive(items)
+	}
 	c.items = items
 	c.table.SetRows(c.rows(items))
 }
@@ -464,6 +609,20 @@ func (c *listCore[T]) mergeItems(fresh []T) {
 	c.setItems(items)
 }
 
+// removeKeys removes the items with the given keys (the SQS delete).
+func (c *listCore[T]) removeKeys(keys []string) {
+	if len(keys) == 0 {
+		return
+	}
+	drop := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		drop[k] = true
+	}
+	c.setItems(slices.DeleteFunc(slices.Clone(c.items), func(it T) bool {
+		return drop[c.cfg.Key(it)]
+	}))
+}
+
 func (c *listCore[T]) rows(items []T) []ui.Row {
 	rows := make([]ui.Row, 0, len(items))
 	for _, it := range items {
@@ -481,14 +640,34 @@ func (c *listCore[T]) busy(label string) tea.Cmd {
 }
 
 // idle ends the spinner of a side task (a refresh, a fetch by ID). While a
-// full load runs (also a background reload), the spinner stays and shows the
-// text of that load again.
+// task of the view runs (startTask), the spinner shows its text again; else
+// while a full load runs (also a background reload), the text of that load.
 func (c *listCore[T]) idle() {
-	if c.running {
+	switch {
+	case c.tasks > 0:
+		c.spinner.Show(c.taskLabel)
+	case c.running:
 		c.spinner.Show(c.loadLabel())
-		return
+	default:
+		c.spinner.Hide()
 	}
-	c.spinner.Hide()
+}
+
+// startTask shows the spinner with label until endTask, also across a
+// refresh reply (the sqs purge and delete).
+func (c *listCore[T]) startTask(label string) tea.Cmd {
+	c.tasks++
+	c.taskLabel = label
+	return c.busy(label)
+}
+
+// endTask ends one task. When it was the last one, idle decides what the
+// spinner shows.
+func (c *listCore[T]) endTask() {
+	if c.tasks > 0 {
+		c.tasks--
+	}
+	c.idle()
 }
 
 // refreshKeys refreshes the items with the given keys through cfg.Refresh.
@@ -508,17 +687,18 @@ func (c *listCore[T]) refreshKeys(keys []string) tea.Cmd {
 }
 
 // focus moves the cursor to the row with the given ID and opens its detail.
-// A row the filter hides keeps the cursor where it is, but its detail still
-// opens. An ID that is not in the list goes to FocusMissing.
+// The ID matches FocusKey, or Key without it. A row the filter hides keeps
+// the cursor where it is, but its detail still opens. An ID that is not in
+// the list goes to FocusMissing.
 func (c *listCore[T]) focus(id string) tea.Cmd {
-	it := c.find(id)
+	it := c.findFocus(id)
 	if it == nil {
 		if c.cfg.FocusMissing == nil {
 			return nil
 		}
 		return c.cfg.FocusMissing(id)
 	}
-	c.table.SetCursorByKey(id)
+	c.table.SetCursorByKey(c.cfg.Key(*it))
 	if c.cfg.OpenDetail == nil {
 		return nil
 	}
