@@ -281,6 +281,49 @@ var conformanceCases = []conformanceCase{
 		typeName: "SQSQueues",
 		coreType: reflect.TypeFor[listCore[aws.Queue]](),
 	},
+	{
+		name: "s3_list",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockS3Service)
+			svc.Test(t)
+			svc.On("ListBuckets", mock.MatchedBy(ok)).Return([]aws.Bucket{{Name: "b-1"}}, nil)
+			svc.On("ListBuckets", mock.Anything).Return(nil, errors.New("wrong context"))
+			// enter browses and d asks for properties; the conformance run
+			// presses both.
+			svc.On("GetBucketProperties", mock.Anything, mock.Anything).Return(&aws.BucketProperties{Name: "b-1"}, nil).Maybe()
+			return NewS3List(svc, "us-east-1")
+		},
+		buildNil: func() nav.View { return NewS3List(nil, "us-east-1") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*S3List).listCore
+			return []tea.Msg{
+				listPageMsg[aws.Bucket]{gen: c.loadGen, items: []aws.Bucket{{Name: "b-1"}, {Name: "b-2"}}},
+				listPageMsg[aws.Bucket]{gen: c.loadGen - 1, items: []aws.Bucket{{Name: "b-old"}}},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				s3BucketPropsMsg{err: context.Canceled},
+				s3BucketCreatedMsg{name: "b-3", err: errors.New("x")},
+				ui.ConfirmResultMsg{Confirmed: false, Action: "delete_bucket"},
+				ui.FilterChangedMsg{Text: "zz", Source: s3CreateSource},
+				keyPress('n'), tea.KeyPressMsg{Code: tea.KeyEscape},
+				keyPress('x'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*S3List).items {
+				ids = append(ids, it.Name)
+			}
+			return ids
+		},
+		wantIDs:      []string{"b-1", "b-2"},
+		rwKeys:       []string{"n", "x"},
+		file:         "s3_list.go",
+		typeName:     "S3List",
+		coreType:     reflect.TypeFor[listCore[aws.Bucket]](),
+		allowMethods: []string{"CapturingInput"}, // the filter or the create input
+	},
 }
 
 // conformanceLoaded builds the view at width 160 and runs its first load.

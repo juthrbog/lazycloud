@@ -37,7 +37,7 @@ func (s *SGList) ID() string     { return "sg_list" }
 func (s *SGList) Title() string  { return "Security Groups" }
 func (s *SGList) Init() tea.Cmd  { return s.init() }
 func (s *SGList) Footer() string { return s.footer() }
-func (s *SGList) View() tea.View { return tea.NewView(s.render("")) }
+func (s *SGList) View() tea.View { return tea.NewView(s.render("", "")) }
 
 func (s *SGList) KeyMap() []ui.HintBinding {
 	return s.hints(listKeys.Details, listKeys.CopyID, listKeys.Sort, listKeys.Filter, listKeys.Refresh)

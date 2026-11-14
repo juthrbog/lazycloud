@@ -129,7 +129,7 @@ func (s *SQSQueues) ID() string     { return "sqs_queues" }
 func (s *SQSQueues) Title() string  { return "SQS Queues" }
 func (s *SQSQueues) Init() tea.Cmd  { return s.init() }
 func (s *SQSQueues) Footer() string { return s.footer() }
-func (s *SQSQueues) View() tea.View { return tea.NewView(s.render("")) }
+func (s *SQSQueues) View() tea.View { return tea.NewView(s.render("", "")) }
 
 func (s *SQSQueues) KeyMap() []ui.HintBinding {
 	return s.hints(listKeys.Details, sqsKeys.Peek, sqsKeys.Manage, sqsKeys.CopyURL,

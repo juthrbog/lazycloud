@@ -24,10 +24,10 @@ func newTestS3List() (*S3List, *awstest.MockS3Service) {
 }
 
 func loadBuckets(view *S3List) {
-	view.Update(s3BucketsLoadedMsg{buckets: []aws.Bucket{
+	deliverItems(view, &view.listCore, []aws.Bucket{
 		{Name: "test-bucket", CreationDate: time.Now()},
 		{Name: "other-bucket", CreationDate: time.Now()},
-	}})
+	})
 }
 
 func TestS3List_ReadWriteAllowsCreate(t *testing.T) {
@@ -38,7 +38,7 @@ func TestS3List_ReadWriteAllowsCreate(t *testing.T) {
 	loadBuckets(view)
 
 	_, cmd := view.Update(keyPress('n'))
-	assert.True(t, view.creating, "expected creating mode to be active")
+	assert.True(t, view.createInput.Active(), "expected the create input to be open")
 	assert.Nil(t, cmd)
 }
 
@@ -50,11 +50,11 @@ func TestS3List_BucketsLoadedMsg(t *testing.T) {
 		{Name: "alpha", CreationDate: time.Now()},
 		{Name: "beta", CreationDate: time.Now()},
 	}
-	view.Update(s3BucketsLoadedMsg{buckets: buckets})
+	deliverItems(view, &view.listCore, buckets)
 
 	assert.False(t, view.loading)
-	assert.Len(t, view.buckets, 2)
-	assert.Equal(t, "alpha", view.buckets[0].Name)
+	assert.Len(t, view.items, 2)
+	assert.Equal(t, "alpha", view.items[0].Name)
 }
 
 func TestS3List_ErrorMsg(t *testing.T) {

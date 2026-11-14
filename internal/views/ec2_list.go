@@ -134,7 +134,7 @@ func (e *EC2List) ID() string     { return "ec2_list" }
 func (e *EC2List) Title() string  { return "EC2 Instances" }
 func (e *EC2List) Init() tea.Cmd  { return e.init() }
 func (e *EC2List) Footer() string { return e.footer() }
-func (e *EC2List) View() tea.View { return tea.NewView(e.render("")) }
+func (e *EC2List) View() tea.View { return tea.NewView(e.render("", "")) }
 
 func (e *EC2List) KeyMap() []ui.HintBinding {
 	return e.hints(listKeys.Details, ec2Keys.Connect, ec2Keys.Manage, listKeys.CopyID,

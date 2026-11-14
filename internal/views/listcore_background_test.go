@@ -90,5 +90,5 @@ func TestListCore_UpdateItems(t *testing.T) {
 	c.updateItems([]string{"b", "missing"}, func(it *fakeItem) { it.Name = "changed" })
 
 	assert.Equal(t, []fakeItem{fakeA, {"b", "changed"}}, c.items)
-	assert.Contains(t, plain(c.render("")), "changed", "the rows follow")
+	assert.Contains(t, plain(c.render("", "")), "changed", "the rows follow")
 }

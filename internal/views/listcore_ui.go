@@ -72,19 +72,27 @@ func (c *listCore[T]) footerWith(base string) string {
 
 // render draws the spinner on the first load (no rows yet), else the error
 // of the last load, else above, the filter when it is open, and the table.
-// above is a side input of the view (the AMI search), or "".
-func (c *listCore[T]) render(above string) string {
+// above is a side input of the view shown with the table (the AMI search),
+// or "". below is a side input shown under every screen, also the spinner
+// and the error (the S3 create input), or "".
+func (c *listCore[T]) render(above, below string) string {
+	var content string
 	switch {
 	case c.loading && len(c.items) == 0:
-		return "\n  " + c.spinner.View()
+		content = "\n  " + c.spinner.View()
 	case c.err != nil:
-		return "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(c.err)))
+		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(c.err)))
+	default:
+		content = c.table.View()
+		if c.filter.Active() {
+			content = c.filter.View() + "\n" + content
+		}
+		content = above + content
 	}
-	content := c.table.View()
-	if c.filter.Active() {
-		content = c.filter.View() + "\n" + content
+	if below != "" {
+		content += "\n" + below
 	}
-	return above + content
+	return content
 }
 
 // handleKey handles the core keys. It returns false for a key that is not
