@@ -5,7 +5,7 @@
 - **Test framework:** Go `testing` package + [testify](https://github.com/stretchr/testify) (`assert`, `require`, `mock`)
 - **TUI integration:** [teatest v2](https://github.com/charmbracelet/x/tree/main/exp/teatest) (`charmbracelet/x/exp/teatest/v2`)
 - **AWS mocking:** Hand-written mocks in `internal/aws/awstest/` implementing service interfaces
-- **LocalStack:** Docker-based AWS emulator for manual checks of the app (see `DEVELOPMENT.md`). The project has no automated integration tests.
+- **LocalStack:** Docker-based AWS emulator. The smoke tests in `internal/smoke/` run the whole app against it (see [Smoke Tests](#smoke-tests-against-localstack)). You can also use it for manual checks (see `DEVELOPMENT.md`).
 
 ## Three-Tier Testing Pyramid
 
@@ -98,6 +98,30 @@ func TestTeatest_S3ListLoadsBuckets(t *testing.T) {
 - Opaque failures — hard to debug when assertions on terminal bytes fail
 
 **Examples:** `internal/views/s3_teatest_test.go`
+
+## Smoke Tests Against LocalStack
+
+The smoke tests in `internal/smoke/` run the whole app (`app.New`) in a teatest program, with a real AWS client for LocalStack. They type keys like a user and wait for text on the screen. They find problems that the mocks hide, for example a wrong request, a wrong response field, or a key that reaches the wrong screen.
+
+The test files have the build tag `smoke`, so `go test ./...` does not run them. Run them with:
+
+```bash
+task smoke                     # start LocalStack, seed it, run all smoke tests
+task smoke -- -run TestSQS -v  # run some of them, with the log
+```
+
+`task smoke` uses LocalStack at `http://localhost:4566`. For a LocalStack at another local address, seed it with `go run ./cmd/seed -endpoint <url>`, then run `SMOKE_ENDPOINT=<url> go test -tags smoke ./internal/smoke/`. The tests refuse an endpoint with a host that is not local. They also refuse an endpoint that does not answer the LocalStack health path. So they cannot reach a real AWS account. They also set `HOME`, `AWS_CONFIG_FILE`, `AWS_SHARED_CREDENTIALS_FILE` and `AWS_PROFILE` to empty or temporary values, so your AWS files have no effect.
+
+CI runs the smoke tests in the `smoke` job of `.github/workflows/ci.yml`. The job needs the secret `LOCALSTACK_AUTH_TOKEN`. The repository stores it twice: as an Actions secret, and as a Dependabot secret for the pull requests of Dependabot. Dependabot updates the LocalStack image in `docker-compose.yml`, so its pull requests also run the smoke tests. GitHub gives no secrets to pull requests from forks, so the job skips for them.
+
+**How a test works:**
+- `start(t, "")` runs the app in ReadWrite mode. A wrapper model keeps the text of the last frame, and `waitFor`, `waitGone` and `until` poll that text. The teatest output stream holds only the changed cells, so a search in it can miss text.
+- `open("sqs", "SQS Queues")` runs a command and waits until the list has loaded. A key sent during a load can reach another screen.
+- `filter`, `pick`, `confirm` and `submitForm` drive the filter, the action picker, the confirm dialog and a form.
+- A test that changes resources creates its own, with a unique name from `uniqueName`, and deletes them in `t.Cleanup`. The seed resources stay as they are, so the tests can run again on the same LocalStack.
+- `failingProxy` puts a proxy between the app and LocalStack that can fail every call. Use it to test the error screens.
+
+**When to add one:** for a user flow that crosses the app, a view and AWS, for example a Manage action. Test the details of a view with Tier 1 tests.
 
 ## AWS Mock Pattern
 
@@ -254,7 +278,6 @@ Focus test coverage where bugs are most costly:
 
 | Gap | Recommendation |
 |-----|---------------|
-| No LocalStack integration tests | Add smoke tests for S3 and EC2 behind a build tag (T10 in the review tracker) |
 | No golden file tests | Consider for rendered output regression after theme changes |
 | `internal/config/` untested | Add config loading/precedence tests |
 
@@ -263,4 +286,4 @@ Focus test coverage where bugs are most costly:
 - **Headless testing:** All tests run without a real terminal. teatest uses a virtual terminal internally. No `TERM` configuration needed.
 - **Timeouts:** teatest `WaitFor` uses real wall-clock time. Use generous timeouts (2-5s) in CI where runners may be slow.
 - **Race detection and test order:** CI runs `go test -race -shuffle=on ./...` on every pull request. Run `task test:race` before you push. The race detector finds data races between `Update` and command goroutines. The random order finds tests that depend on global state, such as the ReadOnly mode, the theme, or the event log, which keeps only its last 500 entries.
-- **No real AWS:** App tests build a client for a closed local port (`http://127.0.0.1:1`) with dummy credentials. A test that sets an AWS profile points `AWS_CONFIG_FILE` at a temporary file. No test reads `~/.aws` or reaches an AWS account.
+- **No real AWS:** App tests build a client for a closed local port (`http://127.0.0.1:1`) with dummy credentials. A test that sets an AWS profile points `AWS_CONFIG_FILE` at a temporary file. No test reads `~/.aws` or reaches an AWS account. The smoke tests reach only LocalStack (see [Smoke Tests](#smoke-tests-against-localstack)).

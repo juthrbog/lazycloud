@@ -289,6 +289,7 @@ To add a list view:
 4. In `KeyMap`, return `v.hints(...)` with the keys of the view. Use the shared bindings in `listKeys`. Give each key that changes AWS resources `Mode: ui.ModeReadWrite`.
 5. In `Update`, handle the messages and keys of the view first. Then return `v, v.update(m)`.
 6. Add a case for the view to `conformanceCases` in `internal/views/list_conformance_test.go`, and add its load context to `loadContexts`.
+7. Add a seed resource for the list to `cmd/seed/tiers.toml`, and a case for the list to `TestListsLoad` in `internal/smoke/lists_test.go` (see "Smoke Tests Against LocalStack" in `TESTING.md`).
 
 These configuration fields are required. `newListCore` panics when one is missing:
 
