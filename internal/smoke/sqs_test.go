@@ -31,9 +31,6 @@ func TestSQSSendPurgeDelete(t *testing.T) {
 	h.keys("hello from the smoke test")
 	h.submitForm()
 	h.waitFor("Message sent")
-	// A send does not refresh the row, so the test reloads the list.
-	h.keys("r")
-	h.waitLoaded()
 	h.until("1 message in the queue", queueRow(name, 1).MatchString)
 
 	h.keys("m")

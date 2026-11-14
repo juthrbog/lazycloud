@@ -1001,9 +1001,13 @@ func TestCharSQS_SendStandard(t *testing.T) {
 	require.EqualError(t, validate("abc"), "must be a number")
 
 	svc.On("SendMessage", mock.Anything, charSQSURL("qa"), "hi", int32(30), "", "").Return(nil).Once()
+	// A send that worked refreshes the row of the queue (L33). The row
+	// takes the counts of the refresh reply.
+	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).Return(new(charSQSQueue("qa", 42)), nil).Once()
 	_, cmd := v.Update(msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "hi", "delay": "30"}})
-	sent := charSQSDeliver(v, charSQSRun(cmd)...)
+	sent := pump(v, cmd, 3)
 	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Message sent")}, toasts(sent))
+	assert.Equal(t, 42, v.find(charSQSURL("qa")).ApproximateMessageCount)
 
 	// The target is used once.
 	_, cmd = v.Update(msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "again"}})
@@ -1261,7 +1265,9 @@ func TestCharSQS_MutationsSurviveLeavingTheView(t *testing.T) {
 		errs = append(errs, args.Get(0).(context.Context).Err())
 	}
 	svc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Run(record).Return(nil).Once()
-	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).Return(nil, context.Canceled).Once()
+	// The refreshes after the purge and after the send (L33) use the view
+	// context, so they end at once.
+	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qa")).Return(nil, context.Canceled).Twice()
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qa")).Run(record).Return(nil).Once()
 	svc.On("SendMessage", mock.Anything, charSQSURL("qa"), "hi", int32(0), "", "").Run(record).Return(nil).Once()
 
@@ -1270,7 +1276,7 @@ func TestCharSQS_MutationsSurviveLeavingTheView(t *testing.T) {
 	pump(v, cmd, 3)
 	charSQSSendForm(t, v)
 	_, cmd = v.Update(msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "hi"}})
-	pump(v, cmd, 2)
+	pump(v, cmd, 3)
 	charSQSConfirm(t, v, "Delete Queue")
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	pump(v, cmd, 2)
