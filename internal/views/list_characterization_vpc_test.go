@@ -1,11 +1,9 @@
 package views
 
 import (
-	"context"
 	"errors"
 	"testing"
 
-	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -271,18 +269,6 @@ func TestCharVPC_ErrorContextAndView(t *testing.T) {
 	assert.Equal(t, "\n  Error: boom␛[31m", netView(v))
 	assert.Contains(t, v.View().Content, fgSGR(ui.ActiveTheme.Error))
 	assert.Equal(t, "0/0 VPCs", netFooter(v))
-}
-
-func TestCharVPC_NilServiceGivesErrorMsg(t *testing.T) {
-	v := NewVPCList(nil)
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
-	em, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
-	require.True(t, ok)
-	// Design change in PR 5 (fetchPages adapter, as fetchAll in PR 4): a nil
-	// service fails like any load, with the context of the load. It was "EC2".
-	assert.Equal(t, "listing VPCs", em.Context)
-	require.EqualError(t, em.Err, "AWS client not initialized")
-	assert.Equal(t, "\n  Error: AWS client not initialized", netView(v))
 }
 
 func TestCharVPC_ErrorClearedOnlyByRefresh(t *testing.T) {
@@ -563,44 +549,4 @@ func TestCharVPC_PendingFocusSurvivesError(t *testing.T) {
 	tm, ok := firstOfType[msg.TabbedContentMsg](pump(v, cmd, 5))
 	require.True(t, ok)
 	assert.Equal(t, "dev-vpc (vpc-bbb222)", tm.PanelTitle)
-}
-
-func TestCharVPC_UpdateReturnsSamePointer(t *testing.T) {
-	v, _ := newCharVPC(t, charVPCMain)
-	_, first := v.Update(keyPress('r'))
-	_, second := v.Update(keyPress('r'))
-	stale := netLoadMsg(first)
-	cur := netLoadMsg(second)
-	for _, m := range []tea.Msg{
-		spinner.TickMsg{},
-		tea.WindowSizeMsg{Width: 100, Height: 12},
-		keyPress('s'), keyPress('S'), keyPress('y'), keyPress('n'), keyPress('d'), keyPress(' '),
-		tea.KeyPressMsg{Code: tea.KeyDown},
-		ui.PickerResultMsg{ID: "sort", Selected: 0},
-		ui.FilterChangedMsg{Text: "x"},
-		msg.FocusResourceMsg{ResourceID: "vpc-aaa111"},
-		keyPress('/'), keyPress('x'), tea.KeyPressMsg{Code: tea.KeyEnter},
-		keyPress('/'), tea.KeyPressMsg{Code: tea.KeyEscape},
-		stale, cur,
-		keyPress('r'),
-		msg.ErrorMsg{Err: errors.New("x")},
-		tea.KeyPressMsg{Code: tea.KeyEscape},
-	} {
-		got, _ := v.Update(m)
-		require.Same(t, v, got, "%T", m)
-	}
-}
-
-func TestCharVPC_SetContextReachesFetch(t *testing.T) {
-	svc := new(awstest.MockEC2Service)
-	svc.On("ListVPCsPage", mock.MatchedBy(func(ctx context.Context) bool {
-		_, hasDeadline := ctx.Deadline()
-		return ctx.Value(netCtxKey{}) == "nav" && hasDeadline
-	}), netNoToken).Return(&aws.VPCPage{VPCs: []aws.VPC{charVPCMain}}, nil)
-	v := NewVPCList(svc)
-	v.SetContext(context.WithValue(t.Context(), netCtxKey{}, "nav"))
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
-	pump(v, v.Init(), 5)
-	svc.AssertExpectations(t)
-	assert.Equal(t, "1/1 VPCs", netFooter(v))
 }

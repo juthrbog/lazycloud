@@ -52,6 +52,9 @@ func (v *VPCList) KeyMap() []ui.HintBinding {
 // core. It returns the view itself, so the navigator keeps its identity.
 func (v *VPCList) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := m.(tea.KeyPressMsg); ok && !v.CapturingInput() && key.Matches(k, vpcSubnetsKey.Binding) {
+		if v.err != nil {
+			return v, nil // the error screen hides the rows
+		}
 		id := v.table.CursorKey()
 		if id == "" {
 			return v, nil

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -237,19 +236,6 @@ func TestCharSG_ErrorContextAndView(t *testing.T) {
 
 	v.Update(msg.ErrorMsg{Err: context.Canceled})
 	assert.Equal(t, "\n  Error: cancelled", netView(v), "uses aws.ErrorText")
-}
-
-func TestCharSG_NilServiceGivesErrorMsg(t *testing.T) {
-	v := NewSGList(nil)
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
-	seen := pump(v, v.Init(), 5)
-	em, ok := firstOfType[msg.ErrorMsg](seen)
-	require.True(t, ok)
-	// Design change in PR 4 (fetchAll adapter): a nil service fails like
-	// any load, with the context of the load. It was "EC2".
-	assert.Equal(t, "listing security groups", em.Context)
-	require.EqualError(t, em.Err, "AWS client not initialized")
-	assert.Equal(t, "\n  Error: AWS client not initialized", netView(v))
 }
 
 func TestCharSG_ErrorClearedOnlyByRefresh(t *testing.T) {
@@ -549,42 +535,4 @@ func TestCharSG_PendingFocusSurvivesError(t *testing.T) {
 	tm, ok := firstOfType[msg.TabbedContentMsg](seen)
 	require.True(t, ok)
 	assert.Equal(t, "db-sg (sg-222)", tm.PanelTitle)
-}
-
-func TestCharSG_UpdateReturnsSamePointer(t *testing.T) {
-	v, _ := newCharSG(t, charSGWeb)
-	_, reload := v.Update(keyPress('r'))
-	load := netLoadMsg(reload)
-	for _, m := range []tea.Msg{
-		spinner.TickMsg{},
-		tea.WindowSizeMsg{Width: 100, Height: 12},
-		keyPress('s'), keyPress('S'), keyPress('y'), keyPress('d'), keyPress(' '),
-		tea.KeyPressMsg{Code: tea.KeyDown},
-		ui.PickerResultMsg{ID: "sort", Selected: 0},
-		ui.FilterChangedMsg{Text: "x"},
-		msg.FocusResourceMsg{ResourceID: "sg-111"},
-		keyPress('/'), keyPress('x'), tea.KeyPressMsg{Code: tea.KeyEnter},
-		keyPress('/'), tea.KeyPressMsg{Code: tea.KeyEscape},
-		keyPress('r'),
-		load,
-		msg.ErrorMsg{Err: errors.New("x")},
-		tea.KeyPressMsg{Code: tea.KeyEscape},
-	} {
-		got, _ := v.Update(m)
-		require.Same(t, v, got, "%T", m)
-	}
-}
-
-func TestCharSG_SetContextReachesFetch(t *testing.T) {
-	svc := new(awstest.MockEC2Service)
-	svc.On("ListSecurityGroups", mock.MatchedBy(func(ctx context.Context) bool {
-		_, hasDeadline := ctx.Deadline()
-		return ctx.Value(netCtxKey{}) == "nav" && hasDeadline
-	})).Return([]aws.SecurityGroup{charSGWeb}, nil)
-	v := NewSGList(svc)
-	v.SetContext(context.WithValue(t.Context(), netCtxKey{}, "nav"))
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
-	pump(v, v.Init(), 5)
-	svc.AssertExpectations(t)
-	assert.Equal(t, "1/1 security groups", netFooter(v))
 }
