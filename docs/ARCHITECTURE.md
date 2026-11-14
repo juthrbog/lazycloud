@@ -194,52 +194,17 @@ When the panel is open, the header breadcrumbs append the panel title (e.g., `Se
 
 ### Selective Refresh
 
-Views that support multi-select (`space`) implement selective refresh on `r`. When resources are selected, `r` re-fetches only those items instead of reloading the entire list.
+A list that sets `Refresh` in its configuration refreshes only the selected rows when the user presses `r`. With no selection, or without `Refresh`, `r` reloads the whole list. The shared list core (see Adding a List View) does this:
 
-**Branch on selection count** in the `r` key handler:
+- The core shows "Refreshing N <noun>..." and calls `Refresh` with the target keys: the selected rows that the filter shows, or the cursor row when the filter hides every selected row.
+- The reply replaces each item that it read. Items it did not read stay. The table keeps the cursor and the selection.
+- When some keys fail, the items that were read still change, and one toast shows the error.
+- A reply from before a newer full load is dropped, because that load brings newer data.
 
-```go
-case key.Matches(m, v.keys.Refresh):
-    if ids := v.selectedResourceIDs(); len(ids) > 0 && v.table.SelectionCount() > 0 {
-        eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d resources", len(ids))
-        v.spinner.Show(fmt.Sprintf("Refreshing %d resources...", len(ids)))
-        return v, tea.Batch(v.spinner.Tick(), v.refreshResources(ids))
-    }
-    // Fall through to full refresh
-    v.loading = true
-    v.spinner.Show("Loading resources...")
-    return v, tea.Batch(v.spinner.Tick(), v.fetchAll())
-```
+Build `Refresh` with one of two adapters in `internal/views/listmsgs.go`:
 
-**Add a batch-by-ID service method** (e.g., `RefreshInstances(ctx, ids) ([]Instance, error)`) that calls the AWS Describe API with an ID filter. Reuse the existing `map*()` functions to return the same type as the list view uses.
-
-**Handle the response with an in-place update** — find each returned item by ID and replace it in the slice, then rebuild rows:
-
-```go
-case resourcesRefreshedMsg:
-    v.spinner.Hide()
-    if m.err != nil {
-        return v, func() tea.Msg { return msg.ToastError("Refresh failed: " + m.err.Error()) }
-    }
-    for _, updated := range m.resources {
-        for i := range v.resources {
-            if v.resources[i].ID == updated.ID {
-                v.resources[i] = updated
-                break
-            }
-        }
-    }
-    v.rebuildRows()
-    return v, nil
-```
-
-**Rules:**
-- Do NOT clear the items slice or call `DeselectAll()` — the in-place update preserves selection automatically
-- Do NOT set `v.loading = true` — selective refresh is non-destructive, the existing table stays visible
-- Hide the spinner in the response handler on both success and error
-- Log the selective refresh to the event log with the count
-
-Reference implementations: `sqs_queues.go` (per-resource), `ec2_list.go` (batch API), `ami_list.go` (batch API).
+- `refreshBy(svc, method, timeout)` for a batch call that takes all keys, such as `aws.EC2Service.RefreshInstances`.
+- `refreshEach(svc, method, timeout)` for a call that reads one item. It runs at most 8 calls at a time, each with its own timeout, such as `aws.SQSService.GetQueueAttributes`.
 
 ### Cross-Resource Navigation
 
@@ -311,6 +276,46 @@ Home
 5. **Registry**: Add a `Service` entry (with `Feature` sub-resources) and `Command` entries in `internal/registry/registry.go`. The home view and the command bar then show the service.
 6. **View factory**: Add a case in `app.go`'s `resolveView()` for each new ViewID, with the service from `m.svc` (the sync test will catch any missing entries)
 7. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
+
+### Adding a List View
+
+Every resource list (EC2 instances, AMIs, security groups, VPCs, subnets, SQS queues, S3 buckets) uses one shared core: `listCore[T]` in `internal/views/listcore.go`. The core loads the pages, drops replies of an older load, and handles the filter, sort, resize, selection, copy, focus, footer and error screen. The view keeps only what is special to its resource. `internal/views/vpc_list.go` is the smallest example.
+
+To add a list view:
+
+1. Make a view type that embeds the core by value: `type VPCList struct{ listCore[aws.VPC] }`.
+2. In the constructor, call `newListCore` with a `listConfig[T]`.
+3. Declare `ID`, `Title`, `Init`, `Footer`, `View`, `KeyMap` and `Update` on the view. `Init` returns `v.init()`, `Footer` returns `v.footer()`, and `View` returns `v.render("", "")`.
+4. In `KeyMap`, return `v.hints(...)` with the keys of the view. Use the shared bindings in `listKeys`. Give each key that changes AWS resources `Mode: ui.ModeReadWrite`.
+5. In `Update`, handle the messages and keys of the view first. Then return `v, v.update(m)`.
+6. Add a case for the view to `conformanceCases` in `internal/views/list_conformance_test.go`, and add its load context to `loadContexts`.
+
+These configuration fields are required. `newListCore` panics when one is missing:
+
+- `Noun`: the word in the footer and the progress text, for example "VPCs".
+- `LoadingLabel`: the spinner text of the first load, for example "Loading VPCs...".
+- `ErrContext`: the context of a failed load in the status bar, for example "listing VPCs".
+- `Key`: the unique ID of an item. The table keys its rows with it.
+- `Columns` and `Row`: the columns and the row of an item for each width tier. `Row.Key` must be equal to `Key(item)`.
+- `Fetch`: the default load. Build it with an adapter (see below).
+
+`FetchTimeout` is the time limit of each page: `callTimeout` for a paged call, `listTimeout` for a call that reads the whole list. The optional fields are documented on `listConfig` in `listcore.go`: `Refresh`, `OpenDetail`, `FocusMissing`, `FocusKey`, `OnLoaded`, `MultiSelect`, `Copy`, `CopyNoun`, `Complete` and `Derive`.
+
+The adapters in `internal/views/listmsgs.go` turn a service method into a `Fetch`:
+
+- `fetchAll(svc, aws.EC2Service.ListSecurityGroups)` for a call that returns the whole list.
+- `fetchPages(svc, aws.EC2Service.ListVPCsPage, splitVPCPage)` for a paged call. The split function returns the items and the next token. Use `nextToken` for the page structs that have `HasMorePages` and `Token`.
+
+Each adapter takes the service and a method expression. A nil service then gives the error "AWS client not initialized" instead of a panic.
+
+Follow these rules:
+
+- `Update` must return the view pointer itself, never the core. The navigator finds a view on the stack by identity, so a different value loses its replies. For the same reason, the core has no `Update`, `View` or `Init`.
+- Do not declare a field or a method with the name of a core field or method, and do not embed `viewCtx` in the view. The core embeds it. A view method with a core name hides the core method. The conformance test `NoShadowing` fails when this happens. A view can declare `CapturingInput` for a side input: add it to `allowMethods` in its conformance case.
+- A key of the view that acts on rows must do nothing while the error screen shows (`v.err != nil`), because the rows are hidden there. A failed reload keeps the old items, so a cursor row exists. The core does this for its own row keys (enter, `d`, `y`, space). On the error screen, `r` reloads the whole list, also with a selection. List the row keys of the view in `rowKeys` of its conformance case, and the test `ErrorScreenBlocksRowKeys` presses each one on the error screen.
+- While `v.CapturingInput()` is true, the keys go to the filter, so do not handle view keys then.
+- A side input goes to `render(above, below)`. `above` shows only with the table (the AMI search). `below` shows on every screen (the S3 create input).
+
 
 ## Key Hints
 

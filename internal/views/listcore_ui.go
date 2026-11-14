@@ -103,6 +103,11 @@ func (c *listCore[T]) handleKey(m tea.KeyPressMsg) (tea.Cmd, bool) {
 		c.filter, cmd = c.filter.Update(m)
 		return cmd, true
 	}
+	if c.err != nil && key.Matches(m, listKeys.Details.Binding, listKeys.Describe.Binding,
+		listKeys.CopyID.Binding, listKeys.Select.Binding) {
+		// The error screen hides the rows, so the row keys do nothing.
+		return nil, true
+	}
 	switch {
 	case key.Matches(m, listKeys.Esc.Binding):
 		if c.cfg.MultiSelect && c.table.SelectionCount() > 0 {
@@ -125,7 +130,9 @@ func (c *listCore[T]) handleKey(m tea.KeyPressMsg) (tea.Cmd, bool) {
 		c.filter.Activate()
 		return nil, true
 	case key.Matches(m, listKeys.Refresh.Binding):
-		if c.cfg.Refresh != nil && c.table.SelectionCount() > 0 {
+		// On the error screen, r reloads the whole list, which also clears
+		// the error, also when hidden rows are selected.
+		if c.cfg.Refresh != nil && c.err == nil && c.table.SelectionCount() > 0 {
 			return c.refreshKeys(c.targets()), true
 		}
 		return c.reload(c.cfg.LoadingLabel), true

@@ -1,6 +1,6 @@
 # Phase 8 (A10): a shared core for the resource lists
 
-Status: approved on 2026-11-08. The owner accepted the proposed answer to each open question (see "Decisions" below). PR 0 starts the work.
+Status: done. Approved on 2026-11-08: the owner accepted the proposed answer to each open question (see "Decisions" below). PR 0 to PR 10 landed from 2026-11-09 to 2026-11-14 (#246 to #258). The code now differs from the sketches below in small ways that each PR describes. The current guide is "Adding a List View" in `docs/ARCHITECTURE.md`.
 
 ## Summary
 

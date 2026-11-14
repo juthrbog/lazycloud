@@ -105,9 +105,6 @@ func netCopied(v tea.Model) []string {
 	return out
 }
 
-// netCtxKey marks the context that SetContext gives a view.
-type netCtxKey struct{}
-
 // netNoToken is the nil page token of a first page request.
 var netNoToken *string
 

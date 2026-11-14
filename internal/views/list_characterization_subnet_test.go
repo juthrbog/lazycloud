@@ -1,11 +1,9 @@
 package views
 
 import (
-	"context"
 	"errors"
 	"testing"
 
-	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -315,18 +313,6 @@ func TestCharSubnet_ErrorContextAndView(t *testing.T) {
 	assert.Equal(t, "0/0 subnets", netFooter(v))
 }
 
-func TestCharSubnet_NilServiceGivesErrorMsg(t *testing.T) {
-	v := NewSubnetList(nil, "vpc-1")
-	v.Update(tea.WindowSizeMsg{Width: 200, Height: 12})
-	em, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
-	require.True(t, ok)
-	// Design change in PR 5 (fetchPages adapter, as fetchAll in PR 4): a nil
-	// service fails like any load, with the context of the load. It was "EC2".
-	assert.Equal(t, "listing subnets", em.Context)
-	require.EqualError(t, em.Err, "AWS client not initialized")
-	assert.Equal(t, "\n  Error: AWS client not initialized", netView(v))
-}
-
 func TestCharSubnet_ErrorClearedOnlyByRefresh(t *testing.T) {
 	svc := new(awstest.MockEC2Service)
 	svc.On("ListSubnetsPage", mock.Anything, netNoToken, "").Return(&aws.SubnetPage{Subnets: []aws.Subnet{charSubnetPub}}, nil)
@@ -545,44 +531,4 @@ func TestCharSubnet_PendingFocusSurvivesError(t *testing.T) {
 	tm, ok := firstOfType[msg.TabbedContentMsg](pump(v, cmd, 5))
 	require.True(t, ok)
 	assert.Equal(t, "private-1b (subnet-bbb222)", tm.PanelTitle)
-}
-
-func TestCharSubnet_UpdateReturnsSamePointer(t *testing.T) {
-	v, _ := newCharSubnet(t, "vpc-aaa111", charSubnetPub)
-	_, first := v.Update(keyPress('r'))
-	_, second := v.Update(keyPress('r'))
-	stale := netLoadMsg(first)
-	cur := netLoadMsg(second)
-	for _, m := range []tea.Msg{
-		spinner.TickMsg{},
-		tea.WindowSizeMsg{Width: 100, Height: 12},
-		keyPress('s'), keyPress('S'), keyPress('y'), keyPress('d'), keyPress(' '),
-		tea.KeyPressMsg{Code: tea.KeyDown},
-		ui.PickerResultMsg{ID: "sort", Selected: 0},
-		ui.FilterChangedMsg{Text: "x"},
-		msg.FocusResourceMsg{ResourceID: "subnet-aaa111"},
-		keyPress('/'), keyPress('x'), tea.KeyPressMsg{Code: tea.KeyEnter},
-		keyPress('/'), tea.KeyPressMsg{Code: tea.KeyEscape},
-		stale, cur,
-		keyPress('r'),
-		msg.ErrorMsg{Err: errors.New("x")},
-		tea.KeyPressMsg{Code: tea.KeyEscape},
-	} {
-		got, _ := v.Update(m)
-		require.Same(t, v, got, "%T", m)
-	}
-}
-
-func TestCharSubnet_SetContextReachesFetch(t *testing.T) {
-	svc := new(awstest.MockEC2Service)
-	svc.On("ListSubnetsPage", mock.MatchedBy(func(ctx context.Context) bool {
-		_, hasDeadline := ctx.Deadline()
-		return ctx.Value(netCtxKey{}) == "nav" && hasDeadline
-	}), netNoToken, "vpc-1").Return(&aws.SubnetPage{Subnets: []aws.Subnet{charSubnetPub}}, nil)
-	v := NewSubnetList(svc, "vpc-1")
-	v.SetContext(context.WithValue(t.Context(), netCtxKey{}, "nav"))
-	v.Update(tea.WindowSizeMsg{Width: 200, Height: 12})
-	pump(v, v.Init(), 5)
-	svc.AssertExpectations(t)
-	assert.Equal(t, "1/1 subnets", netFooter(v))
 }

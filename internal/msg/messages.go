@@ -21,33 +21,10 @@ type FocusResourceMsg struct {
 	ResourceID string
 }
 
-// ResourcesLoadedMsg is sent when an AWS API call completes successfully.
-type ResourcesLoadedMsg[T any] struct {
-	Resources []T
-}
-
 // ErrorMsg is sent when an AWS API call fails.
 type ErrorMsg struct {
 	Err     error
 	Context string
-}
-
-// LoadingMsg indicates a resource is being fetched.
-type LoadingMsg struct {
-	Resource string
-}
-
-// RefreshMsg triggers a reload of the current view's data.
-type RefreshMsg struct{}
-
-// ProfileChangedMsg is broadcast when the AWS profile changes.
-type ProfileChangedMsg struct {
-	Profile string
-}
-
-// RegionChangedMsg is broadcast when the AWS region changes.
-type RegionChangedMsg struct {
-	Region string
 }
 
 // ToastMsg displays an auto-dismissing toast notification.

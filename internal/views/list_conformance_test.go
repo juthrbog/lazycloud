@@ -46,6 +46,9 @@ type conformanceCase struct {
 	wantIDs []string
 	// rwKeys are the keys that must be marked ModeReadWrite.
 	rwKeys []string
+	// rowKeys are the keys of the view that act on rows. Like the core row
+	// keys, they must do nothing on the error screen.
+	rowKeys []string
 	// file and typeName name the source of the view, for the shadowing check.
 	file, typeName string
 	// coreType is the listCore instance the view embeds.
@@ -120,6 +123,7 @@ var conformanceCases = []conformanceCase{
 			return ids
 		},
 		wantIDs:  []string{"vpc-1", "vpc-2"},
+		rowKeys:  []string{"n"},
 		file:     "vpc_list.go",
 		typeName: "VPCList",
 		coreType: reflect.TypeFor[listCore[aws.VPC]](),
@@ -232,6 +236,7 @@ var conformanceCases = []conformanceCase{
 		},
 		wantIDs:  []string{"i-1", "i-2"},
 		rwKeys:   []string{"o", "m"},
+		rowKeys:  []string{"o", "m"},
 		file:     "ec2_list.go",
 		typeName: "EC2List",
 		coreType: reflect.TypeFor[listCore[aws.Instance]](),
@@ -277,6 +282,7 @@ var conformanceCases = []conformanceCase{
 		},
 		wantIDs:  []string{"u1", "u2"},
 		rwKeys:   []string{"m"},
+		rowKeys:  []string{"p", "m"},
 		file:     "sqs_queues.go",
 		typeName: "SQSQueues",
 		coreType: reflect.TypeFor[listCore[aws.Queue]](),
@@ -319,6 +325,7 @@ var conformanceCases = []conformanceCase{
 		},
 		wantIDs:      []string{"b-1", "b-2"},
 		rwKeys:       []string{"n", "x"},
+		rowKeys:      []string{"x"}, // n opens the create input, which needs no row
 		file:         "s3_list.go",
 		typeName:     "S3List",
 		coreType:     reflect.TypeFor[listCore[aws.Bucket]](),
@@ -395,8 +402,11 @@ func TestListConformance_SetContextReachesFetch(t *testing.T) {
 	type ctxKey struct{}
 	for _, tc := range conformanceCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// The fetch gets the navigator's context, with the load timeout
+			// on top: every default load has one.
 			v := tc.build(t, func(ctx context.Context) bool {
-				return ctx.Value(ctxKey{}) == "nav"
+				_, hasDeadline := ctx.Deadline()
+				return ctx.Value(ctxKey{}) == "nav" && hasDeadline
 			})
 			v.(nav.ContextSetter).SetContext(context.WithValue(t.Context(), ctxKey{}, "nav"))
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 20})
@@ -443,6 +453,49 @@ func TestListConformance_RWKeysMarked(t *testing.T) {
 	}
 }
 
+// After a failed reload the core keeps the old items, so a cursor row
+// exists behind the error screen. No row key may act on it: the core keys
+// (enter, d, y, space) and the row keys of the view. r with a selection
+// reloads the whole list, which clears the error.
+func TestListConformance_ErrorScreenBlocksRowKeys(t *testing.T) {
+	for _, tc := range conformanceCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := conformanceLoaded(t, tc)
+			v.Update(keyPress(' ')) // select the cursor row (MultiSelect lists)
+			selected := plain(v.Footer())
+			v.Update(msg.ErrorMsg{Err: errors.New("throttled")})
+			require.Equal(t, "\n  Error: throttled", plain(v.View().Content))
+
+			keys := []tea.KeyPressMsg{{Code: tea.KeyEnter}, keyPress('d'), keyPress('y'), keyPress(' ')}
+			for _, k := range tc.rowKeys {
+				keys = append(keys, keyPress([]rune(k)[0]))
+			}
+			for _, k := range keys {
+				got, cmd := v.Update(k)
+				require.Same(t, v, got)
+				assert.Empty(t, collectMsgs(cmd), "key %q acts on a hidden row", k.String())
+			}
+			assert.Equal(t, selected, plain(v.Footer()), "space did not change the selection")
+
+			v.Update(keyPress('r'))
+			assert.NotContains(t, plain(v.Footer()), "Refreshing", "r is not a selective refresh on the error screen")
+			assert.NotContains(t, plain(v.View().Content), "Error", "r starts a full reload, which clears the error")
+		})
+	}
+}
+
+// loadContexts are the msg.ErrorMsg contexts of the default loads. A nil
+// service fails like any load, with the context of the load (PR 4 to 9).
+var loadContexts = map[string]string{
+	"sg_list":     "listing security groups",
+	"vpc_list":    "listing VPCs",
+	"subnet_list": "listing subnets",
+	"ami_list":    "listing owned AMIs",
+	"ec2_list":    "listing EC2 instances",
+	"sqs_queues":  "listing SQS queues",
+	"s3_list":     "listing S3 buckets",
+}
+
 func TestListConformance_NilServiceGivesErrorMsg(t *testing.T) {
 	for _, tc := range conformanceCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -453,7 +506,8 @@ func TestListConformance_NilServiceGivesErrorMsg(t *testing.T) {
 			em, ok := firstOfType[msg.ErrorMsg](seen)
 			require.True(t, ok)
 			require.ErrorIs(t, em.Err, errNoClient)
-			assert.NotEmpty(t, em.Context)
+			require.Contains(t, loadContexts, tc.name, "add the load context of a new case")
+			assert.Equal(t, loadContexts[tc.name], em.Context)
 			assert.Equal(t, "\n  Error: AWS client not initialized", plain(v.View().Content))
 			assert.Contains(t, v.View().Content, fgSGR(ui.ActiveTheme.Error))
 		})
