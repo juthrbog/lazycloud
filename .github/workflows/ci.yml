@@ -27,8 +27,12 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # The second vet also compiles the smoke tests, which the smoke job
+      # below runs only when the LocalStack token is available.
       - name: Vet
-        run: go vet ./...
+        run: |
+          go vet ./...
+          go vet -tags smoke ./internal/smoke/
 
       # The release archives also cover macOS and Windows.
       - name: Vet for macOS and Windows
@@ -44,3 +48,61 @@ jobs:
 
       - name: Coverage
         run: go tool cover -func=cover.out | tail -1
+
+  # LocalStack needs an auth token. It is an Actions secret and also a
+  # Dependabot secret. GitHub gives no secrets to pull requests from forks,
+  # so for them this job tells the smoke job to skip.
+  smoke-token:
+    runs-on: ubuntu-latest
+    outputs:
+      present: ${{ steps.check.outputs.present }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::The LOCALSTACK_AUTH_TOKEN secret is not available, so the smoke tests do not run."
+          fi
+
+  # The smoke tests run the whole app against LocalStack with the seed data.
+  # See internal/smoke.
+  smoke:
+    needs: smoke-token
+    if: needs.smoke-token.outputs.present == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+
+      # docker-compose.yml sets the LocalStack image version.
+      - name: Start LocalStack
+        run: |
+          docker compose up -d
+          for i in $(seq 1 90); do
+            if curl -fs http://localhost:4566/_localstack/health | grep -q '"available"'; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "LocalStack did not start"
+          exit 1
+
+      - name: Seed LocalStack
+        run: go run ./cmd/seed -size small
+
+      - name: Smoke tests
+        run: go test -tags smoke -race -count=1 -v ./internal/smoke/
+
+      - name: LocalStack logs
+        if: failure()
+        run: docker compose logs --tail 300 localstack

@@ -70,6 +70,13 @@ tasks:
     cmds:
       - go test -race -shuffle=on ./...
 
+  smoke:
+    desc: "Run the smoke tests against LocalStack (seeds it first; usage: task smoke -- -run TestSQS)"
+    deps: [localstack:up]
+    cmds:
+      - go run ./cmd/seed/ -size small
+      - go test -tags smoke -count=1 ./internal/smoke/ {{.CLI_ARGS}}
+
   cover:
     desc: Run all tests and show the coverage per function
     cmds:

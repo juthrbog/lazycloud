@@ -111,6 +111,7 @@ Exact counts are defined in `cmd/seed/tiers.toml`.
 |------|-------------|
 | `task test` | Run unit tests |
 | `task test:race` | Run unit tests like CI: with the race detector, in random order |
+| `task smoke` | Run the smoke tests against LocalStack. It starts and seeds LocalStack first (see `TESTING.md`) |
 | `task cover` | Run unit tests and show the coverage per function |
 | `task lint` | Run golangci-lint. It needs the version that CI uses (`GOLANGCI_LINT_VERSION` in `Taskfile.yml`) |
 | `task vuln` | Scan for known vulnerabilities with govulncheck. `go.mod` pins its version as a tool |

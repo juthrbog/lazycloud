@@ -43,3 +43,6 @@ formatters:
 
 run:
   timeout: 5m
+  # Also check the smoke tests in internal/smoke.
+  build-tags:
+    - smoke
