@@ -38,7 +38,7 @@ func TestFailureTextNamesThreeAndCountsTheRest(t *testing.T) {
 }
 
 func threeQueues(v *SQSQueues) {
-	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{
+	v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{
 		{Name: "qa", URL: "ua", ApproximateMessageCount: 8},
 		{Name: "qb", URL: "ub", ApproximateMessageCount: 10},
 		{Name: "qc", URL: "uc", ApproximateMessageCount: 3},
@@ -117,7 +117,7 @@ func TestSQSQueues_ManyQueuesOfferNoSend(t *testing.T) {
 // M22: a queue that cannot be read showed 0 messages.
 func TestSQSQueues_UnreadableQueueShowsUnknownCounts(t *testing.T) {
 	v, _ := newQueueList()
-	_, cmd := v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{
+	_, cmd := v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{
 		{Name: "qa", URL: "ua", Type: "Standard", ApproximateMessageCount: 4},
 		{Name: "qb", URL: "ub", Err: errDenied},
 	}})

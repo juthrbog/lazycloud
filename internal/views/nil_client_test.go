@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
@@ -17,17 +18,19 @@ import (
 func TestSQSQueues_NilClient(t *testing.T) {
 	v := NewSQSQueues(nil)
 	v.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
-	e, ok := firstOfType[msg.ErrorMsg](collectMsgs(v.Init()))
+	e, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 3))
 	require.True(t, ok)
-	assert.Equal(t, "SQS", e.Context)
+	// Design change in PR 8: the context is the one of the load, as in the
+	// other ported lists.
+	assert.Equal(t, "listing SQS queues", e.Context)
 	require.ErrorIs(t, e.Err, errNoClient)
 
 	assert.NotPanics(t, func() {
 		assert.Equal(t, sqsQueueDetailMsg{err: errNoClient}, v.fetchQueueDetail("u")())
-		assert.Equal(t, sqsQueueRefreshedMsg{err: errNoClient}, v.refreshQueue("u")())
-		got, ok := v.fetchAllAttributes([]string{"u"})().(msg.ErrorMsg)
-		require.True(t, ok)
-		require.ErrorIs(t, got.Err, errNoClient)
+		_, err := v.cfg.Refresh(context.Background(), []string{"u"})
+		require.ErrorIs(t, err, errNoClient)
+		_, err = v.cfg.Complete.Run(context.Background(), []aws.Queue{{URL: "u"}})
+		require.ErrorIs(t, err, errNoClient)
 	})
 }
 

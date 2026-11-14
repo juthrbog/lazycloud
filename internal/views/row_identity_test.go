@@ -134,7 +134,7 @@ func newQueueList() (*SQSQueues, *awstest.MockSQSService) {
 // M10: a DLQ link to another queue moves the cursor to that queue.
 func TestSQSQueues_FocusMovesCursor(t *testing.T) {
 	v, svc := newQueueList()
-	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
+	v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
 	svc.On("GetQueueAttributes", mock.Anything, "ub").Return(&aws.Queue{Name: "qb", URL: "ub"}, nil)
 	svc.On("ListDeadLetterSourceQueues", mock.Anything, "ub").Return([]string(nil), nil)
 
@@ -152,7 +152,7 @@ func TestSQSQueues_FocusWaitsForLoad(t *testing.T) {
 
 	_, cmd := v.Update(msg.FocusResourceMsg{ResourceID: "qb"})
 	assert.Nil(t, cmd)
-	_, cmd = v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
+	_, cmd = v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{{Name: "qa", URL: "ua"}, {Name: "qb", URL: "ub"}}})
 	assert.Equal(t, "ub", v.table.CursorKey())
 	assert.NotNil(t, cmd)
 }
@@ -161,11 +161,11 @@ func TestSQSQueues_FocusWaitsForLoad(t *testing.T) {
 // wrong queue URLs.
 func TestSQSQueues_SelectedURLsInSortedList(t *testing.T) {
 	v, _ := newQueueList()
-	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{{Name: "qb", URL: "ub"}, {Name: "qa", URL: "ua"}}})
+	v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{{Name: "qb", URL: "ub"}, {Name: "qa", URL: "ua"}}})
 	v.table.Sort(0)                              // qa, qb; the cursor stays on qb
 	v.Update(tea.KeyPressMsg{Code: tea.KeyHome}) // qa
 	v.Update(keyPress(' '))
-	assert.Equal(t, []string{"ua"}, v.selectedQueueURLs())
+	assert.Equal(t, []string{"ua"}, v.targets())
 }
 
 // Opening a details panel makes the list narrower, and a narrower tier has
@@ -174,7 +174,7 @@ func TestSQSQueues_SelectedURLsInSortedList(t *testing.T) {
 func TestSQSQueues_SortSurvivesTierChange(t *testing.T) {
 	v, _ := newQueueList()
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
-	v.Update(sqsAllAttrsLoadedMsg{queues: []aws.Queue{
+	v.Update(listCompleteMsg[aws.Queue]{items: []aws.Queue{
 		{Name: "qa", URL: "ua", ApproximateMessageCount: 3},
 		{Name: "qb", URL: "ub", ApproximateMessageCount: 1},
 		{Name: "qc", URL: "uc", ApproximateMessageCount: 2},

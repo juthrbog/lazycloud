@@ -45,17 +45,20 @@ func TestSQSQueues_DoubleRefreshNoDuplicates(t *testing.T) {
 
 	_, first := v.Update(keyPress('r'))
 	_, second := v.Update(keyPress('r'))
-	p1, ok1 := firstOfType[sqsQueuesPageMsg](collectMsgs(first))
-	p2, ok2 := firstOfType[sqsQueuesPageMsg](collectMsgs(second))
+	p1, ok1 := firstOfType[listPageMsg[aws.Queue]](collectMsgs(first))
+	p2, ok2 := firstOfType[listPageMsg[aws.Queue]](collectMsgs(second))
 	require.True(t, ok1 && ok2)
 
 	assert.Empty(t, deliverAll(v, p1), "a superseded page starts no attribute fetch")
-	attrs, ok := firstOfType[sqsAllAttrsLoadedMsg](deliverAll(v, p2))
+	completeMsgs := deliverAll(v, p2)
+	assert.Equal(t, []aws.Queue{{URL: "u1", Name: "u1"}, {URL: "u2", Name: "u2"}}, v.buf,
+		"the URLs wait in the buffer for the attributes")
+	attrs, ok := firstOfType[listCompleteMsg[aws.Queue]](completeMsgs)
 	require.True(t, ok)
 	deliverAll(v, attrs)
 
-	assert.Equal(t, []string{"u1", "u2"}, v.queueURLs)
-	assert.Len(t, v.queues, 2)
+	assert.Len(t, v.items, 2)
+	assert.Empty(t, v.buf)
 	svc.AssertNumberOfCalls(t, "FetchAllQueueAttributes", 1)
 }
 
@@ -63,8 +66,8 @@ func TestSQSQueues_StaleAttributesDropped(t *testing.T) {
 	v := NewSQSQueues(new(awstest.MockSQSService))
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	v.loadGen = 2
-	v.Update(sqsAllAttrsLoadedMsg{gen: 1, queues: []aws.Queue{{URL: "old"}}})
-	assert.Empty(t, v.queues, "attributes from an older load must not replace the list")
+	v.Update(listCompleteMsg[aws.Queue]{gen: 1, items: []aws.Queue{{URL: "old"}}})
+	assert.Empty(t, v.items, "attributes from an older load must not replace the list")
 }
 
 func TestS3Objects_DoubleRefreshNoDuplicates(t *testing.T) {

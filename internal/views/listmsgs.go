@@ -2,7 +2,12 @@ package views
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"golang.org/x/sync/errgroup"
+
+	"github.com/juthrbog/lazycloud/internal/aws"
 )
 
 // Messages and adapters of the shared list core (see listcore.go).
@@ -19,9 +24,17 @@ type listPageMsg[T any] struct {
 	page  int
 }
 
-// listFailedMsg is a failed load. It goes to the core first, not to the
-// app, so a failure of a superseded load reaches neither the view nor the
-// status bar.
+// listCompleteMsg carries the result of the second load phase
+// (listConfig.Complete). Like a page, it is dropped when its gen is not the
+// current load generation.
+type listCompleteMsg[T any] struct {
+	gen   int
+	items []T
+}
+
+// listFailedMsg is a failed page or second-phase call. It goes to the core
+// first, not to the app, so a failure of a superseded load reaches neither
+// the view nor the status bar.
 type listFailedMsg struct {
 	gen     int
 	err     error
@@ -117,4 +130,79 @@ func refreshBy[S, T any](svc S, call func(S, context.Context, []string) ([]T, er
 		}
 		return call(svc, ctx, keys)
 	}
+}
+
+// refreshLimit is the most calls refreshEach runs at the same time.
+const refreshLimit = 8
+
+// refreshEach adapts a refresh of one item (for example
+// aws.SQSService.GetQueueAttributes) to a refreshFunc. It calls get once per
+// key, each call with its own timeout, at most refreshLimit at a time, so
+// one slow or failed key does not stop the others. It returns every item it
+// read. When some keys fail, it also returns a *refreshError. When ctx is
+// canceled, it returns the cancel error, so the core stays silent. Like
+// fetchAll, it takes the service and a method expression, and a nil service
+// gives errNoClient.
+//
+// Use: refreshEach(sqs, aws.SQSService.GetQueueAttributes, callTimeout)
+func refreshEach[S, T any](svc S, get func(S, context.Context, string) (*T, error),
+	timeout time.Duration,
+) refreshFunc[T] {
+	return func(ctx context.Context, keys []string) ([]T, error) {
+		if any(svc) == nil {
+			return nil, errNoClient
+		}
+		got := make([]*T, len(keys))
+		errs := make([]error, len(keys))
+		var g errgroup.Group
+		g.SetLimit(refreshLimit)
+		for i, k := range keys {
+			g.Go(func() error {
+				kctx := ctx
+				if timeout > 0 {
+					var cancel context.CancelFunc
+					kctx, cancel = context.WithTimeout(ctx, timeout)
+					defer cancel()
+				}
+				got[i], errs[i] = get(svc, kctx, k)
+				return nil
+			})
+		}
+		_ = g.Wait() // the calls report through errs
+		var items []T
+		var first error
+		failed := 0
+		for i := range keys {
+			if errs[i] != nil {
+				failed++
+				if first == nil {
+					first = errs[i]
+				}
+				continue
+			}
+			if got[i] != nil {
+				items = append(items, *got[i])
+			}
+		}
+		if failed == 0 {
+			return items, nil
+		}
+		if err := ctx.Err(); err != nil {
+			return items, err
+		}
+		return items, &refreshError{failed: failed, total: len(keys), first: first}
+	}
+}
+
+// refreshError reports the keys of a refreshEach that failed. Its text is
+// for the toast: "1 of 3 failed: <the first error>". It has no Unwrap on
+// purpose: aws.ErrorText reads an AWS error inside a chain and would then
+// drop the count.
+type refreshError struct {
+	failed, total int
+	first         error
+}
+
+func (e *refreshError) Error() string {
+	return fmt.Sprintf("%d of %d failed: %s", e.failed, e.total, aws.ErrorText(e.first))
 }
