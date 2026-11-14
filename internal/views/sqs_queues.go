@@ -59,7 +59,8 @@ func (m sqsQueueDeletedMsg) Outcome() msg.ToastMsg {
 }
 
 type sqsMessageSentMsg struct {
-	err error
+	queueURL string // the queue that got the message
+	err      error
 }
 
 // Outcome implements msg.Outcome.
@@ -464,14 +465,22 @@ func (s *SQSQueues) onDeleted(m sqsQueueDeletedMsg) tea.Cmd {
 	return func() tea.Msg { return toast }
 }
 
+// onSent shows the result. After a send that worked, it refreshes the row
+// of the queue, so its counts include the new message (Messages, or
+// Delayed for a send with a delay). SQS counts are approximate, so on AWS
+// the new message can show only after a later refresh.
 func (s *SQSQueues) onSent(m sqsMessageSentMsg) tea.Cmd {
+	toast := m.Outcome()
+	cmds := []tea.Cmd{func() tea.Msg { return toast }}
 	if m.err != nil {
 		eventlog.Errorf(eventlog.CatAWS, "SendMessage failed: %v", m.err)
 	} else {
 		eventlog.Infof(eventlog.CatAWS, "Message sent")
+		if m.queueURL != "" {
+			cmds = append(cmds, s.refreshKeys([]string{m.queueURL}))
+		}
 	}
-	toast := m.Outcome()
-	return func() tea.Msg { return toast }
+	return tea.Batch(cmds...)
 }
 
 // queueNames returns the name of each queue URL, as the list shows it. The
@@ -548,7 +557,7 @@ func (s *SQSQueues) sendMessage(queueURL string, values map[string]string) tea.C
 		ctx, cancel := detached(ctx)
 		defer cancel()
 		err := svc.SendMessage(ctx, queueURL, body, delay, groupID, dedupID)
-		return sqsMessageSentMsg{err: err}
+		return sqsMessageSentMsg{queueURL: queueURL, err: err}
 	}
 }
 
