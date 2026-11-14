@@ -108,6 +108,42 @@ func TestDistributeWidths_Shrink(t *testing.T) {
 	assert.GreaterOrEqual(t, result[1].Width, 2, "minimum width preserved")
 }
 
+// L28: the shrink rounded each share down and raised a column to the
+// minimum after the cut, so a list came out up to 4 cells wider than the
+// window, and the header separator wrapped onto its own line.
+func TestDistributeWidths_ShrinkFitsExactly(t *testing.T) {
+	sets := [][]Column{
+		{{Width: 21}, {Width: 24}, {Width: 18}, {Width: 16}},                     // VPCs, narrow
+		{{Width: 20}, {Width: 20}, {Width: 20}, {Width: 30}, {Width: 3}},         // uneven widths
+		{{Width: 5}, {Width: 5}, {Width: 5}, {Width: 5}, {Width: 5}},             // equal widths
+		{{Width: 40}, {Width: 2}, {Width: 2}},                                    // columns at the minimum
+		{{Width: 3}, {Width: 3}, {Width: 3}, {Width: 3}, {Width: 3}, {Width: 3}}, // little room
+	}
+	for i, cols := range sets {
+		natural, minimum := 0, 0
+		for _, c := range cols {
+			natural += c.Width + cellPadding
+			minimum += minColumnWidth + cellPadding
+		}
+		for width := minimum; width < natural; width++ {
+			got := 0
+			for _, c := range DistributeWidths(cols, width) {
+				assert.GreaterOrEqual(t, c.Width, minColumnWidth, "set %d, width %d", i, width)
+				got += c.Width + cellPadding
+			}
+			assert.Equal(t, width, got, "set %d, width %d", i, width)
+		}
+	}
+}
+
+func TestDistributeWidths_ShrinkStopsAtTheMinimum(t *testing.T) {
+	// Below the minimum width plus the padding of each column, the
+	// columns cannot fit. They stay at the minimum.
+	for _, c := range DistributeWidths([]Column{{Width: 10}, {Width: 10}}, 5) {
+		assert.Equal(t, minColumnWidth, c.Width)
+	}
+}
+
 func TestBestFitTier(t *testing.T) {
 	colsFn := func(tier WidthTier) []Column {
 		switch tier {

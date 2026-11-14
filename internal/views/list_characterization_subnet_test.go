@@ -196,7 +196,8 @@ func TestCharSubnet_TierChangeByColumnCount(t *testing.T) {
 	viaMedium := header(200, 100, 60)
 	fresh := header(60)
 	// Divergence #12 (fixed in PR 5): all three use the narrow widths.
-	assert.Equal(t, " Subnet ID     Name          AZ          CIDR Block    State", wideToNarrow, "narrow widths")
+	// L28: the narrow columns shrink to fit the 60 columns exactly.
+	assert.Equal(t, " Subnet ID   Name         AZ          CIDR Block   State", wideToNarrow, "narrow widths")
 	assert.Equal(t, wideToNarrow, viaMedium, "narrow widths at width 60 after medium")
 	assert.Equal(t, wideToNarrow, fresh, "a fresh view at width 60 uses the narrow widths too")
 	assert.Equal(t, " Subnet ID                     Name                                AZ              CIDR Block          State", header(120))
@@ -375,18 +376,18 @@ func TestCharSubnet_SortPicker(t *testing.T) {
 
 	v.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
 	assert.Equal(t, "Subnet ID | Name ▲ | AZ | CIDR Block | State", netHeader(v), "the sort survives a tier change")
-	assert.Equal(t, "subnet-bbb2", netRows(v)[0][:11])
+	assert.Equal(t, "subnet-bb", netRows(v)[0][:9])
 
 	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
-	assert.Equal(t, "subnet-bbb2", netRows(v)[0][:11], "a cancelled picker keeps the sort")
+	assert.Equal(t, "subnet-bb", netRows(v)[0][:9], "a cancelled picker keeps the sort")
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, "Subnet ID | Name ▼ | AZ | CIDR Block | State", netHeader(v))
-	assert.Equal(t, "subnet-aaa1", netRows(v)[0][:11], "S reverses the sort")
+	assert.Equal(t, "subnet-aa", netRows(v)[0][:9], "S reverses the sort")
 
 	v.Update(ui.PickerResultMsg{ID: "sort", Value: "_clear"})
 	assert.Equal(t, "Subnet ID | Name | AZ | CIDR Block | State", netHeader(v))
-	assert.Equal(t, "subnet-aaa1", netRows(v)[0][:11])
+	assert.Equal(t, "subnet-aa", netRows(v)[0][:9])
 	_, cmd = v.Update(keyPress('s'))
 	req, _ = firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
 	assert.Equal(t, -1, req.CurrentCol, "_clear clears the sort")

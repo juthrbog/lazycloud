@@ -10,10 +10,12 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -480,6 +482,25 @@ func TestListConformance_ErrorScreenBlocksRowKeys(t *testing.T) {
 			v.Update(keyPress('r'))
 			assert.NotContains(t, plain(v.Footer()), "Refreshing", "r is not a selective refresh on the error screen")
 			assert.NotContains(t, plain(v.View().Content), "Error", "r starts a full reload, which clears the error")
+		})
+	}
+}
+
+// TestListConformance_FitsTheWindow checks that no line of a list is wider
+// than the window, also when no column set fits and the columns shrink
+// (L28). A wider line wraps, for example the header separator.
+func TestListConformance_FitsTheWindow(t *testing.T) {
+	for _, tc := range conformanceCases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := conformanceLoaded(t, tc)
+			for w := 30; w <= 200; w++ {
+				v.Update(tea.WindowSizeMsg{Width: w, Height: 20})
+				for line := range strings.SplitSeq(v.View().Content, "\n") {
+					if got := ansi.StringWidth(line); got > w {
+						t.Fatalf("width %d: a line is %d wide: %q", w, got, plain(line))
+					}
+				}
+			}
 		})
 	}
 }
