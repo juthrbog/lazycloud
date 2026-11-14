@@ -26,12 +26,12 @@ func TestEC2List_DoubleRefreshNoDuplicates(t *testing.T) {
 
 	_, first := v.Update(keyPress('r'))
 	_, second := v.Update(keyPress('r'))
-	p1, ok1 := firstOfType[ec2PageLoadedMsg](collectMsgs(first))
-	p2, ok2 := firstOfType[ec2PageLoadedMsg](collectMsgs(second))
+	p1, ok1 := firstOfType[listPageMsg[aws.Instance]](collectMsgs(first))
+	p2, ok2 := firstOfType[listPageMsg[aws.Instance]](collectMsgs(second))
 	require.True(t, ok1 && ok2)
 
 	deliverAll(v, p1, p2) // the older load's page arrives first
-	assert.Len(t, v.instances, 2)
+	assert.Len(t, v.items, 2)
 }
 
 func TestSQSQueues_DoubleRefreshNoDuplicates(t *testing.T) {

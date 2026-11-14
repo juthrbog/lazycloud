@@ -80,7 +80,7 @@ func TestListCore_LoadWithTagsOnLoadedAndReloadGoesBack(t *testing.T) {
 
 	// reload goes back to the default load, with its own context.
 	c.cfg.Fetch = fetchReturns(errors.New("boom"))
-	cmd = c.reload()
+	cmd = c.reload(c.cfg.LoadingLabel)
 	assert.Equal(t, "2/2 fakes  ⣾  Loading fakes...", plain(c.footer()))
 	failed := loadMsg(t, cmd)
 	require.IsType(t, listFailedMsg{}, failed)
@@ -103,7 +103,7 @@ func TestListCore_LastStartedLoadWins(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil, fakeA))
 	c.handle(loadMsg(t, c.init()))
 
-	first := loadMsg(t, c.reload())
+	first := loadMsg(t, c.reload(c.cfg.LoadingLabel))
 	second := loadMsg(t, c.loadWith(loadSpec[fakeItem]{fetch: fetchReturns(nil, fakeC), label: "s", tag: "q"}))
 	c.handle(second)
 	c.handle(first)
@@ -257,7 +257,7 @@ func TestListCore_StaleRefreshDroppedKeepsLoadSpinner(t *testing.T) {
 	c.handle(keyPress(' '))
 	c.handle(keyPress('r')) // selective refresh of a
 	c.handle(tea.KeyPressMsg{Code: tea.KeyEscape})
-	c.reload()
+	c.reload(c.cfg.LoadingLabel)
 	c.busy("Refreshing 1 fakes...") // as if the refresh had shown its label last
 
 	cmd, _ := c.handle(listRefreshedMsg[fakeItem]{gen: gen, items: []fakeItem{{"a", "stale"}}, err: errors.New("x")})
@@ -268,6 +268,7 @@ func TestListCore_StaleRefreshDroppedKeepsLoadSpinner(t *testing.T) {
 
 func TestListCore_IdleRestoresProgressLabel(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil))
+	c.init()
 	tok := "t"
 	c.handle(listPageMsg[fakeItem]{gen: c.loadGen, items: []fakeItem{fakeA}, next: &tok, page: 1})
 	c.busy("Loading fake...")

@@ -196,21 +196,22 @@ func TestSQSQueues_SortSurvivesTierChange(t *testing.T) {
 func TestEC2List_SelectionFollowsInstanceAcrossReload(t *testing.T) {
 	v := NewEC2List(new(awstest.MockEC2Service), nil)
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
-	v.Update(ec2PageLoadedMsg{instances: []aws.Instance{{ID: "i-1"}, {ID: "i-2"}}, pageNum: 1})
+	deliverItems(v, &v.listCore, []aws.Instance{{ID: "i-1"}, {ID: "i-2"}})
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	v.Update(keyPress(' ')) // select i-2
 
 	v.startLoad()
-	v.Update(ec2PageLoadedMsg{gen: v.loadGen, instances: []aws.Instance{{ID: "i-0"}, {ID: "i-1"}, {ID: "i-2"}}, pageNum: 1})
-	assert.Equal(t, []string{"i-2"}, v.selectedInstanceIDs())
+	deliverItems(v, &v.listCore, []aws.Instance{{ID: "i-0"}, {ID: "i-1"}, {ID: "i-2"}})
+	assert.Equal(t, []string{"i-2"}, v.targets())
 	assert.Equal(t, "i-2", v.table.CursorKey())
 }
 
 func TestEC2List_LaterPagesAppend(t *testing.T) {
 	v := NewEC2List(new(awstest.MockEC2Service), nil)
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
-	v.Update(ec2PageLoadedMsg{instances: []aws.Instance{{ID: "i-1"}}, pageNum: 1, hasMorePages: true})
-	v.Update(ec2PageLoadedMsg{instances: []aws.Instance{{ID: "i-2"}}, pageNum: 2})
+	tok := "t2"
+	v.Update(listPageMsg[aws.Instance]{items: []aws.Instance{{ID: "i-1"}}, page: 1, next: &tok})
+	v.Update(listPageMsg[aws.Instance]{items: []aws.Instance{{ID: "i-2"}}, page: 2})
 	assert.Equal(t, []string{"i-1", "i-2"}, v.table.VisibleKeys())
 }
 

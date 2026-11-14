@@ -113,7 +113,7 @@ func TestLeavingAViewDoesNotCancelAMutation(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.svc.EC2 = e
 	m, c := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
-	m, _ = update(t, m, findMsg(collectMsgs(c), "views.ec2PageLoadedMsg"))
+	m, _ = update(t, m, findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]"))
 	m, c = update(t, m, press("m"))
 	m, _ = update(t, m, findMsg(collectMsgs(c), "msg.RequestActionPickerMsg"))
 	m.picker = ui.NewPicker()

@@ -194,6 +194,48 @@ var conformanceCases = []conformanceCase{
 		coreType:     reflect.TypeFor[listCore[aws.AMI]](),
 		allowMethods: []string{"CapturingInput"}, // the filter or the search input
 	},
+	{
+		name: "ec2_list",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockEC2Service)
+			svc.Test(t)
+			svc.On("ListInstancesPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.InstancePage{Instances: []aws.Instance{{ID: "i-1", Name: "one", State: "running"}}}, nil)
+			svc.On("ListInstancesPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewEC2List(svc, nil)
+		},
+		buildNil: func() nav.View { return NewEC2List(nil, nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*EC2List).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Instance]{gen: c.loadGen, items: []aws.Instance{{ID: "i-1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Instance]{gen: c.loadGen, items: []aws.Instance{{ID: "i-2"}}, page: 2},
+				listPageMsg[aws.Instance]{gen: c.loadGen - 1, items: []aws.Instance{{ID: "i-old"}}, page: 3},
+				listRefreshedMsg[aws.Instance]{gen: c.loadGen - 1, items: []aws.Instance{{ID: "i-1", Name: "stale"}}},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				ec2InstanceDetailMsg{err: context.Canceled},
+				ec2SSMSessionFinishedMsg{instanceID: "i-1", err: errors.New("x")},
+				ui.ConfirmResultMsg{Confirmed: false, Action: "ec2_stop"},
+				ui.PickerResultMsg{ID: "action", Selected: -1},
+				keyPress('o'),
+				keyPress('m'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*EC2List).items {
+				ids = append(ids, it.ID)
+			}
+			return ids
+		},
+		wantIDs:  []string{"i-1", "i-2"},
+		rwKeys:   []string{"o", "m"},
+		file:     "ec2_list.go",
+		typeName: "EC2List",
+		coreType: reflect.TypeFor[listCore[aws.Instance]](),
+	},
 }
 
 // conformanceLoaded builds the view at width 160 and runs its first load.

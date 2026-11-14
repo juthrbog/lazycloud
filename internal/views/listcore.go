@@ -85,7 +85,8 @@ type listCore[T any] struct {
 	items []T // what the table shows; kept during a reload
 	pages int // pages of the current load received so far
 
-	loading      bool
+	loading      bool // the view shows a load: progress in the footer, a focus waits
+	running      bool // a full load is in flight, also a background reload
 	loadGen      int
 	err          error // list-load error only; replaces the table in render
 	width        int
@@ -150,13 +151,27 @@ func (c *listCore[T]) init() tea.Cmd {
 func (c *listCore[T]) startLoad() tea.Cmd {
 	c.loadGen++
 	c.pages = 0
+	c.running = true
 	return c.fetchCmd(nil, 1)
 }
 
-// reload starts the default load. After another load (an AMI search), it
-// goes back to the default.
-func (c *listCore[T]) reload() tea.Cmd {
-	return c.loadWith(c.defaultSpec())
+// reload starts the default load with label in the spinner. After another
+// load (an AMI search), it goes back to the default.
+func (c *listCore[T]) reload(label string) tea.Cmd {
+	s := c.defaultSpec()
+	s.label = label
+	return c.loadWith(s)
+}
+
+// backgroundReload starts the default load with label in the spinner, but
+// leaves loading and the error as they are: the footer shows no progress,
+// and a focus opens at once instead of waiting (the EC2 reload after a
+// state change).
+func (c *listCore[T]) backgroundReload(label string) tea.Cmd {
+	s := c.defaultSpec()
+	s.label = label
+	c.load = s
+	return tea.Batch(c.busy(label), c.startLoad())
 }
 
 // loadWith starts a full load of s, with its label in the spinner. It
@@ -247,6 +262,7 @@ func dedupe[T any](have, fresh []T, key func(T) string) []T {
 // load, and then opens a focus that waited for the load.
 func (c *listCore[T]) finishLoad() tea.Cmd {
 	c.loading = false
+	c.running = false
 	c.err = nil
 	c.spinner.Hide()
 	eventlog.Infof(eventlog.CatAWS, "Loaded %d %s (%d pages)", len(c.items), c.cfg.Noun, c.pages)
@@ -287,7 +303,7 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 			return nil, true // our own echo; listFailedMsg already applied it
 		}
 		// A bare ErrorMsg (tests) is applied as before.
-		c.loading, c.err = false, m.Err
+		c.loading, c.running, c.err = false, false, m.Err
 		c.spinner.Hide()
 		return nil, true
 	case msg.FocusResourceMsg:
@@ -330,7 +346,7 @@ func (c *listCore[T]) onFailed(m listFailedMsg) tea.Cmd {
 		eventlog.Debugf(eventlog.CatAWS, "Dropped stale %s error", m.context)
 		return nil
 	}
-	c.loading, c.err = false, m.err
+	c.loading, c.running, c.err = false, false, m.err
 	c.spinner.Hide()
 	e := msg.ErrorMsg{Err: &loadError{err: m.err}, Context: m.context}
 	return func() tea.Msg { return e }
@@ -416,6 +432,17 @@ func (c *listCore[T]) setItems(items []T) {
 	c.table.SetRows(c.rows(items))
 }
 
+// updateItems runs fn on each item with one of the keys and rebuilds the
+// rows once (the EC2 state guess after an action).
+func (c *listCore[T]) updateItems(keys []string, fn func(*T)) {
+	for _, k := range keys {
+		if it := c.find(k); it != nil {
+			fn(it)
+		}
+	}
+	c.setItems(c.items)
+}
+
 // mergeItems replaces each item that has the key of an item in fresh. An
 // item that fresh does not hold stays, and an item of fresh with an unknown
 // key is ignored.
@@ -454,9 +481,10 @@ func (c *listCore[T]) busy(label string) tea.Cmd {
 }
 
 // idle ends the spinner of a side task (a refresh, a fetch by ID). While a
-// full load runs, the spinner stays and shows the text of that load again.
+// full load runs (also a background reload), the spinner stays and shows the
+// text of that load again.
 func (c *listCore[T]) idle() {
-	if c.loading {
+	if c.running {
 		c.spinner.Show(c.loadLabel())
 		return
 	}

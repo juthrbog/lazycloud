@@ -49,7 +49,7 @@ func TestFilterTakesAppWideKeys(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.svc.EC2 = ec2m
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
-	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.ec2PageLoadedMsg"))
+	m, _ = update(t, m, findMsgPrefix(collectMsgs(cmd), "views.listPageMsg[", "aws.Instance]"))
 	m.openPanel("detail", "{}", "json")
 	m.panelFocused = false
 	depth := m.nav.Depth()
