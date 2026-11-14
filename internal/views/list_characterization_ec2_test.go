@@ -274,11 +274,11 @@ func TestCharEC2_InitLoadsOnlyWhileLoading(t *testing.T) {
 // number 1 or 0. Tests and the app tests build these pages by hand.
 func TestCharEC2_FreshViewAcceptsGenZeroPage(t *testing.T) {
 	v, _ := newCharEC2(t, nil)
-	v.Update(ec2PageLoadedMsg{instances: charEC2Instances()[:1], pageNum: 1}) // private
+	v.Update(listPageMsg[aws.Instance]{items: charEC2Instances()[:1], page: 1}) // private
 	assert.Equal(t, "1/1 instances", plain(v.Footer()))
 
 	v2, _ := newCharEC2(t, nil)
-	v2.Update(ec2PageLoadedMsg{instances: charEC2Instances()[:2], pageNum: 0}) // private
+	v2.Update(listPageMsg[aws.Instance]{items: charEC2Instances()[:2]}) // private
 	assert.Equal(t, "2/2 instances", plain(v2.Footer()))
 }
 
@@ -306,17 +306,19 @@ func TestCharEC2_ErrorContext(t *testing.T) {
 	v, svc := newCharEC2(t, nil)
 	boom := errors.New("boom")
 	svc.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(nil, boom).Once()
-	e, ok := firstOfType[msg.ErrorMsg](collectMsgs(v.Init()))
+	e, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 5))
 	require.True(t, ok)
 	assert.Equal(t, "listing EC2 instances", e.Context)
-	assert.Equal(t, boom, e.Err)
+	require.ErrorIs(t, e.Err, boom)
 
 	// A view without a service reports an error and does not panic.
 	charEC2Globals(t)
 	nilView := NewEC2List(nil, nil)
-	e, ok = firstOfType[msg.ErrorMsg](collectMsgs(nilView.Init()))
+	e, ok = firstOfType[msg.ErrorMsg](pump(nilView, nilView.Init(), 5))
 	require.True(t, ok)
-	assert.Equal(t, "EC2", e.Context)
+	// Design change in PR 7 (fetchPages adapter, as in PR 5): a nil service
+	// fails like any load, with the context of the load. It was "EC2".
+	assert.Equal(t, "listing EC2 instances", e.Context)
 	assert.EqualError(t, e.Err, "AWS client not initialized")
 }
 
@@ -334,27 +336,30 @@ func TestCharEC2_ErrorView(t *testing.T) {
 	assert.Contains(t, v.View().Content, charEC2FgSGR(ui.CatppuccinLatte.Error))
 }
 
-// Only r clears the error. A load that finishes without r keeps it.
-func TestCharEC2_ErrorClearedOnlyByRefreshKey(t *testing.T) {
+// Divergence #8 (fixed in PR 7): a good load clears the error, also when it
+// arrives on its own. r clears it at once.
+func TestCharEC2_GoodLoadClearsError(t *testing.T) {
 	v, svc := newCharEC2(t, nil)
 	charEC2ExpectPage(svc, charEC2Instances()...)
 	page := charEC2NoTicks(collectMsgs(v.Init()))
 	v.Update(msg.ErrorMsg{Err: errors.New("throttled")})
 	deliverAll(v, page...)
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
-	// Divergence #8: changes in PR 7.
-	assert.Equal(t, "  Error: throttled", charEC2Text(v))
+	assert.Contains(t, charEC2Text(v), "i-1", "Divergence #8 (fixed in PR 7)")
+	assert.NotContains(t, charEC2Text(v), "Error")
 
+	v.Update(msg.ErrorMsg{Err: errors.New("throttled")})
+	require.Equal(t, "  Error: throttled", charEC2Text(v))
 	charEC2ExpectPage(svc, charEC2Instances()...)
 	_, cmd := v.Update(keyPress('r'))
-	assert.Equal(t, "  ⣾  Loading EC2 instances...", charEC2Text(v), "r clears the error at once")
+	assert.Contains(t, charEC2Text(v), "i-1", "r clears the error at once; the rows show")
 	pump(v, cmd, 5)
 	assert.Contains(t, charEC2Text(v), "i-1")
 	assert.NotContains(t, charEC2Text(v), "Error")
 }
 
-// An ErrorMsg from an older load is still applied.
-func TestCharEC2_StaleErrorApplied(t *testing.T) {
+// Divergence #9 (fixed in PR 7): the failure of an older load is dropped.
+func TestCharEC2_StaleErrorDropped(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	svc.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(nil, errors.New("old failure")).Once()
 	_, first := v.Update(keyPress('r'))
@@ -364,9 +369,11 @@ func TestCharEC2_StaleErrorApplied(t *testing.T) {
 	pump(v, second, 5)
 	require.Equal(t, "3/3 instances", plain(v.Footer()))
 
-	deliverAll(v, older...)
-	// Divergence #9: changes in PR 7 (listFailedMsg from PR 4).
-	assert.Equal(t, "  Error: old failure", charEC2Text(v))
+	require.Len(t, older, 1, "the failure of the older load")
+	_, failed := firstOfType[msg.ErrorMsg](pump(v, func() tea.Msg { return older[0] }, 5))
+	assert.False(t, failed, "no ErrorMsg for the status bar")
+	assert.Contains(t, charEC2Text(v), "i-1")
+	assert.NotContains(t, charEC2Text(v), "old failure")
 }
 
 func TestCharEC2_FirstLoadView(t *testing.T) {
@@ -425,15 +432,16 @@ func TestCharEC2_FooterWithSelectionAndFilter(t *testing.T) {
 	assert.Equal(t, "1/3 instances", plain(v.Footer()))
 }
 
-// The full-screen spinner returns on every full reload, because the reload
-// clears the instances. The table rows stay in the footer count.
+// Divergence #7 (fixed in PR 7): the rows stay during a full reload, with the
+// spinner in the footer. The full-screen spinner shows only on the first load.
 func TestCharEC2_ReloadView(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	charEC2ExpectPage(svc, charEC2Instances()...)
 	_, cmd := v.Update(keyPress('r'))
-	// Divergence #7: changes in PR 7.
-	assert.Equal(t, "  ⣾  Loading EC2 instances...", charEC2Text(v))
-	assert.Equal(t, "3/3 instances  (loading... 3 so far)  ⣾  Loading EC2 instances...", plain(v.Footer()))
+	assert.Contains(t, charEC2Text(v), "i-1")
+	// Divergence #15 (fixed in PR 7): "so far" shows only once a page of this
+	// load arrived. It counted the old rows.
+	assert.Equal(t, "3/3 instances  ⣾  Loading EC2 instances...", plain(v.Footer()))
 	pump(v, cmd, 5)
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 }
@@ -963,12 +971,14 @@ func TestCharEC2_MutationSuccessDelayedReload(t *testing.T) {
 	assert.Equal(t, "3/3 instances  ⣾  Refreshing instances...", plain(v.Footer()))
 	assert.Contains(t, charEC2Text(v), "◌ stopping", "the table stays during the delayed reload")
 
-	// Divergence #7: m sees no instances during the reload; changes in PR 7.
-	_, mcmd := v.Update(keyPress('m'))
-	assert.Equal(t, msg.ToastError("No common actions for selected instances"), charEC2OneToast(t, mcmd))
-	// Divergence #7: o finds no instance and does nothing; changes in PR 7.
+	// Divergence #7 (fixed in PR 7): the instances stay during the reload, so
+	// o finds the cursor instance. It is stopping, by the state guess.
 	_, ocmd := v.Update(keyPress('o'))
-	assert.Nil(t, ocmd)
+	assert.Equal(t, msg.ToastError("Instance is stopping — must be running for SSM"), charEC2OneToast(t, ocmd))
+	// Divergence #7 (fixed in PR 7): m works on the real rows. The cursor
+	// moves to i-2, which is stopped.
+	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, []string{"Start"}, charEC2Picker(t, v).Options)
 
 	// Divergence #53 (keep): focus opens at once.
 	svc.On("GetInstanceDetail", mock.Anything, "i-2").Return(&aws.InstanceDetail{InstanceID: "i-2"}, nil).Once()
@@ -999,7 +1009,11 @@ func TestCharEC2_SSMSessionEnd(t *testing.T) {
 			v.Update(keyPress(' ')) // select i-1
 			charEC2ExpectPage(svc, charEC2Instances()...)
 			_, cmd := v.Update(ec2SSMSessionFinishedMsg{instanceID: tc.id, instanceName: tc.name}) // private
-			assert.Equal(t, "  ⣾  Refreshing instances...", charEC2Text(v), "loading is set")
+			// Divergence #7 (fixed in PR 7): the rows stay. Divergence #53
+			// (keep): this reload sets loading, unlike the delayed one.
+			assert.True(t, v.loading) // private
+			assert.Contains(t, charEC2Text(v), "i-1")
+			assert.Equal(t, "3/3 instances  (1 selected)  ⣾  Refreshing instances...", plain(v.Footer()))
 			seen := pump(v, cmd, 5)
 			assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Session ended: " + tc.label)}, toasts(seen))
 			svc.AssertNumberOfCalls(t, "ListInstancesPage", 2)
@@ -1150,7 +1164,9 @@ func TestCharEC2_RefreshKey(t *testing.T) {
 		v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 		charEC2ExpectPage(svc, charEC2Instances()[:2]...)
 		_, cmd := v.Update(keyPress('r'))
-		assert.Equal(t, "  ⣾  Loading EC2 instances...", charEC2Text(v), "loading")
+		// Divergence #7 (fixed in PR 7): the rows stay.
+		assert.Contains(t, charEC2Text(v), "i-1")
+		assert.Equal(t, "3/3 instances  ⣾  Loading EC2 instances...", plain(v.Footer()))
 		pump(v, cmd, 5)
 		svc.AssertNumberOfCalls(t, "ListInstancesPage", 2)
 		svc.AssertNotCalled(t, "RefreshInstances", mock.Anything, mock.Anything)
@@ -1197,13 +1213,13 @@ func TestCharEC2_RefreshKey(t *testing.T) {
 	})
 }
 
-// A selective refresh reply has no generation. When it comes during a full
-// load, it hides the load spinner and empties the table.
+// Divergence #10 (fixed in PR 7): a selective refresh reply from before a
+// full load is dropped, and the spinner of the load stays.
 func TestCharEC2_RefreshReplyDuringFullLoad(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	v.Update(keyPress(' '))
 	svc.On("RefreshInstances", mock.Anything, []string{"i-1"}).
-		Return([]aws.Instance{{ID: "i-1", State: "running"}}, nil).Once()
+		Return([]aws.Instance{{ID: "i-1", Name: "stale", State: "running"}}, nil).Once()
 	_, sel := v.Update(keyPress('r'))
 	reply := charEC2NoTicks(collectMsgs(sel))
 	require.Len(t, reply, 1)
@@ -1211,20 +1227,69 @@ func TestCharEC2_RefreshReplyDuringFullLoad(t *testing.T) {
 	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape}) // deselect
 	charEC2ExpectPage(svc, charEC2Instances()...)
 	_, full := v.Update(keyPress('r'))
-	require.Equal(t, "3/3 instances  (loading... 3 so far)  ⣾  Loading EC2 instances...", plain(v.Footer()))
+	require.Equal(t, "3/3 instances  ⣾  Loading EC2 instances...", plain(v.Footer()))
 
 	deliverAll(v, reply...)
-	// Divergence #10: changes in PR 7.
-	assert.Equal(t, "0/0 instances", plain(v.Footer()))
-	assert.Empty(t, charEC2Text(v), "loading with no instances, spinner hidden")
+	assert.Equal(t, "3/3 instances  ⣾  Loading EC2 instances...", plain(v.Footer()))
+	assert.NotContains(t, charEC2Text(v), "stale")
 
 	pump(v, full, 5)
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
+
+	// The same old reply after the full load ended must not overwrite the
+	// fresh rows either.
+	deliverAll(v, reply...)
+	assert.Equal(t, "3/3 instances", plain(v.Footer()))
+	assert.NotContains(t, charEC2Text(v), "stale")
 }
 
-// The spinner gets ticks only while loading. After a selective refresh
-// starts, its tick goes to the table and no next tick is scheduled.
-func TestCharEC2_SpinnerFrozenWhenNotLoading(t *testing.T) {
+// o and m are letters while the filter is open.
+func TestCharEC2_FilterTakesManageAndConnectKeys(t *testing.T) {
+	v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
+	v.Update(keyPress('/'))
+
+	for _, r := range "mo" {
+		_, cmd := v.Update(keyPress(r))
+		got := charEC2NoTicks(collectMsgs(cmd))
+		assert.Empty(t, toasts(got), string(r))
+		_, picker := firstOfType[msg.RequestActionPickerMsg](got)
+		assert.False(t, picker, string(r))
+		deliverAll(v, got...)
+	}
+
+	assert.True(t, v.CapturingInput())
+	assert.Contains(t, charEC2Lines(v)[0], "/ mo")
+	assert.Equal(t, "0/3 instances", plain(v.Footer()))
+}
+
+// The error screen hides the rows, so o and m must not act on them. The
+// rows stay in memory since the items are kept during a reload.
+func TestCharEC2_ErrorScreenBlocksManageAndConnect(t *testing.T) {
+	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
+	svc.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(nil, errors.New("throttled")).Once()
+	_, cmd := v.Update(keyPress('r'))
+	pump(v, cmd, 5)
+	require.Equal(t, "  Error: throttled", charEC2Text(v))
+
+	for _, r := range "mo" {
+		_, cmd := v.Update(keyPress(r))
+		got := charEC2NoTicks(collectMsgs(cmd))
+		assert.Empty(t, toasts(got), string(r))
+		_, picker := firstOfType[msg.RequestActionPickerMsg](got)
+		assert.False(t, picker, string(r))
+	}
+	assert.Empty(t, v.pending.keys, "no targets are held")
+
+	// A good load brings the keys back.
+	charEC2ExpectPage(svc, charEC2Instances()...)
+	_, cmd = v.Update(keyPress('r'))
+	pump(v, cmd, 5)
+	assert.Equal(t, []string{"Stop", "Reboot", "Terminate"}, charEC2Picker(t, v).Options)
+}
+
+// Divergence #11 (fixed in PR 7): the spinner ticks whenever it shows, also
+// during a selective refresh.
+func TestCharEC2_SpinnerTicks(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	v.Update(keyPress(' '))
 	svc.On("RefreshInstances", mock.Anything, mock.Anything).Return([]aws.Instance{}, nil).Maybe()
@@ -1237,9 +1302,8 @@ func TestCharEC2_SpinnerFrozenWhenNotLoading(t *testing.T) {
 	}
 	require.NotNil(t, tick)
 	_, next := v.Update(tick)
-	// Divergence #11: changes in PR 7.
 	_, ticked := firstOfType[spinner.TickMsg](collectMsgsTimed(next, maxWait))
-	assert.False(t, ticked)
+	assert.True(t, ticked)
 
 	// While loading with no rows, a tick schedules the next tick.
 	v2, svc2 := newCharEC2(t, nil)
@@ -1273,30 +1337,24 @@ func TestCharEC2_NavKeysDuringFirstLoad(t *testing.T) {
 	assert.Contains(t, collectMsgs(cp), tea.SetClipboard("i-1")(), "the down key before the rows was lost")
 }
 
-// During a full reload the instances are cleared but the table keeps the old
-// rows. Nav keys go only to the spinner, so the cursor does not move. Keys
-// that the view handles still act on the old table rows.
+// Divergence #7 (fixed in PR 7): the rows and the instances stay during a
+// full reload, and the table takes keys.
 func TestCharEC2_NavKeysDuringReload(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	charEC2ExpectPage(svc, charEC2Instances()...)
 	_, reload := v.Update(keyPress('r'))
 
-	// Divergence #7: the table does not take nav keys during a reload;
-	// changes in PR 7.
-	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Nil(t, cmd)
+	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	_, cp := v.Update(keyPress('y'))
-	assert.Equal(t, []tea.Msg{tea.SetClipboard("i-1")(), msg.ToastSuccess("Copied 1 instance ID(s)")}, collectMsgs(cp),
-		"y copies the old cursor row behind the spinner")
-	_, mcmd := v.Update(keyPress('m'))
-	assert.Equal(t, msg.ToastError("No common actions for selected instances"), charEC2OneToast(t, mcmd))
+	assert.Equal(t, []tea.Msg{tea.SetClipboard("i-2")(), msg.ToastSuccess("Copied 1 instance ID(s)")}, collectMsgs(cp),
+		"y copies the row the cursor moved to")
+	assert.Equal(t, []string{"Start"}, charEC2Picker(t, v).Options, "m sees the instance")
 	v.Update(keyPress(' '))
-	assert.Equal(t, "3/3 instances  (loading... 3 so far)  (1 selected)  ⣾  Loading EC2 instances...", plain(v.Footer()),
-		"space selects behind the spinner")
+	assert.Equal(t, "3/3 instances  (1 selected)  ⣾  Loading EC2 instances...", plain(v.Footer()))
 
 	pump(v, reload, 5)
 	assert.Equal(t, "3/3 instances  (1 selected)", plain(v.Footer()))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyEscape}) // deselect, so y uses the cursor
 	_, cp = v.Update(keyPress('y'))
-	assert.Contains(t, collectMsgs(cp), tea.SetClipboard("i-1")(), "the cursor stayed on i-1")
+	assert.Contains(t, collectMsgs(cp), tea.SetClipboard("i-2")(), "the cursor stayed on i-2")
 }

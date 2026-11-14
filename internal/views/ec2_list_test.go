@@ -24,7 +24,7 @@ func newTestEC2List() (*EC2List, *awstest.MockEC2Service) {
 }
 
 func loadInstances(view *EC2List, instances []aws.Instance) {
-	view.Update(ec2PageLoadedMsg{instances: instances, hasMorePages: false, pageNum: 1})
+	deliverItems(view, &view.listCore, instances)
 }
 
 var testRunningInstance = aws.Instance{ID: "i-running", Name: "web-1", State: "running"}
@@ -158,14 +158,14 @@ func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 	require.True(t, ok, "Start asks first")
 	assert.True(t, confirm.Quick, "a y/n prompt, because a start destroys nothing")
 	assert.Equal(t, "ec2_start", confirm.Action)
-	assert.Equal(t, "stopped", view.findInstance("i-stopped").State, "nothing changes before the answer")
+	assert.Equal(t, "stopped", view.find("i-stopped").State, "nothing changes before the answer")
 	mockSvc.AssertNotCalled(t, "StartInstances", mock.Anything, mock.Anything)
 
 	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"})
 	require.NotNil(t, cmd)
 
 	// Verify optimistic state update happened immediately
-	inst := view.findInstance("i-stopped")
+	inst := view.find("i-stopped")
 	require.NotNil(t, inst)
 	assert.Equal(t, "pending", inst.State, "instance state should be optimistically set to pending")
 
@@ -226,7 +226,7 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 			require.NotNil(t, cmd)
 			assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
 			assert.Empty(t, view.pending.keys)
-			assert.Equal(t, tc.inst.State, view.findInstance(tc.inst.ID).State, "no optimistic state")
+			assert.Equal(t, tc.inst.State, view.find(tc.inst.ID).State, "no optimistic state")
 			assert.False(t, view.spinner.Visible())
 			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
 
@@ -396,11 +396,9 @@ func TestEC2List_TierChangeRebuildsRows(t *testing.T) {
 // --- actionsForState ---
 
 func TestEC2List_ActionsForState(t *testing.T) {
-	view, _ := newTestEC2List()
-
-	assert.Equal(t, []string{"Start"}, view.actionsForState("stopped"))
-	assert.Equal(t, []string{"Stop", "Reboot", "Terminate"}, view.actionsForState("running"))
-	assert.Nil(t, view.actionsForState("pending"))
-	assert.Nil(t, view.actionsForState("stopping"))
-	assert.Nil(t, view.actionsForState("terminated"))
+	assert.Equal(t, []string{"Start"}, actionsForState("stopped"))
+	assert.Equal(t, []string{"Stop", "Reboot", "Terminate"}, actionsForState("running"))
+	assert.Nil(t, actionsForState("pending"))
+	assert.Nil(t, actionsForState("stopping"))
+	assert.Nil(t, actionsForState("terminated"))
 }

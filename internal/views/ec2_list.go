@@ -16,14 +16,6 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-type ec2PageLoadedMsg struct {
-	gen          int // load generation that requested this page
-	instances    []aws.Instance
-	hasMorePages bool
-	token        *string
-	pageNum      int
-}
-
 type ec2InstanceDetailMsg struct {
 	detail *aws.InstanceDetail
 	err    error
@@ -33,11 +25,6 @@ type ec2SSMSessionFinishedMsg struct {
 	instanceID   string
 	instanceName string
 	err          error
-}
-
-type ec2InstancesRefreshedMsg struct {
-	instances []aws.Instance
-	err       error
 }
 
 type ec2DelayedRefreshMsg struct{}
@@ -103,77 +90,368 @@ func ec2ActionByConfirmID(id string) (ec2Action, bool) {
 // list loads again.
 const ec2RefreshDelay = 2 * time.Second
 
-type ec2ListKeyMap struct {
-	Esc         key.Binding
-	Details     key.Binding
-	Describe    key.Binding
-	Connect     key.Binding
-	Manage      key.Binding
-	CopyID      key.Binding
-	Sort        key.Binding
-	SortReverse key.Binding
-	Filter      key.Binding
-	Refresh     key.Binding
-	Select      key.Binding
-}
-
-var defaultEC2ListKeyMap = ec2ListKeyMap{
-	Esc:         key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
-	Details:     key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter/d", "details")),
-	Describe:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "details")),
-	Connect:     key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "connect (SSM)")),
-	Manage:      key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "manage")),
-	CopyID:      key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy ID")),
-	Sort:        key.NewBinding(key.WithKeys("s"), key.WithHelp("s/S", "sort")),
-	SortReverse: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "reverse sort")),
-	Filter:      key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
-	Refresh:     key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
-	Select:      key.NewBinding(key.WithKeys("space"), key.WithHelp("space", "select")),
+// ec2Keys are the keys only the EC2 list has. An SSM session is an
+// interactive shell on the instance, so ReadOnly mode blocks it.
+var ec2Keys = struct {
+	Connect ui.HintBinding
+	Manage  ui.HintBinding
+}{
+	Connect: ui.HintBinding{Binding: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "connect (SSM)")), Mode: ui.ModeReadWrite},
+	Manage:  ui.HintBinding{Binding: key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "manage")), Mode: ui.ModeReadWrite},
 }
 
 // EC2List displays all EC2 instances.
 type EC2List struct {
-	viewCtx
-	keys         ec2ListKeyMap
-	ec2          aws.EC2Service
-	awsClient    *aws.Client
-	table        ui.Table
-	instances    []aws.Instance
-	filter       ui.Filter
-	spinner      ui.Spinner
-	loading      bool
-	loadGen      int            // generation of the current full load; see startLoad
-	pending      pendingConfirm // instances targeted by a Manage action
-	pendingFocus string         // instance ID to auto-open after data loads
-	err          error
-	width        int
-	height       int
-	widthTier    ui.WidthTier
+	listCore[aws.Instance]
+	ec2       aws.EC2Service
+	awsClient *aws.Client
+	pending   pendingConfirm // instances targeted by a Manage action
 }
 
-func (e *EC2List) ID() string    { return "ec2_list" }
-func (e *EC2List) Title() string { return "EC2 Instances" }
-
-// CapturingInput implements nav.InputCapturer.
-func (e *EC2List) CapturingInput() bool {
-	return e.filter.Active()
+// NewEC2List creates the EC2 instance list view.
+func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
+	e := &EC2List{ec2: ec2, awsClient: awsClient}
+	e.listCore = newListCore(listConfig[aws.Instance]{
+		Noun:         "instances",
+		LoadingLabel: "Loading EC2 instances...",
+		ErrContext:   "listing EC2 instances",
+		Key:          func(i aws.Instance) string { return i.ID },
+		Columns:      ec2Columns,
+		Row:          ec2Row,
+		Fetch:        fetchPages(ec2, aws.EC2Service.ListInstancesPage, splitInstancePage),
+		FetchTimeout: callTimeout,
+		Refresh:      refreshBy(ec2, aws.EC2Service.RefreshInstances, callTimeout),
+		OpenDetail:   func(i aws.Instance) tea.Cmd { return e.fetchDetail(i.ID) },
+		FocusMissing: e.fetchDetail, // a link opens the detail even for an unlisted ID
+		MultiSelect:  true,
+		Copy:         true,
+		CopyNoun:     "instance ID",
+	})
+	return e
 }
+
+func (e *EC2List) ID() string     { return "ec2_list" }
+func (e *EC2List) Title() string  { return "EC2 Instances" }
+func (e *EC2List) Init() tea.Cmd  { return e.init() }
+func (e *EC2List) Footer() string { return e.footer() }
+func (e *EC2List) View() tea.View { return tea.NewView(e.render("")) }
 
 func (e *EC2List) KeyMap() []ui.HintBinding {
-	hints := []ui.HintBinding{
-		{Binding: e.keys.Details},
-		// An SSM session is an interactive shell on the instance, so
-		// ReadOnly mode blocks it.
-		{Binding: e.keys.Connect, Mode: ui.ModeReadWrite},
-		{Binding: e.keys.Manage, Mode: ui.ModeReadWrite},
-		{Binding: e.keys.CopyID},
-		{Binding: e.keys.Select},
-		{Binding: e.keys.Sort},
-		{Binding: e.keys.Filter},
-		{Binding: e.keys.Refresh},
+	return e.hints(listKeys.Details, ec2Keys.Connect, ec2Keys.Manage, listKeys.CopyID,
+		listKeys.Select, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+}
+
+// Update handles the Manage flow, SSM and the detail reply, and hands the
+// rest to the core. It returns the view itself, so the navigator keeps its
+// identity.
+func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	switch m := m.(type) {
+	case ui.PickerResultMsg:
+		if m.ID == "action" {
+			return e, e.onActionPicked(m)
+		}
+	case ui.ConfirmResultMsg:
+		return e, e.onConfirm(m)
+	case ec2InstanceMutatedMsg:
+		return e, e.onMutated(m)
+	case ec2DelayedRefreshMsg:
+		return e, e.backgroundReload("Refreshing instances...")
+	case ec2SSMSessionFinishedMsg:
+		return e, e.onSSMFinished(m)
+	case ec2InstanceDetailMsg:
+		return e, e.onDetail(m)
+	case tea.KeyPressMsg:
+		// The error screen hides the rows, so o and m must not act on them.
+		if !e.CapturingInput() && e.err == nil {
+			switch {
+			case key.Matches(m, ec2Keys.Connect.Binding):
+				return e, e.connect()
+			case key.Matches(m, ec2Keys.Manage.Binding):
+				return e, e.manage()
+			}
+		}
 	}
-	ui.ApplyModeAll(hints)
-	return hints
+	return e, e.update(m)
+}
+
+func splitInstancePage(p *aws.InstancePage) ([]aws.Instance, *string) {
+	return p.Instances, nextToken(p.HasMorePages, p.Token)
+}
+
+func (e *EC2List) fetchDetail(instanceID string) tea.Cmd {
+	svc := e.ec2
+	ctx := e.viewContext()
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Fetching details for instance: %s", instanceID)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		detail, err := svc.GetInstanceDetail(ctx, instanceID)
+		return ec2InstanceDetailMsg{detail: detail, err: err}
+	}
+}
+
+// onDetail opens the detail panel. An error gives a toast and the list stays.
+func (e *EC2List) onDetail(m ec2InstanceDetailMsg) tea.Cmd {
+	if m.err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "Instance details failed: %v", m.err)
+		return detailErrorToast(m.err)
+	}
+	if m.detail == nil {
+		return nil
+	}
+	d := m.detail
+	title := d.InstanceID
+	if d.Name != "" {
+		title = d.Name + " (" + d.InstanceID + ")"
+	}
+	infoContent, infoLinks := buildEC2InfoContentWithLinks(d)
+	tabs := []msg.TabContent{
+		{Title: "Info", Content: infoContent, Format: "text", Links: infoLinks},
+		{Title: "JSON", Content: d.DetailJSON(), Format: "json"},
+	}
+	if len(d.SecurityGroups) > 0 {
+		sgContent, sgLinks := buildSGContentWithLinks(d.SecurityGroups)
+		tabs = append(tabs, msg.TabContent{
+			Title: "Security Groups", Content: sgContent, Format: "text", Links: sgLinks,
+		})
+	}
+	if len(d.Tags) > 0 {
+		tabs = append(tabs, msg.TabContent{
+			Title: "Tags", Content: buildTagsContent(d.Tags), Format: "text",
+		})
+	}
+	return func() tea.Msg {
+		return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
+	}
+}
+
+// connect starts an SSM session on the cursor instance.
+func (e *EC2List) connect() tea.Cmd {
+	if e.awsClient == nil {
+		return func() tea.Msg {
+			return msg.ToastError("AWS client not available — check the profile")
+		}
+	}
+	inst := e.cursorItem()
+	if inst == nil {
+		return nil
+	}
+	if inst.State != "running" {
+		state := inst.State
+		return func() tea.Msg {
+			return msg.ToastError("Instance is " + state + " — must be running for SSM")
+		}
+	}
+	if !aws.AWSCLIAvailable() {
+		return func() tea.Msg {
+			return msg.ToastError("aws CLI not found — install it first")
+		}
+	}
+	if !aws.SSMPluginAvailable() {
+		return func() tea.Msg {
+			return msg.ToastError("session-manager-plugin not found — install it first")
+		}
+	}
+	label := inst.ID
+	if inst.Name != "" {
+		label = inst.Name + " (" + inst.ID + ")"
+	}
+	eventlog.Infof(eventlog.CatAWS, "Starting SSM session: %s", label)
+	id := inst.ID
+	name := inst.Name
+	ssmCmd := e.awsClient.SSMSessionCmd(id, label)
+	return tea.Exec(ssmCmd, func(err error) tea.Msg {
+		return ec2SSMSessionFinishedMsg{instanceID: id, instanceName: name, err: err}
+	})
+}
+
+// onSSMFinished reports the end of a session and reloads the list, because
+// the state may have changed during the session.
+func (e *EC2List) onSSMFinished(m ec2SSMSessionFinishedMsg) tea.Cmd {
+	if m.err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "SSM session failed for %s: %v", m.instanceID, m.err)
+		return func() tea.Msg {
+			return msg.ToastError("SSM session failed: " + aws.ErrorText(m.err))
+		}
+	}
+	label := m.instanceID
+	if m.instanceName != "" {
+		label = m.instanceName
+	}
+	eventlog.Infof(eventlog.CatAWS, "SSM session ended: %s", label)
+	return tea.Batch(e.reload("Refreshing instances..."), func() tea.Msg {
+		return msg.ToastSuccess("Session ended: " + label)
+	})
+}
+
+// manage opens the action picker for the targets.
+func (e *EC2List) manage() tea.Cmd {
+	ids := e.targets()
+	if len(ids) == 0 {
+		return nil
+	}
+	actions := e.commonActionsForSelection(ids)
+	if len(actions) == 0 {
+		return func() tea.Msg {
+			return msg.ToastError("No common actions for selected instances")
+		}
+	}
+	e.pending.hold(ids)
+	title := "Manage Instance"
+	if len(ids) > 1 {
+		title = fmt.Sprintf("Manage %d Instances", len(ids))
+	}
+	return func() tea.Msg {
+		return msg.RequestActionPickerMsg{Title: title, Options: actions}
+	}
+}
+
+// onActionPicked asks for confirmation of the picked action. A canceled
+// picker forgets the targets.
+func (e *EC2List) onActionPicked(m ui.PickerResultMsg) tea.Cmd {
+	if a, ok := ec2ActionByLabel(m.Value); ok && m.Selected >= 0 {
+		return e.pending.ask(e.confirmRequest(a))
+	}
+	e.pending.clear()
+	return nil
+}
+
+// commonActionsForSelection returns the actions available for ALL selected instances.
+// Returns nil if the selection contains instances in mixed states with no common actions.
+func (e *EC2List) commonActionsForSelection(ids []string) []string {
+	if len(ids) == 0 {
+		return nil
+	}
+	var common []string
+	for i, id := range ids {
+		inst := e.find(id)
+		if inst == nil {
+			return nil
+		}
+		actions := actionsForState(inst.State)
+		if len(actions) == 0 {
+			return nil
+		}
+		if i == 0 {
+			common = actions
+			continue
+		}
+		// Intersect
+		set := make(map[string]bool, len(actions))
+		for _, a := range actions {
+			set[a] = true
+		}
+		filtered := common[:0]
+		for _, a := range common {
+			if set[a] {
+				filtered = append(filtered, a)
+			}
+		}
+		common = filtered
+	}
+	return common
+}
+
+// actionName returns the name of the action for a past-tense action of
+// ec2InstanceMutatedMsg, for example "Terminate" for "terminated".
+func actionName(done string) string {
+	switch done {
+	case "started":
+		return "Start"
+	case "stopped":
+		return "Stop"
+	case "rebooted":
+		return "Reboot"
+	case "terminated":
+		return "Terminate"
+	}
+	return done
+}
+
+func actionsForState(state string) []string {
+	switch state {
+	case "stopped":
+		return []string{"Start"}
+	case "running":
+		return []string{"Stop", "Reboot", "Terminate"}
+	default:
+		return nil
+	}
+}
+
+// confirmRequest builds the confirm prompt for a on the pending targets.
+// It lists the names from the rows the view holds, so it must run on the
+// Update goroutine.
+func (e *EC2List) confirmRequest(a ec2Action) msg.RequestConfirmMsg {
+	ids := e.pending.keys
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		name := id
+		if inst := e.find(id); inst != nil && inst.Name != "" {
+			name = inst.Name + " (" + id + ")"
+		}
+		names = append(names, name)
+	}
+	return msg.RequestConfirmMsg{
+		Message: confirmMessage(a.label, len(ids), "instance(s)", names, ""),
+		Action:  a.confirmID,
+		Quick:   a.quick,
+	}
+}
+
+// onConfirm runs the pending action when the reply confirms it. Any other
+// reply only clears the targets.
+func (e *EC2List) onConfirm(m ui.ConfirmResultMsg) tea.Cmd {
+	ids, ok := e.pending.take(m)
+	if !ok {
+		return nil
+	}
+	a, ok := ec2ActionByConfirmID(m.Action)
+	if !ok {
+		return nil
+	}
+	// The mode can change while the prompt is open.
+	if ui.IsReadOnly() {
+		return func() tea.Msg { return msg.ToastError(ec2ReadOnlyText) }
+	}
+	e.updateItems(ids, func(i *aws.Instance) { i.State = a.transitional })
+	return tea.Batch(e.busy(fmt.Sprintf("%s %d instance(s)...", a.busy, len(ids))), e.mutate(a, ids))
+}
+
+// mutate runs a on the instances in one batch call. The call uses a
+// detached context, so leaving the view does not stop it.
+func (e *EC2List) mutate(a ec2Action, ids []string) tea.Cmd {
+	svc := e.ec2
+	ctx := e.viewContext()
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "%s %d instances", a.busy, len(ids))
+		ctx, cancel := detached(ctx)
+		defer cancel()
+		err := a.run(svc, ctx, ids)
+		return ec2InstanceMutatedMsg{action: a.past, ids: ids, instanceID: strings.Join(ids, ", "), err: err}
+	}
+}
+
+// onMutated handles the end of an action. After a failure it refreshes the
+// instances: an action on several instances can partly succeed (a terminate
+// stops at a protected instance in one zone and goes on in another), so the
+// list must show their real state and not the state the view guessed. After
+// a success it waits before the reload: without the delay, DescribeInstances
+// may return the old state and overwrite the guess.
+func (e *EC2List) onMutated(m ec2InstanceMutatedMsg) tea.Cmd {
+	e.table.DeselectAll()
+	if m.err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "Instance %s failed for %s: %v", m.action, m.instanceID, m.err)
+		text := fmt.Sprintf("%s failed: %s. The list shows the current state of %d instance(s).",
+			actionName(m.action), aws.ErrorCode(m.err), len(m.ids))
+		return tea.Batch(e.refreshKeys(m.ids), func() tea.Msg { return msg.ToastError(text) })
+	}
+	eventlog.Infof(eventlog.CatAWS, "Instance %s completed: %s", m.action, m.instanceID)
+	toast := m.Outcome()
+	delayedRefresh := tea.Tick(ec2RefreshDelay, func(time.Time) tea.Msg {
+		return ec2DelayedRefreshMsg{}
+	})
+	return tea.Batch(e.busy("Waiting for state change..."), delayedRefresh, func() tea.Msg { return toast })
 }
 
 func ec2Columns(tier ui.WidthTier) []ui.Column {
@@ -206,590 +484,25 @@ func ec2Columns(tier ui.WidthTier) []ui.Column {
 	}
 }
 
-// NewEC2List creates the EC2 instance list view.
-func NewEC2List(ec2 aws.EC2Service, awsClient *aws.Client) *EC2List {
-	t := ui.NewTable(ec2Columns(ui.TierMedium))
-	return &EC2List{
-		keys:      defaultEC2ListKeyMap,
-		ec2:       ec2,
-		awsClient: awsClient,
-		table:     t,
-		filter:    ui.NewFilter(),
-		spinner:   ui.NewSpinner("Loading EC2 instances..."),
-		loading:   true,
-		widthTier: ui.TierMedium,
-	}
-}
-
-func (e *EC2List) Init() tea.Cmd {
-	e.table.DeselectAll()
-	if !e.loading {
-		return nil
-	}
-	return e.startLoad()
-}
-
-// startLoad begins a full load from page 1. Each load gets a new generation,
-// and pages from an older load are dropped, so a refresh during a load
-// cannot duplicate rows.
-func (e *EC2List) startLoad() tea.Cmd {
-	e.loadGen++
-	e.instances = nil
-	return tea.Batch(e.spinner.Tick(), e.fetchPage(nil, 1))
-}
-
-func (e *EC2List) fetchPage(token *string, pageNum int) tea.Cmd {
-	svc := e.ec2
-	gen := e.loadGen
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		if svc == nil {
-			return msg.ErrorMsg{Err: errNoClient, Context: "EC2"}
-		}
-		eventlog.Debugf(eventlog.CatAWS, "Fetching EC2 instances (page %d)", pageNum)
-		ctx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
-		page, err := svc.ListInstancesPage(ctx, token)
-		if err != nil {
-			return msg.ErrorMsg{Err: err, Context: "listing EC2 instances"}
-		}
-		return ec2PageLoadedMsg{
-			gen:          gen,
-			instances:    page.Instances,
-			hasMorePages: page.HasMorePages,
-			token:        page.Token,
-			pageNum:      pageNum,
-		}
-	}
-}
-
-func (e *EC2List) focusAndFetchDetail(instanceID string) tea.Cmd {
-	e.table.SetCursorByKey(instanceID)
-	return e.fetchDetail(instanceID)
-}
-
-func (e *EC2List) fetchDetail(instanceID string) tea.Cmd {
-	svc := e.ec2
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "Fetching details for instance: %s", instanceID)
-		ctx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
-		detail, err := svc.GetInstanceDetail(ctx, instanceID)
-		return ec2InstanceDetailMsg{detail: detail, err: err}
-	}
-}
-
-func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	switch m := m.(type) {
-	case ui.PickerResultMsg:
-		switch m.ID {
-		case "sort":
-			if m.Value == "_clear" {
-				e.table.ClearSort()
-			} else if m.Selected >= 0 {
-				e.table.Sort(m.Selected)
-			}
-		case "action":
-			if a, ok := ec2ActionByLabel(m.Value); ok && m.Selected >= 0 {
-				return e, e.pending.ask(e.confirmRequest(a))
-			}
-			// The picker was canceled: forget the targets.
-			e.pending.clear()
-		}
-		return e, nil
-
-	case ui.ConfirmResultMsg:
-		return e, e.onConfirm(m)
-
-	case ec2InstanceMutatedMsg:
-		e.table.DeselectAll()
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "Instance %s failed for %s: %v", m.action, m.instanceID, m.err)
-			// An action on several instances can partly succeed. For example,
-			// a terminate stops at a protected instance in one zone and goes
-			// on in another. Refresh the instances, so that the list shows
-			// their real state and not the state that the view guessed.
-			text := fmt.Sprintf("%s failed: %s. The list shows the current state of %d instance(s).",
-				actionName(m.action), aws.ErrorCode(m.err), len(m.ids))
-			e.spinner.Show(fmt.Sprintf("Refreshing %d instances...", len(m.ids)))
-			return e, tea.Batch(e.spinner.Tick(), e.refreshInstances(m.ids), func() tea.Msg {
-				return msg.ToastError(text)
-			})
-		}
-		eventlog.Infof(eventlog.CatAWS, "Instance %s completed: %s", m.action, m.instanceID)
-		// Delay refresh to give AWS time to register the state transition.
-		// Without this, DescribeInstances may return the old state and
-		// overwrite the optimistic update.
-		e.spinner.Show("Waiting for state change...")
-		toast := m.Outcome()
-		delayedRefresh := tea.Tick(ec2RefreshDelay, func(time.Time) tea.Msg {
-			return ec2DelayedRefreshMsg{}
-		})
-		return e, tea.Batch(e.spinner.Tick(), delayedRefresh, func() tea.Msg { return toast })
-
-	case ec2DelayedRefreshMsg:
-		e.spinner.Show("Refreshing instances...")
-		return e, e.startLoad()
-
-	case ec2SSMSessionFinishedMsg:
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "SSM session failed for %s: %v", m.instanceID, m.err)
-			return e, func() tea.Msg {
-				return msg.ToastError("SSM session failed: " + aws.ErrorText(m.err))
-			}
-		}
-		label := m.instanceID
-		if m.instanceName != "" {
-			label = m.instanceName
-		}
-		eventlog.Infof(eventlog.CatAWS, "SSM session ended: %s", label)
-		// Refresh instance list — state may have changed during the session
-		e.loading = true
-		e.spinner.Show("Refreshing instances...")
-		return e, tea.Batch(e.startLoad(), func() tea.Msg {
-			return msg.ToastSuccess("Session ended: " + label)
-		})
-
-	case ec2PageLoadedMsg:
-		if m.gen != e.loadGen {
-			return e, nil // page from a superseded load
-		}
-		e.instances = append(e.instances, m.instances...)
-		if m.pageNum == 1 {
-			e.table.SetRows(e.buildRows(m.instances)) // replaces the rows of the last load
-		} else {
-			e.table.AppendRows(e.buildRows(m.instances))
-		}
-
-		if m.hasMorePages {
-			e.spinner.Show(fmt.Sprintf("Loading instances... %d so far", len(e.instances)))
-			return e, tea.Batch(e.spinner.Tick(), e.fetchPage(m.token, m.pageNum+1))
-		}
-
-		e.loading = false
-		e.spinner.Hide()
-		eventlog.Infof(eventlog.CatAWS, "Loaded %d EC2 instances (%d pages)", len(e.instances), m.pageNum)
-		if e.pendingFocus != "" {
-			id := e.pendingFocus
-			e.pendingFocus = ""
-			return e, e.focusAndFetchDetail(id)
-		}
-		return e, nil
-
-	case ec2InstancesRefreshedMsg:
-		e.spinner.Hide()
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "EC2 refresh failed: %v", m.err)
-			return e, func() tea.Msg {
-				return msg.ToastError("Refresh failed: " + aws.ErrorText(m.err))
-			}
-		}
-		eventlog.Infof(eventlog.CatAWS, "Refreshed %d EC2 instances", len(m.instances))
-		for _, updated := range m.instances {
-			for i := range e.instances {
-				if e.instances[i].ID == updated.ID {
-					e.instances[i] = updated
-					break
-				}
-			}
-		}
-		e.table.SetRows(e.buildRows(e.instances))
-		return e, nil
-
-	case msg.FocusResourceMsg:
-		if e.loading {
-			e.pendingFocus = m.ResourceID
-			return e, nil
-		}
-		return e, e.focusAndFetchDetail(m.ResourceID)
-
-	case ec2InstanceDetailMsg:
-		if m.err != nil {
-			eventlog.Errorf(eventlog.CatAWS, "Instance details failed: %v", m.err)
-			return e, detailErrorToast(m.err)
-		}
-		if m.detail == nil {
-			return e, nil
-		}
-		d := m.detail
-		title := d.InstanceID
-		if d.Name != "" {
-			title = d.Name + " (" + d.InstanceID + ")"
-		}
-		infoContent, infoLinks := buildEC2InfoContentWithLinks(d)
-		tabs := []msg.TabContent{
-			{Title: "Info", Content: infoContent, Format: "text", Links: infoLinks},
-			{Title: "JSON", Content: d.DetailJSON(), Format: "json"},
-		}
-		if len(d.SecurityGroups) > 0 {
-			sgContent, sgLinks := buildSGContentWithLinks(d.SecurityGroups)
-			tabs = append(tabs, msg.TabContent{
-				Title: "Security Groups", Content: sgContent, Format: "text", Links: sgLinks,
-			})
-		}
-		if len(d.Tags) > 0 {
-			tabs = append(tabs, msg.TabContent{
-				Title: "Tags", Content: buildTagsContent(d.Tags), Format: "text",
-			})
-		}
-		return e, func() tea.Msg {
-			return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}
-		}
-
-	case msg.ErrorMsg:
-		e.loading = false
-		e.spinner.Hide()
-		e.err = m.Err
-		return e, nil
-
-	case tea.WindowSizeMsg:
-		e.width = m.Width
-		e.height = m.Height
-		cols, newTier := ui.BestFitTier(m.Width, ec2Columns)
-		e.widthTier = newTier
-		if len(cols) != len(e.table.Columns()) {
-			e.table.SetColumns(cols)
-			if len(e.instances) > 0 {
-				e.table.SetRows(e.buildRows(e.instances))
-			}
-		}
-		e.table.SetSize(m.Width, m.Height-3)
-		e.filter.SetWidth(m.Width)
-		return e, nil
-
-	case ui.FilterChangedMsg:
-		e.table.Filter(m.Text)
-		return e, nil
-
-	case tea.KeyPressMsg:
-		if e.filter.Active() {
-			var cmd tea.Cmd
-			e.filter, cmd = e.filter.Update(m)
-			return e, cmd
-		}
-
-		switch {
-		case key.Matches(m, e.keys.Esc):
-			if e.table.SelectionCount() > 0 {
-				e.table.DeselectAll()
-				return e, nil
-			}
-			return e, func() tea.Msg { return msg.NavigateBackMsg{} }
-		case key.Matches(m, e.keys.Sort):
-			columns, currentCol := e.table.SortColumnNames()
-			return e, func() tea.Msg {
-				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
-			}
-		case key.Matches(m, e.keys.SortReverse):
-			e.table.SortReverse()
-			return e, nil
-		case key.Matches(m, e.keys.Filter):
-			e.filter.Activate()
-			return e, nil
-		case key.Matches(m, e.keys.Refresh):
-			if ids := e.selectedInstanceIDs(); len(ids) > 0 && e.table.SelectionCount() > 0 {
-				eventlog.Infof(eventlog.CatAWS, "Selective refresh: %d EC2 instances", len(ids))
-				e.spinner.Show(fmt.Sprintf("Refreshing %d instances...", len(ids)))
-				return e, tea.Batch(e.spinner.Tick(), e.refreshInstances(ids))
-			}
-			e.loading = true
-			e.err = nil
-			e.spinner.Show("Loading EC2 instances...")
-			return e, e.startLoad()
-		case key.Matches(m, e.keys.Details, e.keys.Describe):
-			if id := e.table.CursorKey(); id != "" {
-				return e, e.fetchDetail(id)
-			}
-		case key.Matches(m, e.keys.CopyID):
-			ids := e.selectedInstanceIDs()
-			if len(ids) == 0 {
-				return e, nil
-			}
-			text := strings.Join(ids, "\n")
-			return e, tea.Batch(
-				tea.SetClipboard(text),
-				func() tea.Msg {
-					return msg.ToastSuccess(fmt.Sprintf("Copied %d instance ID(s)", len(ids)))
-				},
-			)
-		case key.Matches(m, e.keys.Select):
-			e.table.ToggleSelect()
-			return e, nil
-		case key.Matches(m, e.keys.Manage):
-			ids := e.selectedInstanceIDs()
-			if len(ids) == 0 {
-				return e, nil
-			}
-			actions := e.commonActionsForSelection(ids)
-			if len(actions) == 0 {
-				return e, func() tea.Msg {
-					return msg.ToastError("No common actions for selected instances")
-				}
-			}
-			e.pending.hold(ids)
-			title := "Manage Instance"
-			if len(ids) > 1 {
-				title = fmt.Sprintf("Manage %d Instances", len(ids))
-			}
-			return e, func() tea.Msg {
-				return msg.RequestActionPickerMsg{
-					Title:   title,
-					Options: actions,
-				}
-			}
-		case key.Matches(m, e.keys.Connect):
-			if e.awsClient == nil {
-				return e, func() tea.Msg {
-					return msg.ToastError("AWS client not available — check the profile")
-				}
-			}
-			inst := e.findInstance(e.table.CursorKey())
-			if inst == nil {
-				return e, nil
-			}
-			if inst.State != "running" {
-				state := inst.State
-				return e, func() tea.Msg {
-					return msg.ToastError("Instance is " + state + " — must be running for SSM")
-				}
-			}
-			if !aws.AWSCLIAvailable() {
-				return e, func() tea.Msg {
-					return msg.ToastError("aws CLI not found — install it first")
-				}
-			}
-			if !aws.SSMPluginAvailable() {
-				return e, func() tea.Msg {
-					return msg.ToastError("session-manager-plugin not found — install it first")
-				}
-			}
-			label := inst.ID
-			if inst.Name != "" {
-				label = inst.Name + " (" + inst.ID + ")"
-			}
-			eventlog.Infof(eventlog.CatAWS, "Starting SSM session: %s", label)
-			id := inst.ID
-			name := inst.Name
-			ssmCmd := e.awsClient.SSMSessionCmd(id, label)
-			return e, tea.Exec(ssmCmd, func(err error) tea.Msg {
-				return ec2SSMSessionFinishedMsg{instanceID: id, instanceName: name, err: err}
-			})
-		}
-	}
-
-	if e.loading && len(e.instances) == 0 {
-		// No rows yet — only tick the spinner
-		var cmd tea.Cmd
-		e.spinner, cmd = e.spinner.Update(m)
-		return e, cmd
-	}
-
-	var cmds []tea.Cmd
-	if e.loading {
-		// Progressive loading — tick spinner while allowing table interaction
-		var cmd tea.Cmd
-		e.spinner, cmd = e.spinner.Update(m)
-		cmds = append(cmds, cmd)
-	}
-	var cmd tea.Cmd
-	e.table, cmd = e.table.Update(m)
-	cmds = append(cmds, cmd)
-	return e, tea.Batch(cmds...)
-}
-
-func (e *EC2List) refreshInstances(ids []string) tea.Cmd {
-	svc := e.ec2
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(ctx, callTimeout)
-		defer cancel()
-		instances, err := svc.RefreshInstances(ctx, ids)
-		return ec2InstancesRefreshedMsg{instances: instances, err: err}
-	}
-}
-
-func (e *EC2List) findInstance(id string) *aws.Instance {
-	for i := range e.instances {
-		if e.instances[i].ID == id {
-			return &e.instances[i]
-		}
-	}
-	return nil
-}
-
-// selectedInstanceIDs returns the IDs of the visible selected instances,
-// or the cursor instance ID if none is selected.
-func (e *EC2List) selectedInstanceIDs() []string {
-	return e.table.TargetKeys()
-}
-
-// commonActionsForSelection returns the actions available for ALL selected instances.
-// Returns nil if the selection contains instances in mixed states with no common actions.
-func (e *EC2List) commonActionsForSelection(ids []string) []string {
-	if len(ids) == 0 {
-		return nil
-	}
-	var common []string
-	for i, id := range ids {
-		inst := e.findInstance(id)
-		if inst == nil {
-			return nil
-		}
-		actions := e.actionsForState(inst.State)
-		if len(actions) == 0 {
-			return nil
-		}
-		if i == 0 {
-			common = actions
-			continue
-		}
-		// Intersect
-		set := make(map[string]bool, len(actions))
-		for _, a := range actions {
-			set[a] = true
-		}
-		filtered := common[:0]
-		for _, a := range common {
-			if set[a] {
-				filtered = append(filtered, a)
-			}
-		}
-		common = filtered
-	}
-	return common
-}
-
-// setInstanceState optimistically updates an instance's state in the local
-// data and rebuilds the table so the UI reflects the change immediately.
-func (e *EC2List) setInstanceState(id, state string) {
-	if inst := e.findInstance(id); inst != nil {
-		inst.State = state
-	}
-	e.table.SetRows(e.buildRows(e.instances))
-}
-
-// actionName returns the name of the action for a past-tense action of
-// ec2InstanceMutatedMsg, for example "Terminate" for "terminated".
-func actionName(done string) string {
-	switch done {
-	case "started":
-		return "Start"
-	case "stopped":
-		return "Stop"
-	case "rebooted":
-		return "Reboot"
-	case "terminated":
-		return "Terminate"
-	}
-	return done
-}
-
-func (e *EC2List) actionsForState(state string) []string {
-	switch state {
-	case "stopped":
-		return []string{"Start"}
-	case "running":
-		return []string{"Stop", "Reboot", "Terminate"}
+// ec2Row builds the row of one instance.
+func ec2Row(inst aws.Instance, tier ui.WidthTier) ui.Row {
+	var cells table.Row
+	switch tier {
+	case ui.TierNarrow:
+		cells = table.Row{inst.ID, inst.Name, inst.State, inst.Type}
+	case ui.TierMedium:
+		cells = table.Row{inst.ID, inst.Name, inst.State, inst.Type, inst.PrivateIP}
 	default:
-		return nil
-	}
-}
-
-// confirmRequest builds the confirm prompt for a on the pending targets.
-// It lists the names from the rows the view holds, so it must run on the
-// Update goroutine.
-func (e *EC2List) confirmRequest(a ec2Action) msg.RequestConfirmMsg {
-	ids := e.pending.keys
-	names := make([]string, 0, len(ids))
-	for _, id := range ids {
-		name := id
-		if inst := e.findInstance(id); inst != nil && inst.Name != "" {
-			name = inst.Name + " (" + id + ")"
-		}
-		names = append(names, name)
-	}
-	return msg.RequestConfirmMsg{
-		Message: confirmMessage(a.label, len(ids), "instance(s)", names, ""),
-		Action:  a.confirmID,
-		Quick:   a.quick,
-	}
-}
-
-// onConfirm runs the pending action when the reply confirms it. Any other
-// reply only clears the targets.
-func (e *EC2List) onConfirm(m ui.ConfirmResultMsg) tea.Cmd {
-	ids, ok := e.pending.take(m)
-	if !ok {
-		return nil
-	}
-	a, ok := ec2ActionByConfirmID(m.Action)
-	if !ok {
-		return nil
-	}
-	// The mode can change while the prompt is open.
-	if ui.IsReadOnly() {
-		return func() tea.Msg { return msg.ToastError(ec2ReadOnlyText) }
-	}
-	for _, id := range ids {
-		e.setInstanceState(id, a.transitional)
-	}
-	e.spinner.Show(fmt.Sprintf("%s %d instance(s)...", a.busy, len(ids)))
-	return tea.Batch(e.spinner.Tick(), e.mutate(a, ids))
-}
-
-// mutate runs a on the instances in one batch call. The call uses a
-// detached context, so leaving the view does not stop it.
-func (e *EC2List) mutate(a ec2Action, ids []string) tea.Cmd {
-	svc := e.ec2
-	ctx := e.viewContext()
-	return func() tea.Msg {
-		eventlog.Infof(eventlog.CatAWS, "%s %d instances", a.busy, len(ids))
-		ctx, cancel := detached(ctx)
-		defer cancel()
-		err := a.run(svc, ctx, ids)
-		return ec2InstanceMutatedMsg{action: a.past, ids: ids, instanceID: strings.Join(ids, ", "), err: err}
-	}
-}
-
-func (e *EC2List) buildRows(instances []aws.Instance) []ui.Row {
-	rows := make([]ui.Row, 0, len(instances))
-	for _, inst := range instances {
 		launched := ""
 		if !inst.LaunchTime.IsZero() {
 			launched = inst.LaunchTime.Format("2006-01-02")
 		}
-		var cells, sortKeys table.Row
-		switch e.widthTier {
-		case ui.TierNarrow:
-			cells = table.Row{
-				inst.ID, inst.Name, inst.State, inst.Type,
-			}
-			sortKeys = table.Row{
-				inst.ID, inst.Name, inst.State, inst.Type,
-			}
-		case ui.TierMedium:
-			cells = table.Row{
-				inst.ID, inst.Name, inst.State, inst.Type,
-				inst.PrivateIP,
-			}
-			sortKeys = table.Row{
-				inst.ID, inst.Name, inst.State, inst.Type,
-				inst.PrivateIP,
-			}
-		default:
-			cells = table.Row{
-				inst.ID, inst.Name, inst.State, inst.Type,
-				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
-			}
-			sortKeys = table.Row{
-				inst.ID, inst.Name, inst.State, inst.Type,
-				inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
-			}
+		cells = table.Row{
+			inst.ID, inst.Name, inst.State, inst.Type,
+			inst.PrivateIP, inst.PublicIP, inst.AvailabilityZone, launched,
 		}
-		rows = append(rows, ui.Row{Key: inst.ID, Cells: cells, Sort: sortKeys})
 	}
-	return rows
+	return ui.Row{Key: inst.ID, Cells: cells, Sort: cells}
 }
 
 func buildEC2InfoContentWithLinks(d *aws.InstanceDetail) (string, []msg.TabLink) {
@@ -836,36 +549,4 @@ func buildSGContentWithLinks(sgs []aws.SecurityGroupRef) (string, []msg.TabLink)
 		})
 	}
 	return b.String(), links
-}
-
-func (e *EC2List) Footer() string {
-	filtered, total := e.table.RowCount()
-	footer := fmt.Sprintf("%d/%d instances", filtered, total)
-	if e.loading && total > 0 {
-		footer += fmt.Sprintf("  (loading... %d so far)", total)
-	}
-	if sel := e.table.SelectionCount(); sel > 0 {
-		footer += fmt.Sprintf("  (%d selected)", sel)
-	}
-	if e.spinner.Visible() {
-		footer += "  " + e.spinner.View()
-	}
-	return footer
-}
-
-func (e *EC2List) View() tea.View {
-	var content string
-	switch {
-	case e.loading && len(e.instances) == 0:
-		// Initial load — spinner only
-		content = "\n  " + e.spinner.View()
-	case e.err != nil:
-		content = "\n  " + ui.S.Error.Render("Error: "+ui.Sanitize(aws.ErrorText(e.err)))
-	default:
-		content = e.table.View()
-		if e.filter.Active() {
-			content = e.filter.View() + "\n" + content
-		}
-	}
-	return tea.NewView(content)
 }

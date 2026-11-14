@@ -118,7 +118,7 @@ func (c *listCore[T]) handleKey(m tea.KeyPressMsg) (tea.Cmd, bool) {
 		if c.cfg.Refresh != nil && c.table.SelectionCount() > 0 {
 			return c.refreshKeys(c.targets()), true
 		}
-		return c.reload(), true
+		return c.reload(c.cfg.LoadingLabel), true
 	case c.cfg.Copy && key.Matches(m, listKeys.CopyID.Binding):
 		return c.copyKeys()
 	case c.cfg.OpenDetail != nil && key.Matches(m, listKeys.Details.Binding, listKeys.Describe.Binding):

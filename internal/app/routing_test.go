@@ -178,7 +178,7 @@ func TestRouting_StaleRegionPageDropped(t *testing.T) {
 	m, _ = update(t, m, findMsg(collectMsgs(rc), "msg.NavigateMsg"))
 	require.Equal(t, "ec2_list", m.nav.Current().ID())
 
-	m, _ = update(t, m, findMsg(collectMsgs(oldCmd), "views.ec2PageLoadedMsg"))
+	m, _ = update(t, m, findMsgPrefix(collectMsgs(oldCmd), "views.listPageMsg[", "aws.Instance]"))
 	assert.NotContains(t, m.nav.Current().Footer(), "2/2", "old-region instances shown in the new region")
 }
 
@@ -199,7 +199,7 @@ func TestRouting_ReenterWhileLoadingNoDuplicates(t *testing.T) {
 	require.NotSame(t, firstView, m.nav.Current(), "the reopened view is new")
 
 	for _, c := range []tea.Cmd{first, second} {
-		p := findMsg(collectMsgs(c), "views.ec2PageLoadedMsg")
+		p := findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]")
 		require.NotNil(t, p)
 		m, _ = update(t, m, p)
 	}
@@ -227,7 +227,7 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.svc.EC2 = e
 	m, c := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
-	m, _ = update(t, m, findMsg(collectMsgs(c), "views.ec2PageLoadedMsg"))
+	m, _ = update(t, m, findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]"))
 	m, c = update(t, m, press("m"))
 	m, _ = update(t, m, findMsg(collectMsgs(c), "msg.RequestActionPickerMsg"))
 	m.picker = ui.NewPicker()
@@ -263,7 +263,7 @@ func TestRouting_ErrorStaysWithOriginView(t *testing.T) {
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	hidden := m.nav.Current()
 	m, c := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
-	m, _ = update(t, m, findMsg(collectMsgs(c), "views.ec2PageLoadedMsg"))
+	m, _ = update(t, m, findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]"))
 
 	// An error from the hidden view must not replace the EC2 table.
 	m, _ = update(t, m, nav.Routed{Origin: hidden, Msg: msg.ErrorMsg{Err: errors.New("AccessDenied"), Context: "head s3://b/k"}})

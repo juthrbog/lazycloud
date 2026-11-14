@@ -103,8 +103,8 @@ func TestListCore_StalePageDropped(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil, fakeA))
 	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA}})
 
-	c.reload()
-	c.reload() // gen 2
+	c.reload(c.cfg.LoadingLabel)
+	c.reload(c.cfg.LoadingLabel) // gen 2
 	cmd, ok := c.handle(listPageMsg[fakeItem]{gen: 1, items: []fakeItem{fakeB}})
 	assert.True(t, ok)
 	assert.Nil(t, cmd)
@@ -123,7 +123,7 @@ func TestListCore_PageReplaceKeepsCursor(t *testing.T) {
 	c.update(tea.KeyPressMsg{Code: tea.KeyDown})
 	require.Equal(t, "b", cursorID(c))
 
-	c.reload()
+	c.reload(c.cfg.LoadingLabel)
 	c.handle(listPageMsg[fakeItem]{gen: c.loadGen, items: []fakeItem{fakeC, fakeA, fakeB}})
 	assert.Equal(t, "b", cursorID(c), "the cursor follows the key")
 }
@@ -131,7 +131,7 @@ func TestListCore_PageReplaceKeepsCursor(t *testing.T) {
 func TestListCore_ReloadKeepsItemsAndTableUsable(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil))
 	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA, fakeB}})
-	c.reload()
+	c.reload(c.cfg.LoadingLabel)
 	assert.Len(t, c.items, 2)
 	assert.NotContains(t, plain(c.render("")), "Loading", "rows stay on screen")
 	assert.Contains(t, plain(c.footer()), "Loading fakes...")
@@ -142,8 +142,8 @@ func TestListCore_ReloadKeepsItemsAndTableUsable(t *testing.T) {
 
 func TestListCore_StaleFailureDroppedWithoutErrorMsg(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil))
-	c.reload()
-	c.reload() // gen 2
+	c.reload(c.cfg.LoadingLabel)
+	c.reload(c.cfg.LoadingLabel) // gen 2
 	cmd, ok := c.handle(listFailedMsg{gen: 1, err: errors.New("old"), context: "listing fakes"})
 	assert.True(t, ok)
 	assert.Nil(t, cmd, "no ErrorMsg reaches the status bar")
@@ -185,7 +185,7 @@ func TestListCore_EchoNotAppliedTwice(t *testing.T) {
 
 	// A reload starts before the echo comes back. The echo must not
 	// overwrite it.
-	c.reload()
+	c.reload(c.cfg.LoadingLabel)
 	cmd, ok := c.handle(echo)
 	assert.True(t, ok)
 	assert.Nil(t, cmd)
@@ -434,7 +434,7 @@ func TestListCore_PagedReloadReplacesAndKeepsCursor(t *testing.T) {
 	c.update(tea.KeyPressMsg{Code: tea.KeyDown})
 	require.Equal(t, "b", cursorID(c))
 
-	cmd := c.reload()
+	cmd := c.reload(c.cfg.LoadingLabel)
 	assert.Equal(t, 0, c.pages, "a new load counts its pages from zero")
 	assert.NotContains(t, plain(c.footer()), "so far", "old rows are not progress")
 
@@ -455,7 +455,7 @@ func TestListCore_StalePageOfOldLoadDropped(t *testing.T) {
 	oldNext, _ := c.handle(loadMsg(t, c.init())) // gen 1, page 1 applied
 	oldPage2 := loadMsg(t, oldNext)
 
-	cmd := c.reload() // gen 2
+	cmd := c.reload(c.cfg.LoadingLabel) // gen 2
 	cmd, _ = c.handle(loadMsg(t, cmd))
 	require.Equal(t, []fakeItem{fakeA}, c.items)
 
