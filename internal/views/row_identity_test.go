@@ -26,7 +26,7 @@ func newBucketList(t *testing.T, names ...string) (*S3List, *awstest.MockS3Servi
 	for i, n := range names {
 		buckets[i] = aws.Bucket{Name: n}
 	}
-	v.Update(s3BucketsLoadedMsg{buckets: buckets})
+	deliverItems(v, &v.listCore, buckets)
 	return v, svc
 }
 
@@ -72,11 +72,12 @@ func TestS3List_SelectionStaysAfterCreate(t *testing.T) {
 	v, _ := newBucketList(t, "a-prod", "b-tmp")
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	v.Update(keyPress(' ')) // select b-tmp
-	require.Equal(t, []string{"b-tmp"}, v.selectedBucketNames())
+	require.Equal(t, []string{"b-tmp"}, v.targets())
 
 	v.Update(s3BucketCreatedMsg{name: "0new"})
-	v.Update(s3BucketsLoadedMsg{buckets: []aws.Bucket{{Name: "0new"}, {Name: "a-prod"}, {Name: "b-tmp"}}})
-	assert.Equal(t, []string{"b-tmp"}, v.selectedBucketNames())
+	// The create raised the load generation, so the reply needs the new one.
+	deliverItems(v, &v.listCore, []aws.Bucket{{Name: "0new"}, {Name: "a-prod"}, {Name: "b-tmp"}})
+	assert.Equal(t, []string{"b-tmp"}, v.targets())
 }
 
 // M8: the selection marker never reaches a lookup.

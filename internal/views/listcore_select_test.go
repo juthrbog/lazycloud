@@ -284,7 +284,7 @@ func TestListCore_MergeItems(t *testing.T) {
 
 	c.mergeItems([]fakeItem{{"c", "gamma-2"}, {"a", "alpha-2"}, {"x", "new"}})
 	assert.Equal(t, []fakeItem{{"a", "alpha-2"}, fakeB, {"c", "gamma-2"}}, c.items)
-	assert.Contains(t, plain(c.render("")), "gamma-2", "the rows follow")
+	assert.Contains(t, plain(c.render("", "")), "gamma-2", "the rows follow")
 }
 
 // --- focus on a missing ID ---
@@ -313,11 +313,22 @@ func TestListCore_FocusMissing(t *testing.T) {
 
 func TestListCore_RenderAbove(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil))
-	assert.Equal(t, "\n  ⣾  Loading fakes...", plain(c.render("? search\n")), "no side input on the spinner")
+	assert.Equal(t, "\n  ⣾  Loading fakes...", plain(c.render("? search\n", "")), "no side input on the spinner")
 	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA}})
-	assert.Regexp(t, `^\? search\n ID`, plain(c.render("? search\n")))
+	assert.Regexp(t, `^\? search\n ID`, plain(c.render("? search\n", "")))
 	c.handle(msg.ErrorMsg{Err: errors.New("denied")})
-	assert.Equal(t, "\n  Error: denied", plain(c.render("? search\n")), "no side input on the error")
+	assert.Equal(t, "\n  Error: denied", plain(c.render("? search\n", "")), "no side input on the error")
+}
+
+// below shows under every screen: the spinner, the table and the error.
+func TestListCore_RenderBelow(t *testing.T) {
+	c := newFakeCore(t, fetchReturns(nil))
+	assert.Equal(t, "\n  ⣾  Loading fakes...\n> new", plain(c.render("", "> new")))
+	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA}})
+	assert.Regexp(t, `^ ID[\s\S]*alpha[\s\S]*\n> new$`, plain(c.render("", "> new")))
+	c.handle(msg.ErrorMsg{Err: errors.New("denied")})
+	assert.Equal(t, "\n  Error: denied\n> new", plain(c.render("? search\n", "> new")))
+	assert.Equal(t, "\n  Error: denied", plain(c.render("", "")), "no below, no extra line")
 }
 
 // --- refreshBy ---

@@ -59,7 +59,7 @@ func (s *SubnetList) Title() string {
 
 func (s *SubnetList) Init() tea.Cmd  { return s.init() }
 func (s *SubnetList) Footer() string { return s.footer() }
-func (s *SubnetList) View() tea.View { return tea.NewView(s.render("")) }
+func (s *SubnetList) View() tea.View { return tea.NewView(s.render("", "")) }
 
 func (s *SubnetList) KeyMap() []ui.HintBinding {
 	return s.hints(listKeys.Details, listKeys.CopyID, listKeys.Sort, listKeys.Filter, listKeys.Refresh)

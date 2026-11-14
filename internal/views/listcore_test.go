@@ -133,7 +133,7 @@ func TestListCore_ReloadKeepsItemsAndTableUsable(t *testing.T) {
 	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA, fakeB}})
 	c.reload(c.cfg.LoadingLabel)
 	assert.Len(t, c.items, 2)
-	assert.NotContains(t, plain(c.render("")), "Loading", "rows stay on screen")
+	assert.NotContains(t, plain(c.render("", "")), "Loading", "rows stay on screen")
 	assert.Contains(t, plain(c.footer()), "Loading fakes...")
 
 	c.update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -200,7 +200,7 @@ func TestListCore_BareErrorMsgApplied(t *testing.T) {
 	require.EqualError(t, c.err, "denied")
 	assert.False(t, c.loading)
 	assert.False(t, c.spinner.Visible())
-	assert.Equal(t, "\n  Error: denied", plain(c.render("")))
+	assert.Equal(t, "\n  Error: denied", plain(c.render("", "")))
 }
 
 func TestListCore_SuccessClearsError(t *testing.T) {
@@ -208,7 +208,7 @@ func TestListCore_SuccessClearsError(t *testing.T) {
 	c.handle(msg.ErrorMsg{Err: errors.New("denied")})
 	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA}})
 	require.NoError(t, c.err)
-	assert.NotContains(t, plain(c.render("")), "Error")
+	assert.NotContains(t, plain(c.render("", "")), "Error")
 }
 
 func TestListCore_TierRebuild(t *testing.T) {
@@ -216,16 +216,16 @@ func TestListCore_TierRebuild(t *testing.T) {
 	c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA}})
 	assert.Equal(t, ui.TierWide, c.widthTier)
 	assert.Len(t, c.table.Columns(), 2)
-	assert.Contains(t, plain(c.render("")), "alpha")
+	assert.Contains(t, plain(c.render("", "")), "alpha")
 
 	c.handle(tea.WindowSizeMsg{Width: 60, Height: 20})
 	assert.Equal(t, ui.TierNarrow, c.widthTier)
 	assert.Len(t, c.table.Columns(), 1)
-	assert.NotContains(t, plain(c.render("")), "alpha", "rows are rebuilt for the tier")
+	assert.NotContains(t, plain(c.render("", "")), "alpha", "rows are rebuilt for the tier")
 
 	c.handle(tea.WindowSizeMsg{Width: 160, Height: 20})
 	assert.Len(t, c.table.Columns(), 2)
-	assert.Contains(t, plain(c.render("")), "alpha")
+	assert.Contains(t, plain(c.render("", "")), "alpha")
 }
 
 func TestListCore_SpinnerTicksWhileVisible(t *testing.T) {

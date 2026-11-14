@@ -90,7 +90,7 @@ func (a *AMIList) View() tea.View {
 	if a.searchInput.Active() {
 		above = a.searchInput.View() + "\n"
 	}
-	return tea.NewView(a.render(above))
+	return tea.NewView(a.render(above, ""))
 }
 
 // Update handles the search input, p and the fetch of a linked AMI, and

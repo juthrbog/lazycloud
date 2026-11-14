@@ -247,10 +247,9 @@ func TestCharS3_InitLoadsOnlyWhileLoading(t *testing.T) {
 	svc.AssertNumberOfCalls(t, "ListBuckets", 1)
 }
 
-// s3 has no load generation today: the reply that arrives last wins, also
-// when it belongs to the older load. The gen guard comes with the core in
-// the s3 port (PR 9).
-func TestCharS3_StaleReplyLastWins(t *testing.T) {
+// Divergence #9 (fixed in PR 9): the core load generation drops the reply
+// of the older load, so the load started last wins.
+func TestCharS3_StaleReplyDropped(t *testing.T) {
 	v, svc := charS3Loaded(t, "a-logs")
 	charS3NextList(svc, "old-1", "old-2")
 	charS3NextList(svc, "new-1")
@@ -261,11 +260,12 @@ func TestCharS3_StaleReplyLastWins(t *testing.T) {
 	newer := charS3Reply(t, second)
 
 	deliverAll(v, newer, older)
-	assert.Equal(t, "2/2 buckets", v.Footer())
-	assert.Contains(t, charS3Text(v), "old-1 2024-03-05 07:08:09")
+	assert.Equal(t, "1/1 buckets", v.Footer())
+	assert.Contains(t, charS3Text(v), "new-1 2024-03-05 07:08:09")
+	assert.NotContains(t, charS3Text(v), "old-1 2024-03-05 07:08:09")
 }
 
-func TestCharS3_StaleErrorIsApplied(t *testing.T) {
+func TestCharS3_StaleErrorDropped(t *testing.T) {
 	v, svc := charS3Loaded(t, "a-logs")
 	svc.On("ListBuckets", mock.Anything).Return([]aws.Bucket(nil), errCharS3Denied).Once()
 	charS3NextList(svc, "new-1")
@@ -275,23 +275,30 @@ func TestCharS3_StaleErrorIsApplied(t *testing.T) {
 	_, second := v.Update(keyPress('r'))
 	newer := charS3Reply(t, second)
 
-	deliverAll(v, newer, older)
-	// Divergence #9: changes in PR 9 (the core gen drops the stale failure).
-	assert.Equal(t, []string{"Error: AccessDenied"}, charS3Text(v))
+	failed := deliverAll(v, newer, older)
+	// Divergence #9 (fixed in PR 9): the core gen drops the stale failure. It
+	// reaches neither the view nor the status bar.
+	_, isErr := firstOfType[msg.ErrorMsg](failed)
+	assert.False(t, isErr)
+	assert.Equal(t, []string{"Bucket Created", "---", "new-1 2024-03-05 07:08:09"}, charS3Text(v))
 }
 
 func TestCharS3_ErrorContexts(t *testing.T) {
 	v, svc := charS3Fresh(t)
 	svc.On("ListBuckets", mock.Anything).Return([]aws.Bucket(nil), errCharS3Denied).Once()
-	em, ok := firstOfType[msg.ErrorMsg](charS3Replies(v.Init()))
+	// The failure goes to the view first, and the view emits the ErrorMsg
+	// for the app (listFailedMsg, PR 4).
+	em, ok := firstOfType[msg.ErrorMsg](pump(v, v.Init(), 3))
 	require.True(t, ok)
 	assert.Equal(t, "listing S3 buckets", em.Context)
 	require.ErrorIs(t, em.Err, errCharS3Denied)
 
 	nilView := NewS3List(nil, "us-east-1")
-	em, ok = firstOfType[msg.ErrorMsg](charS3Replies(nilView.Init()))
+	em, ok = firstOfType[msg.ErrorMsg](pump(nilView, nilView.Init(), 3))
 	require.True(t, ok)
-	assert.Equal(t, "S3", em.Context)
+	// Design change in PR 9 (fetchAll adapter, as in PR 4): a nil service
+	// fails like any load, with the context of the load. It was "S3".
+	assert.Equal(t, "listing S3 buckets", em.Context)
 	require.EqualError(t, em.Err, "AWS client not initialized")
 }
 
@@ -328,12 +335,19 @@ func TestCharS3_ViewSnapshots(t *testing.T) {
 		"a-logs 2024-03-05 07:08:09",
 	}, charS3Text(v))
 
-	// Reload: the rows are kept (footer) but the spinner replaces the table.
+	// Reload: the rows stay on screen, with the spinner in the footer.
 	charS3NextList(svc, "b-tmp", "a-logs")
 	_, reload := v.Update(keyPress('r'))
-	// Divergence #16: changes in PR 9 (spinner only while loading with no rows).
-	assert.Equal(t, "\n  ⣾  Loading S3 buckets...", plain(v.View().Content))
-	assert.Equal(t, "2/2 buckets", v.Footer())
+	// Divergence #16 (fixed in PR 9): the full-screen spinner shows only
+	// while loading with no rows.
+	assert.Equal(t, []string{
+		"Bucket Created",
+		"---",
+		"b-tmp 2024-03-05 07:08:09",
+		"a-logs 2024-03-05 07:08:09",
+	}, charS3Text(v))
+	// Divergence #15 (fixed in PR 9): the footer shows the spinner.
+	assert.Equal(t, "2/2 buckets  ⣾  Loading S3 buckets...", plain(v.Footer()))
 	pump(v, reload, 3)
 
 	// The create input is drawn under the table.
@@ -390,7 +404,8 @@ func TestCharS3_ColumnsPerWidth(t *testing.T) {
 func TestCharS3_FooterSnapshots(t *testing.T) {
 	v, svc := charS3Fresh(t)
 	svc.On("ListBuckets", mock.Anything).Return(charS3Buckets("b-tmp", "a-logs"), nil)
-	assert.Equal(t, "0/0 buckets", v.Footer(), "first load")
+	// Divergence #15 (fixed in PR 9): the footer shows the spinner.
+	assert.Equal(t, "0/0 buckets  ⣾  Loading S3 buckets...", plain(v.Footer()), "first load")
 	pump(v, v.Init(), 3)
 	assert.Equal(t, "2/2 buckets", v.Footer(), "after load")
 
@@ -398,8 +413,8 @@ func TestCharS3_FooterSnapshots(t *testing.T) {
 	assert.Equal(t, "2/2 buckets  (1 selected)", v.Footer(), "one selected")
 
 	_, cmd := v.Update(keyPress('r'))
-	// Divergence #15: changes in PR 9 (the footer shows loading text).
-	assert.Equal(t, "2/2 buckets  (1 selected)", v.Footer(), "while reloading")
+	// Divergence #15 (fixed in PR 9): the footer shows the spinner.
+	assert.Equal(t, "2/2 buckets  (1 selected)  ⣾  Loading S3 buckets...", plain(v.Footer()), "while reloading")
 	pump(v, cmd, 3)
 	assert.Equal(t, "2/2 buckets  (1 selected)", v.Footer(), "reload keeps the selection")
 }
@@ -430,7 +445,11 @@ func TestCharS3_RefreshKey(t *testing.T) {
 
 	charS3NextList(svc, "a-logs", "b-tmp")
 	_, cmd := v.Update(keyPress('r'))
-	assert.Equal(t, []string{"⣾ Loading S3 buckets..."}, charS3Text(v), "r clears the error and shows the spinner")
+	// Divergence #16 (fixed in PR 9): r clears the error, and the rows show
+	// with the spinner in the footer.
+	assert.Equal(t, []string{"Bucket Created", "---", "a-logs 2024-03-05 07:08:09"}, charS3Text(v),
+		"r clears the error; the rows show")
+	assert.Equal(t, "1/1 buckets  ⣾  Loading S3 buckets...", plain(v.Footer()))
 	pump(v, cmd, 3)
 	svc.AssertNumberOfCalls(t, "ListBuckets", 2)
 	svc.AssertNotCalled(t, "ListObjectsPage", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
@@ -438,12 +457,12 @@ func TestCharS3_RefreshKey(t *testing.T) {
 	assert.Equal(t, "Bucket Created", charS3Text(v)[0])
 }
 
-func TestCharS3_LoadDoesNotClearError(t *testing.T) {
+func TestCharS3_LoadClearsError(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, svc := charS3Loaded(t, "a-logs")
 	v.Update(msg.ErrorMsg{Err: errCharS3Denied, Context: "listing S3 buckets"})
 
-	// A create reloads the list, but the reload does not clear the error.
+	// A create reloads the list.
 	svc.On("CreateBucket", mock.Anything, "b-new", "us-east-1").Return(nil)
 	charS3NextList(svc, "a-logs", "b-new")
 	v.Update(keyPress('n'))
@@ -451,8 +470,8 @@ func TestCharS3_LoadDoesNotClearError(t *testing.T) {
 	_, cmd := v.Update(charS3Enter)
 	pump(v, cmd, 3)
 	assert.Equal(t, "2/2 buckets", v.Footer())
-	// Divergence #8: changes in PR 9 (a good full load clears the error).
-	assert.Equal(t, []string{"Error: AccessDenied"}, charS3Text(v))
+	// Divergence #8 (fixed in PR 9): a good full load clears the error.
+	assert.Equal(t, []string{"Bucket Created", "---", "a-logs 2024-03-05 07:08:09", "b-new 2024-03-05 07:08:09"}, charS3Text(v))
 }
 
 func TestCharS3_KeysDuringReload(t *testing.T) {
@@ -461,16 +480,16 @@ func TestCharS3_KeysDuringReload(t *testing.T) {
 	_, reload := v.Update(keyPress('r'))
 	reply := charS3Reply(t, reload)
 
-	// Navigation keys go to the spinner, not the table.
+	// Divergence #6 (fixed in PR 9): the table is usable during a load, so
+	// the down key moves the cursor.
 	v.Update(charS3Down)
-	// The view's own keys still act on the kept rows (divergence #7: kept).
-	assert.Equal(t, "a-logs", charS3Browsed(t, v), "enter during a reload browses")
+	// The view's own keys act on the kept rows (divergence #7: kept).
+	assert.Equal(t, "b-tmp", charS3Browsed(t, v), "enter during a reload browses the cursor row")
 	v.Update(charS3Space)
-	assert.Equal(t, "2/2 buckets  (1 selected)", v.Footer(), "space during a reload selects")
+	assert.Equal(t, "2/2 buckets  (1 selected)  ⣾  Loading S3 buckets...", plain(v.Footer()), "space during a reload selects")
 
 	deliverAll(v, reply)
-	// Divergence #6: changes in PR 9 (the table is usable during a load).
-	assert.Equal(t, "a-logs", charS3Browsed(t, v), "down during the reload did not move the cursor")
+	assert.Equal(t, "b-tmp", charS3Browsed(t, v), "the cursor stays on b-tmp after the load")
 }
 
 func TestCharS3_TableKeepsCursorAndSelectionAcrossReload(t *testing.T) {
@@ -611,8 +630,9 @@ func TestCharS3_UpdateReturnsSamePointer(t *testing.T) {
 	}
 }
 
-// Divergence #45: changes in PR 9 (focus comes free from the core).
-func TestCharS3_FocusIsIgnored(t *testing.T) {
+// Divergence #45 (fixed in PR 9): focus comes free from the core. It moves
+// the cursor and opens nothing, because s3 has no detail in the core.
+func TestCharS3_FocusMovesCursor(t *testing.T) {
 	v, svc := charS3Fresh(t)
 	svc.On("ListBuckets", mock.Anything).Return(charS3Buckets("a-logs", "b-tmp"), nil).Once()
 	init := v.Init()
@@ -620,11 +640,12 @@ func TestCharS3_FocusIsIgnored(t *testing.T) {
 	_, cmd := v.Update(msg.FocusResourceMsg{ResourceID: "b-tmp"})
 	assert.Nil(t, cmd, "focus while loading")
 	pump(v, init, 3)
-	assert.Equal(t, "a-logs", charS3Browsed(t, v), "focus is not stored")
+	assert.Equal(t, "b-tmp", charS3Browsed(t, v), "the focus waited for the load")
 
+	v.Update(msg.FocusResourceMsg{ResourceID: "a-logs"})
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "b-tmp"})
 	assert.Nil(t, cmd)
-	assert.Equal(t, "a-logs", charS3Browsed(t, v), "focus does not move the cursor")
+	assert.Equal(t, "b-tmp", charS3Browsed(t, v), "focus moves the cursor")
 
 	// Focus on a bucket that is not listed does nothing and fetches nothing.
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "zz-missing"})
@@ -680,20 +701,21 @@ func TestCharS3_Properties(t *testing.T) {
 	_, cmd := v.Update(keyPress('d'))
 	got := pump(v, cmd, 2)
 	assert.InDelta(t, 30.0, deadline.Seconds(), 5, "props use the 30s call timeout")
-	// Divergence #39: changes in PR 9 (a tabbed panel with one JSON tab).
-	nav, ok := firstOfType[msg.NavigateMsg](got)
+	// Divergence #39 (fixed in PR 9): a tabbed panel with one JSON tab, as
+	// every other detail.
+	panel, ok := firstOfType[msg.TabbedContentMsg](got)
 	require.True(t, ok)
-	assert.Equal(t, msg.NavigateMsg{ViewID: "content", Params: map[string]string{
-		"title": "a-logs (properties)",
-		"content": "{\n" +
+	assert.Equal(t, msg.TabbedContentMsg{PanelTitle: "a-logs (properties)", Tabs: []msg.TabContent{{
+		Title: "JSON",
+		Content: "{\n" +
 			"  \"Name\": \"a-logs\",\n" +
 			"  \"Region\": \"eu-west-1\",\n" +
 			"  \"Versioning\": \"Enabled\",\n" +
 			"  \"Encryption\": \"AES256\",\n" +
 			"  \"PublicAccess\": true\n" +
 			"}",
-		"format": "json",
-	}}, nav)
+		Format: "json",
+	}}}, panel)
 
 	empty, _ := charS3Loaded(t)
 	_, cmd = empty.Update(keyPress('d'))
@@ -722,14 +744,11 @@ func TestCharS3_PropertiesGuards(t *testing.T) {
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Details failed: no properties for bucket a-logs")}, toasts(got))
 	assert.Equal(t, "1/1 buckets", v.Footer())
 
-	// A view with a nil service gets its rows from the reply of another
-	// view's load, so d has a cursor.
-	other, otherSvc := charS3Loaded(t, "a-logs")
-	otherSvc.On("ListBuckets", mock.Anything).Return(charS3Buckets("a-logs"), nil)
-	_, loaded := other.Update(keyPress('r'))
+	// A view with a nil service gets its rows from a page of its own load
+	// generation, so d has a cursor.
 	nilView := NewS3List(nil, "us-east-1")
 	nilView.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
-	nilView.Update(charS3Reply(t, loaded))
+	deliverItems(nilView, &nilView.listCore, charS3Buckets("a-logs")) // private
 	require.Equal(t, "1/1 buckets", nilView.Footer())
 	_, cmd = nilView.Update(keyPress('d'))
 	require.NotNil(t, cmd)
@@ -896,8 +915,9 @@ func TestCharS3_DeleteSuccessDeselectsAndReloads(t *testing.T) {
 
 	charS3NextList(svc, "a-logs", "b-tmp") // b-tmp is still listed
 	_, cmd := v.Update(res)
-	assert.Equal(t, "2/2 buckets", v.Footer(), "deselected at once")
-	assert.Equal(t, []string{"⣾ Loading S3 buckets..."}, charS3Text(v))
+	assert.Equal(t, "2/2 buckets  ⣾  Loading S3 buckets...", plain(v.Footer()), "deselected at once")
+	// Divergence #16 (fixed in PR 9): the rows stay during the reload.
+	assert.Equal(t, []string{"Bucket Created", "---", "a-logs 2024-03-05 07:08:09", "b-tmp 2024-03-05 07:08:09"}, charS3Text(v))
 	got := pump(v, cmd, 3)
 	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Deleted 1 bucket(s)")}, toasts(got))
 	assert.Equal(t, "2/2 buckets", v.Footer(), "the selection stays cleared after the reload")
@@ -999,7 +1019,9 @@ func TestCharS3_CreateSuccessReloads(t *testing.T) {
 	_, cmd := v.Update(charS3Enter)
 	reply := cmd()
 	_, cmd = v.Update(reply)
-	assert.Equal(t, []string{"⣾ Loading S3 buckets..."}, charS3Text(v))
+	// Divergence #16 (fixed in PR 9): the rows stay during the reload.
+	assert.Equal(t, []string{"Bucket Created", "---", "a-logs 2024-03-05 07:08:09"}, charS3Text(v))
+	assert.Equal(t, "1/1 buckets  ⣾  Loading S3 buckets...", plain(v.Footer()))
 	got := pump(v, cmd, 3)
 	// Divergence #40 (fixed in PR 3): the toast uses m.Outcome(); the text stays.
 	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Bucket created: b-new")}, toasts(got))
@@ -1091,8 +1113,8 @@ func TestCharS3_CreateKeepsUserFilter(t *testing.T) {
 	assert.Equal(t, "1/3 buckets", v.Footer())
 }
 
-// Divergence #41: changes in PR 9 (the input width follows a resize).
-func TestCharS3_CreateInputWidthNotUpdatedOnResize(t *testing.T) {
+// Divergence #41 (fixed in PR 9): the input width follows a resize.
+func TestCharS3_CreateInputWidthFollowsResize(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, _ := charS3Loaded(t, "a-logs")
 	inputWidth := func() int {
@@ -1102,7 +1124,7 @@ func TestCharS3_CreateInputWidthNotUpdatedOnResize(t *testing.T) {
 	v.Update(keyPress('n'))
 	assert.Equal(t, 100, inputWidth())
 	v.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
-	assert.Equal(t, 100, inputWidth())
+	assert.Equal(t, 60, inputWidth())
 }
 
 func TestCharS3_SelectionSurvivesCreateReload(t *testing.T) {
@@ -1125,7 +1147,8 @@ func TestCharS3_SelectionSurvivesCreateReload(t *testing.T) {
 	assert.Equal(t, "b-tmp", req.Phrase)
 }
 
-// Divergence #44: changes in PR 9 (ListBuckets uses the 2 min list timeout).
+// Divergence #44 (fixed in PR 9): ListBuckets uses the 2 min list timeout,
+// because the aws layer reads every page in one call.
 func TestCharS3_SetContextReachesFetch(t *testing.T) {
 	type ctxKey struct{}
 	v, svc := charS3Fresh(t)
@@ -1141,5 +1164,39 @@ func TestCharS3_SetContextReachesFetch(t *testing.T) {
 
 	pump(v, v.Init(), 3)
 	assert.Equal(t, "view", value)
-	assert.InDelta(t, 30.0, deadline.Seconds(), 5, "ListBuckets uses the 30s call timeout")
+	assert.InDelta(t, listTimeout.Seconds(), deadline.Seconds(), 5, "ListBuckets uses the list timeout")
+}
+
+// enter, d and x do nothing while the error screen hides the rows. n still
+// opens the create input (divergence #54: kept).
+func TestCharS3_ErrorScreenBlocksRowKeys(t *testing.T) {
+	charS3SetReadOnly(t, false)
+	v, svc := charS3Loaded(t, "a-logs")
+	v.Update(msg.ErrorMsg{Err: errCharS3Denied, Context: "listing S3 buckets"})
+	require.Equal(t, []string{"Error: AccessDenied"}, charS3Text(v))
+	for _, k := range []tea.KeyPressMsg{charS3Enter, keyPress('d'), keyPress('x')} {
+		_, cmd := v.Update(k)
+		msgs := collectMsgs(cmd)
+		_, nav := firstOfType[msg.NavigateMsg](msgs)
+		_, confirm := firstOfType[msg.RequestConfirmMsg](msgs)
+		assert.False(t, nav || confirm, k.String())
+	}
+	svc.AssertNotCalled(t, "GetBucketProperties", mock.Anything, mock.Anything)
+	v.Update(keyPress('n'))
+	assert.True(t, v.CapturingInput())
+}
+
+// While the filter is open, n, d and x are text for the filter.
+func TestCharS3_FilterTakesViewKeys(t *testing.T) {
+	charS3SetReadOnly(t, false)
+	v, svc := charS3Loaded(t, "a-logs")
+	v.Update(keyPress('/'))
+	for _, r := range "ndx" {
+		_, cmd := v.Update(keyPress(r))
+		_, confirm := firstOfType[msg.RequestConfirmMsg](collectMsgsTimed(cmd, 50*time.Millisecond))
+		assert.False(t, confirm, string(r))
+	}
+	assert.False(t, v.createInput.Active(), "n did not open the create input") // private
+	svc.AssertNotCalled(t, "GetBucketProperties", mock.Anything, mock.Anything)
+	assert.Contains(t, plain(v.View().Content), "ndx")
 }
