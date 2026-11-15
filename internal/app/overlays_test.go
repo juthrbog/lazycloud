@@ -25,10 +25,10 @@ func kindsOf(s overlayStack) []overlayKind {
 // An overlay that opens again moves to the top, and push never changes the
 // stack that another copy of Model holds.
 func TestOverlayStackPush(t *testing.T) {
-	a := overlayStack{}.push(ovHelp).push(ovConfirm)
+	a := overlayStack{}.push(ovHelp, replyRoute{}).push(ovConfirm, replyRoute{})
 	assert.Equal(t, []overlayKind{ovHelp, ovConfirm}, kindsOf(a))
 
-	b := a.push(ovHelp)
+	b := a.push(ovHelp, replyRoute{})
 	assert.Equal(t, []overlayKind{ovConfirm, ovHelp}, kindsOf(b))
 	assert.Equal(t, []overlayKind{ovHelp, ovConfirm}, kindsOf(a), "push makes a new slice")
 
@@ -137,4 +137,107 @@ func TestOverlayStackSurvivesACopy(t *testing.T) {
 	assert.Empty(t, m.overlays)
 	assert.Equal(t, []overlayKind{ovHelp}, kindsOf(saved.overlays))
 	assert.True(t, saved.help.Visible())
+}
+
+// A confirm reply goes to the view that asked, a yes and a no alike, also
+// when another view is on top by then.
+func TestConfirmReplyGoesToTheViewThatAsked(t *testing.T) {
+	for _, tc := range []struct {
+		key  string
+		want bool
+	}{{"y", true}, {"n", false}} {
+		t.Run(tc.key, func(t *testing.T) {
+			m := newTestModel(140, 40)
+			asker := newReplyView()
+			m.pushView(asker)
+			m, _ = update(t, m, nav.Routed{Origin: asker, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
+			other := newReplyView()
+			m.pushView(other)
+
+			m = answer(t, m, press(tc.key))
+			assert.False(t, m.confirm.Visible())
+			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: tc.want, Action: "start"}}, asker.confirms)
+			assert.Empty(t, other.confirms)
+		})
+	}
+}
+
+// When the view that asked is gone, the reply is dropped. The view that is
+// on top now never gets it.
+func TestReplyToAViewThatIsGoneIsDropped(t *testing.T) {
+	m := newTestModel(140, 40)
+	parent := newReplyView()
+	m.pushView(parent)
+	asker := newReplyView()
+	m.pushView(asker)
+	m, _ = update(t, m, nav.Routed{Origin: asker, Msg: msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}})
+	m.nav.Pop()
+	require.True(t, m.nav.IsCurrent(parent))
+
+	m = answer(t, m, keyEnter)
+	assert.False(t, m.picker.Visible())
+	assert.Empty(t, parent.picks)
+	assert.Empty(t, asker.picks)
+}
+
+// A request without an origin has no view to reply to, so its reply goes
+// the old way until PR 8: esc stays with the app, and a pick goes to the
+// view on top.
+func TestRequestWithoutOriginRepliesTheOldWay(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	req := msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}
+
+	m, _ = update(t, m, req)
+	m = answer(t, m, press("esc"))
+	assert.Empty(t, v.picks, "esc stays with the app")
+
+	m, _ = update(t, m, req)
+	m = answer(t, m, keyEnter)
+	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, v.picks)
+}
+
+// A sort pick and a sort clear go to the view that asked, also when another
+// view is on top by then.
+func TestSortReplyGoesToTheViewThatAsked(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+		want ui.PickerResultMsg
+	}{
+		{"pick", keyEnter, ui.PickerResultMsg{ID: "sort", Selected: 1, Value: "Size"}},
+		{"clear", keyCtrlX, ui.PickerResultMsg{ID: "sort", Outcome: ui.PickCleared, Selected: -1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(140, 40)
+			asker := newReplyView()
+			m.pushView(asker)
+			m, _ = update(t, m, nav.Routed{Origin: asker, Msg: msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 1}})
+			other := newReplyView()
+			m.pushView(other)
+
+			m = answer(t, m, tc.key)
+			assert.Equal(t, []ui.PickerResultMsg{tc.want}, asker.picks)
+			assert.Empty(t, other.picks)
+		})
+	}
+}
+
+// A picker request from a view that is not on top never opens a picker, so
+// no key can answer for a view that the user cannot see.
+func TestPickerRequestFromAViewBelowIsDropped(t *testing.T) {
+	for _, req := range []tea.Msg{
+		msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}},
+		msg.RequestSortPickerMsg{Columns: []string{"Name"}},
+	} {
+		m := newTestModel(140, 40)
+		below := newReplyView()
+		m.pushView(below)
+		m.pushView(newReplyView())
+
+		m, _ = update(t, m, nav.Routed{Origin: below, Msg: req})
+		assert.False(t, m.picker.Visible(), "%T", req)
+		assert.Empty(t, m.overlays)
+	}
 }

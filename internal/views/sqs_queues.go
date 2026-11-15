@@ -321,6 +321,7 @@ func (s *SQSQueues) manage() tea.Cmd {
 // action.
 func (s *SQSQueues) onActionPicked(m ui.PickerResultMsg) tea.Cmd {
 	if !m.Picked() {
+		s.pending.clear() // esc: no action waits for an answer
 		return nil
 	}
 	urls := s.pending.keys

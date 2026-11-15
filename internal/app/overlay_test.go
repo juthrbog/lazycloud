@@ -91,20 +91,19 @@ func TestOverlayPin_CtrlXOnAnOpenPickerKeepsTheOperation(t *testing.T) {
 	assert.False(t, m.picker.Visible(), "no cancel picker opens")
 }
 
-// esc on a sort or an action picker never reaches the view. ctrl+x on the
-// sort picker reaches the view as a clear. The action picker cannot be
-// cleared, so ctrl+x cancels it like esc (D4, PR 1). D2: from PR 3, esc
-// reaches the view.
+// esc on a sort or an action picker reaches the view as a cancel (D2, from
+// PR 3). Before PR 3, the app dropped it. ctrl+x on the sort picker reaches
+// the view as a clear. The action picker cannot be cleared, so ctrl+x
+// cancels it like esc (D4, PR 1).
 func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		req   tea.Msg
-		clear []ui.PickerResultMsg // what ctrl+x sends to the view
-		hint  bool                 // the hint names ctrl+x
+		clear ui.PickOutcome // what ctrl+x sends to the view
+		hint  bool           // the hint names ctrl+x
 	}{
-		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0},
-			[]ui.PickerResultMsg{{ID: "sort", Outcome: ui.PickCleared, Selected: -1}}, true},
-		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, nil, false},
+		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0}, ui.PickCleared, true},
+		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, ui.PickCancelled, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(140, 40)
@@ -115,12 +114,14 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 			assert.Equal(t, tc.hint, strings.Contains(ansi.Strip(m.picker.View()), "ctrl+x clear"), "the clear hint")
 			m = answer(t, m, press("esc"))
 			assert.False(t, m.picker.Visible())
-			assert.Empty(t, v.picks, "esc does not reach the view")
+			id := tc.name
+			assert.Equal(t, []ui.PickerResultMsg{{ID: id, Outcome: ui.PickCancelled, Selected: -1}}, v.picks, "esc reaches the view")
 
 			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
 			m = answer(t, m, keyCtrlX)
 			assert.False(t, m.picker.Visible())
-			assert.Equal(t, tc.clear, v.picks)
+			assert.Equal(t, ui.PickerResultMsg{ID: id, Outcome: tc.clear, Selected: -1}, v.picks[len(v.picks)-1])
+			assert.Len(t, v.picks, 2)
 		})
 	}
 }
@@ -196,10 +197,9 @@ func TestOverlayPin_HelpGetsTheNewSizeOnResize(t *testing.T) {
 	assert.LessOrEqual(t, lipgloss.Height(after), 20)
 }
 
-// A reply goes to the view on top when the reply comes, not to the view
-// that asked. PR 3 changes this on purpose: the reply then goes to the
-// view that asked.
-func TestOverlayPin_ReplyGoesToTheViewOnTop(t *testing.T) {
+// A reply goes to the view that asked, also when another view is on top
+// when the reply comes. Before PR 3, it went to the view on top.
+func TestOverlayPin_ReplyGoesToTheViewThatAsked(t *testing.T) {
 	m := newTestModel(140, 40)
 	asker := newReplyView()
 	m.pushView(asker)
@@ -210,8 +210,8 @@ func TestOverlayPin_ReplyGoesToTheViewOnTop(t *testing.T) {
 	other := newReplyView()
 	m.pushView(other)
 	m = answer(t, m, keyEnter)
-	assert.Empty(t, asker.picks, "the asker gets no reply (until PR 3)")
-	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, other.picks)
+	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, asker.picks)
+	assert.Empty(t, other.picks, "the view on top gets no reply")
 }
 
 // appState is the state that a picker of the app can change.
