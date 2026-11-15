@@ -146,11 +146,11 @@ func (e *EC2List) KeyMap() []ui.HintBinding {
 // identity.
 func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		if m.ID == "action" {
 			return e, e.onActionPicked(m)
 		}
-	case ui.ConfirmResultMsg:
+	case msg.ConfirmResultMsg:
 		return e, e.onConfirm(m)
 	case ec2InstanceMutatedMsg:
 		return e, e.onMutated(m)
@@ -308,7 +308,7 @@ func (e *EC2List) manage() tea.Cmd {
 
 // onActionPicked asks for confirmation of the picked action. A canceled
 // picker forgets the targets.
-func (e *EC2List) onActionPicked(m ui.PickerResultMsg) tea.Cmd {
+func (e *EC2List) onActionPicked(m msg.PickerResultMsg) tea.Cmd {
 	if a, ok := ec2ActionByLabel(m.Value); ok && m.Picked() {
 		return e.pending.ask(e.confirmRequest(a))
 	}
@@ -401,7 +401,7 @@ func (e *EC2List) confirmRequest(a ec2Action) msg.RequestConfirmMsg {
 
 // onConfirm runs the pending action when the reply confirms it. Any other
 // reply only clears the targets.
-func (e *EC2List) onConfirm(m ui.ConfirmResultMsg) tea.Cmd {
+func (e *EC2List) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
 	ids, ok := e.pending.take(m)
 	if !ok {
 		return nil

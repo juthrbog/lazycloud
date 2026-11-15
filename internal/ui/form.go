@@ -11,13 +11,12 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
-// RequestFormDiscardConfirmMsg asks the app to show a "discard changes?" dialog
-// when the user presses Esc on a form with unsaved modifications.
-type RequestFormDiscardConfirmMsg struct{}
+// RequestFormDiscardConfirmMsg is msg.RequestFormDiscardConfirmMsg. The
+// alias stays until A7 PR 8.
+type RequestFormDiscardConfirmMsg = msg.RequestFormDiscardConfirmMsg
 
-// FormDiscardAction is the Action of the discard confirm. The app sends the
-// reply to the form that asked.
-const FormDiscardAction = "form_discard"
+// FormDiscardAction is msg.FormDiscardAction.
+const FormDiscardAction = msg.FormDiscardAction
 
 // FormView wraps a huh.Form as a nav.View, providing a reusable multi-field
 // form that integrates with the app's message routing and theme system.

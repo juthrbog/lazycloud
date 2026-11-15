@@ -153,7 +153,7 @@ func s3BucketRow(b aws.Bucket, tier ui.WidthTier) ui.Row {
 // the navigator keeps its identity.
 func (s *S3List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
-	case ui.ConfirmResultMsg:
+	case msg.ConfirmResultMsg:
 		return s, s.onConfirm(m)
 	case s3BucketDeletedMsg:
 		return s, s.onDeleted(m)
@@ -313,7 +313,7 @@ func (s *S3List) askDelete() tea.Cmd {
 }
 
 // onConfirm starts a confirmed delete.
-func (s *S3List) onConfirm(m ui.ConfirmResultMsg) tea.Cmd {
+func (s *S3List) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
 	buckets, ok := s.pendingDelete.take(m)
 	if !ok {
 		return nil

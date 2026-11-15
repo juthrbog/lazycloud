@@ -7,7 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
-	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // Helpers for actions on list rows that ask for a confirm first.
@@ -43,7 +42,7 @@ func (p *pendingConfirm) clear() {
 // take returns the targets only for a confirmed reply to the recorded
 // action. Every other reply clears them: a decline, the decline that the
 // app sends for a skipped prompt, and a reply for another action.
-func (p *pendingConfirm) take(m ui.ConfirmResultMsg) ([]string, bool) {
+func (p *pendingConfirm) take(m msg.ConfirmResultMsg) ([]string, bool) {
 	keys, action := p.keys, p.action
 	p.clear()
 	if !m.Confirmed || action == "" || m.Action != action || len(keys) == 0 {

@@ -47,7 +47,7 @@ func ToastSuccess(text string) ToastMsg { return ToastMsg{Text: text, Level: 1} 
 func ToastError(text string) ToastMsg   { return ToastMsg{Text: text, Level: 2} }
 
 // RequestConfirmMsg asks the app to show a type-to-confirm dialog.
-// The ConfirmResultMsg is routed back to the current view.
+// The ConfirmResultMsg goes to the view that asked.
 type RequestConfirmMsg struct {
 	Message string
 	Action  string
@@ -60,14 +60,14 @@ type RequestConfirmMsg struct {
 }
 
 // RequestActionPickerMsg asks the app to show an action picker.
-// The PickerResultMsg (ID="action") is routed back to the current view.
+// The PickerResultMsg (ID="action") goes to the view that asked.
 type RequestActionPickerMsg struct {
 	Title   string   // picker title
 	Options []string // action labels
 }
 
 // RequestSortPickerMsg asks the app to show a column sort picker.
-// The PickerResultMsg (ID="sort") is routed back to the current view.
+// The PickerResultMsg (ID="sort") goes to the view that asked.
 type RequestSortPickerMsg struct {
 	Columns    []string // column titles
 	CurrentCol int      // currently sorted column index (-1 if unsorted)
