@@ -32,7 +32,7 @@ const MinTableRows = 5
 // Column defines a table column with flex layout properties.
 type Column struct {
 	Title    string
-	Width    int // base/minimum width
+	Width    int // base width; DistributeWidths shrinks it when the window is too narrow
 	MaxWidth int // max width cap (0 = no limit)
 	Weight   int // flex weight for extra space distribution (0 = fixed)
 	// Style, when set, styles the text of each cell in the column, for
@@ -66,6 +66,43 @@ func BestFitTier(width int, colsForTier func(WidthTier) []Column) ([]Column, Wid
 	return colsForTier(TierNarrow), TierNarrow
 }
 
+// minColumnWidth is the smallest width that shrinkWidths gives a column.
+const minColumnWidth = 2
+
+// shrinkWidths takes deficit cells away from widths, so the columns fit
+// the window exactly. Each column gives a share in proportion to its
+// width, and no column goes below minColumnWidth. The shares are rounded
+// down, so the widest columns then give one more cell each until the
+// deficit is gone. The columns stay wider than the window only when every
+// column is at minColumnWidth.
+func shrinkWidths(widths []int, deficit int) {
+	room := func(i int) int { return max(widths[i]-minColumnWidth, 0) }
+	total := 0
+	for i := range widths {
+		total += room(i)
+	}
+	if total == 0 {
+		return
+	}
+	deficit = min(deficit, total)
+	left := deficit
+	for i := range widths {
+		share := min(deficit*room(i)/total, room(i))
+		widths[i] -= share
+		left -= share
+	}
+	for left > 0 {
+		widest := -1
+		for i := range widths {
+			if room(i) > 0 && (widest < 0 || widths[i] > widths[widest]) {
+				widest = i
+			}
+		}
+		widths[widest]--
+		left--
+	}
+}
+
 // DistributeWidths converts flex columns to fixed-width table columns,
 // distributing extra terminal space proportionally by weight.
 func DistributeWidths(cols []Column, totalWidth int) []table.Column {
@@ -82,21 +119,7 @@ func DistributeWidths(cols []Column, totalWidth int) []table.Column {
 	}
 	extra := totalWidth - used
 	if extra < 0 {
-		// Shrink columns proportionally to their base width.
-		deficit := -extra
-		baseTotal := 0
-		for _, w := range widths {
-			baseTotal += w
-		}
-		if baseTotal > 0 {
-			for i := range widths {
-				shrink := deficit * widths[i] / baseTotal
-				widths[i] -= shrink
-				if widths[i] < 2 {
-					widths[i] = 2
-				}
-			}
-		}
+		shrinkWidths(widths, -extra)
 		for i := range result {
 			result[i].Width = widths[i]
 		}

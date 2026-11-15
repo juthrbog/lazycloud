@@ -450,7 +450,7 @@ func TestCharEC2_ColumnsPerWidth(t *testing.T) {
 	v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
 	headers := map[int]string{
 		// 4 columns
-		60: " Instance ID      Name               State         Type",
+		60: " Instance ID      Name             State         Type",
 		// 5 columns
 		100: " Instance ID                 Name                           State       Type        Private IP",
 		// 8 columns
@@ -458,7 +458,7 @@ func TestCharEC2_ColumnsPerWidth(t *testing.T) {
 		200: " Instance ID                        Name                                                State             Type            Private IP        Public IP         AZ              Launched",
 	}
 	rows := map[int]string{
-		60:  " i-1              web                ● running     t3.micro",
+		60:  " i-1              web              ● running     t3.micro",
 		100: " i-1                         web                            ● running   t3.micro    10.0.0.1",
 		160: " i-1                      web                             ● running         t3.micro        10.0.0.1          1.2.3.4           us-east-1a      2024-01-02",
 		200: " i-1                                web                                                 ● running         t3.micro        10.0.0.1          1.2.3.4           us-east-1a      2024-01-02",

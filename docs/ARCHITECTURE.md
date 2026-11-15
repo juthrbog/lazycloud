@@ -365,11 +365,13 @@ For height, the table should always show at minimum 5 rows. If the terminal is t
 
 Table columns use a **weight-based flex layout** (`ui.Column`) so they fill available terminal width instead of leaving empty space on wide terminals. Each column declares:
 
-- `Width` — base/minimum width (used when terminal is narrow)
+- `Width` — base width (see below for a window that is too narrow)
 - `Weight` — flex factor for distributing extra space (0 = fixed width)
 - `MaxWidth` — upper bound to prevent over-stretching (0 = no limit)
 
 `ui.DistributeWidths(cols, totalWidth)` converts flex definitions to fixed-width `table.Column` values. The `Table` wrapper calls this automatically in `SetSize`, so views only need to declare flex columns.
+
+When the window is narrower than the base widths of the narrow column set, `DistributeWidths` shrinks the columns below `Width`. Each column gives cells in proportion to its width, down to 2 cells, and the total comes out exactly at the window width. `TestListConformance_FitsTheWindow` checks that no line of a list is wider than the window.
 
 **Weight guidelines for new views:**
 
