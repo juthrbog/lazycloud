@@ -11,7 +11,6 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
-	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 func kindsOf(s overlayStack) []overlayKind {
@@ -52,12 +51,12 @@ func TestPickerRequestWhileAConfirmIsOpenIsRefused(t *testing.T) {
 	assert.False(t, m.picker.Visible())
 	assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays))
 	assert.True(t, m.toasts.HasActive(), "the user learns about the skipped prompt")
-	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+	assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Outcome: msg.PickCancelled}}, v.picks)
 
 	m = answer(t, m, press("y"))
 	assert.False(t, m.confirm.Visible())
 	assert.Empty(t, m.overlays)
-	assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
+	assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
 }
 
 // After a confirm over help closes, help gets the keys again.
@@ -153,7 +152,7 @@ func TestConfirmReplyGoesToTheViewThatAsked(t *testing.T) {
 
 			m = answer(t, m, press(tc.key))
 			assert.False(t, m.confirm.Visible())
-			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: tc.want, Action: "start"}}, asker.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: tc.want, Action: "start"}}, asker.confirms)
 			assert.Empty(t, other.confirms)
 		})
 	}
@@ -177,22 +176,34 @@ func TestReplyToAViewThatIsGoneIsDropped(t *testing.T) {
 	assert.Empty(t, asker.picks)
 }
 
-// A request without an origin has no view to reply to, so its reply goes
-// the old way until PR 8: esc stays with the app, and a pick goes to the
-// view on top.
-func TestRequestWithoutOriginRepliesTheOldWay(t *testing.T) {
-	m := newTestModel(140, 40)
-	v := newReplyView()
-	m.pushView(v)
-	req := msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}
+// A view sends its requests through the navigator, so they arrive as
+// nav.Routed. A request or a reply without an origin has no view to answer,
+// so the app drops it: nothing opens, and the view on top gets nothing.
+// Before PR 8, it went the old way and reached the view on top.
+func TestRequestsWithoutOriginAreDropped(t *testing.T) {
+	for _, in := range []tea.Msg{
+		msg.RequestConfirmMsg{Message: "Go?", Action: "go", Quick: true},
+		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
+		msg.RequestSortPickerMsg{Columns: []string{"Name"}},
+		msg.RequestFormDiscardConfirmMsg{},
+		msg.RequestFormMsg{ID: "f", Title: "Form", Fields: []msg.FormField{{Key: "a", Title: "A"}}},
+		msg.FormResultMsg{ID: "f", Aborted: true},
+		msg.ConfirmResultMsg{Confirmed: true, Action: "go"},
+		msg.PickerResultMsg{ID: "action", Value: "Stop"},
+	} {
+		m := newTestModel(140, 40)
+		v := newReplyView()
+		m.pushView(v)
 
-	m, _ = update(t, m, req)
-	m = answer(t, m, press("esc"))
-	assert.Empty(t, v.picks, "esc stays with the app")
-
-	m, _ = update(t, m, req)
-	m = answer(t, m, keyEnter)
-	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, v.picks)
+		m, cmd := update(t, m, in)
+		assert.Nil(t, cmd, "%T", in)
+		assert.Same(t, v, m.nav.Current(), "%T: nothing opens or closes", in)
+		assert.Empty(t, m.overlays, "%T", in)
+		assert.False(t, m.toasts.HasActive(), "%T", in)
+		assert.Empty(t, v.picks, "%T", in)
+		assert.Empty(t, v.confirms, "%T", in)
+		assert.Empty(t, v.forms, "%T", in)
+	}
 }
 
 // A sort pick and a sort clear go to the view that asked, also when another
@@ -201,10 +212,10 @@ func TestSortReplyGoesToTheViewThatAsked(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		key  tea.KeyPressMsg
-		want ui.PickerResultMsg
+		want msg.PickerResultMsg
 	}{
-		{"pick", keyEnter, ui.PickerResultMsg{ID: "sort", Selected: 1, Value: "Size"}},
-		{"clear", keyCtrlX, ui.PickerResultMsg{ID: "sort", Outcome: ui.PickCleared, Selected: -1}},
+		{"pick", keyEnter, msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Size"}},
+		{"clear", keyCtrlX, msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCleared}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(140, 40)
@@ -215,7 +226,7 @@ func TestSortReplyGoesToTheViewThatAsked(t *testing.T) {
 			m.pushView(other)
 
 			m = answer(t, m, tc.key)
-			assert.Equal(t, []ui.PickerResultMsg{tc.want}, asker.picks)
+			assert.Equal(t, []msg.PickerResultMsg{tc.want}, asker.picks)
 			assert.Empty(t, other.picks)
 		})
 	}

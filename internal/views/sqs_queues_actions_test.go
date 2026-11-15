@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
-	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // confirmSQS presses m, picks action and answers the confirm with yes. It
@@ -18,7 +17,7 @@ import (
 func confirmSQS(t *testing.T, v *SQSQueues, action, actionID string) tea.Cmd {
 	t.Helper()
 	charSQSConfirm(t, v, action)
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: actionID})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: actionID})
 	require.NotNil(t, cmd)
 	return cmd
 }
@@ -110,7 +109,7 @@ func TestSQSQueues_SendClearsConfirmTargets(t *testing.T) {
 	v, svc := charSQSThree(t)
 	charSQSSendForm(t, v)
 
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }

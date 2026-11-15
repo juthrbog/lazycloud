@@ -137,9 +137,11 @@ func (m Model) closePrompts() tea.Cmd {
 		var decline tea.Msg
 		switch e.kind {
 		case ovConfirm:
-			decline = appmsg.ConfirmResultMsg{Confirmed: false, Action: m.confirm.Action()}
+			// The views are gone after the reset, so only the handlers of
+			// the app read this decline, and they need no Action.
+			decline = appmsg.ConfirmResultMsg{Confirmed: false}
 		case ovPicker:
-			decline = appmsg.PickerResultMsg{ID: m.picker.ID(), Outcome: appmsg.PickCancelled, Selected: -1}
+			decline = pickDecline(m.picker.ID())
 		default:
 			continue
 		}

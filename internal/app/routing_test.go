@@ -135,6 +135,32 @@ func runOp(t *testing.T, m Model, cmd tea.Cmd) (Model, tea.Cmd) {
 	return update(t, m, start)
 }
 
+// reply presses keys on the prompt on top and delivers the reply that the
+// last key sends, as the runtime would. It returns the command of the view
+// that asked, for example the command of a confirmed delete.
+func reply(t *testing.T, m Model, keys ...tea.KeyPressMsg) (Model, tea.Cmd) {
+	t.Helper()
+	var cmd tea.Cmd
+	for _, k := range keys {
+		m, cmd = update(t, m, k)
+	}
+	require.NotNil(t, cmd, "the last key closed the prompt")
+	r := cmd()
+	require.IsType(t, overlayReplyMsg{}, r)
+	return update(t, m, r)
+}
+
+// typedConfirm returns the keys that type the default phrase "confirm" and
+// press enter, for the confirm that wants a typed phrase.
+func typedConfirm() []tea.KeyPressMsg {
+	const phrase = "confirm"
+	keys := make([]tea.KeyPressMsg, 0, len(phrase)+1)
+	for _, r := range phrase {
+		keys = append(keys, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	return append(keys, tea.KeyPressMsg{Code: tea.KeyEnter})
+}
+
 func press(s string) tea.KeyPressMsg {
 	if s == "esc" {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
@@ -166,8 +192,7 @@ func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 	m, cmd = update(t, m, press("x"))
 	m, _ = update(t, m, findOf[msg.RequestConfirmMsg](collectMsgs(cmd)))
 	require.True(t, m.confirm.Visible())
-	m.confirm = ui.NewConfirm()
-	m, cmd = update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "delete_objects"})
+	m, cmd = reply(t, m, typedConfirm()...)
 	m, opCmd := runOp(t, m, cmd)
 	require.Equal(t, 1, m.ops.Count(), "the delete is registered before it runs")
 
@@ -258,11 +283,9 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	m, _ = update(t, m, findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]"))
 	m, c = update(t, m, press("m"))
 	m, _ = update(t, m, findOf[msg.RequestActionPickerMsg](collectMsgs(c)))
-	m.picker = ui.NewPicker()
-	m, c = update(t, m, ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	m, c = reply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}) // Stop
 	m, _ = update(t, m, findOf[msg.RequestConfirmMsg](collectMsgs(c)))
-	m.confirm = ui.NewConfirm()
-	m, stopCmd := update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	m, stopCmd := reply(t, m, typedConfirm()...)
 
 	m, _ = update(t, m, press("q")) // leave the view
 	m, toastCmd := update(t, m, findMsg(collectMsgs(stopCmd), "views.ec2InstanceMutatedMsg"))

@@ -7,22 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/juthrbog/lazycloud/internal/msg"
+	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 )
-
-// PickOutcome is msg.PickOutcome. The alias stays until A7 PR 8.
-type PickOutcome = msg.PickOutcome
-
-// The outcomes of a picker. See msg.PickOutcome.
-const (
-	Picked        = msg.Picked
-	PickCancelled = msg.PickCancelled
-	PickCleared   = msg.PickCleared
-)
-
-// PickerResultMsg is msg.PickerResultMsg, the reply of the picker. The
-// alias stays until A7 PR 8.
-type PickerResultMsg = msg.PickerResultMsg
 
 // PickerOption is a single selectable item in the picker.
 type PickerOption struct {
@@ -219,25 +205,25 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 			origIdx := p.filtered[p.cursor]
 			value := p.options[origIdx].Value
 			return p, func() tea.Msg {
-				return PickerResultMsg{ID: id, Selected: origIdx, Value: value}
+				return appmsg.PickerResultMsg{ID: id, Selected: origIdx, Value: value}
 			}
 		case "esc":
 			p.visible = false
 			id := p.id
 			return p, func() tea.Msg {
-				return PickerResultMsg{ID: id, Outcome: PickCancelled, Selected: -1}
+				return appmsg.PickerResultMsg{ID: id, Outcome: appmsg.PickCancelled}
 			}
 		case "ctrl+x":
 			// The picker takes ctrl+x, so it never cancels an operation
 			// while the picker is open. It clears or cancels.
 			p.visible = false
 			id := p.id
-			outcome := PickCancelled
+			outcome := appmsg.PickCancelled
 			if p.clearable {
-				outcome = PickCleared
+				outcome = appmsg.PickCleared
 			}
 			return p, func() tea.Msg {
-				return PickerResultMsg{ID: id, Outcome: outcome, Selected: -1}
+				return appmsg.PickerResultMsg{ID: id, Outcome: outcome}
 			}
 		case "backspace":
 			if len(p.filter) > 0 {

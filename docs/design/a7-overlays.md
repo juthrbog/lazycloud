@@ -1,6 +1,6 @@
 # A7: an overlay stack and replies to the view that asked
 
-Status: approved on 2026-11-15. The owner accepted the proposed answer to each question in "Decisions": A7 stops at PR 8, esc reaches the view, PR 7 adds one rule for all prompt requests, and the clear hint shows only on the sort picker.
+Status: done. PR 0 to PR 8 merged (#265 to #272 and the PR 8 cleanup). Approved on 2026-11-15. The owner accepted the proposed answer to each question in "Decisions": A7 stops at PR 8, esc reaches the view, PR 7 adds one rule for all prompt requests, and the clear hint shows only on the sort picker.
 
 ## Summary
 
@@ -53,7 +53,7 @@ const (
 )
 
 type PickerResultMsg struct {
-	ID       string // only for the pickers of the views until the cleanup
+	ID       string // for the pickers of the views; A12 removes it
 	Outcome  PickOutcome
 	Selected int    // the index of the option, only when Outcome is Picked
 	Value    string

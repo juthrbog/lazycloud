@@ -14,7 +14,6 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
 	"github.com/juthrbog/lazycloud/internal/ops"
-	"github.com/juthrbog/lazycloud/internal/ui"
 	"github.com/juthrbog/lazycloud/internal/views"
 )
 
@@ -123,7 +122,7 @@ func TestCtrlXCancelsThePickedOperation(t *testing.T) {
 	m, cmd := update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	assert.Nil(t, cmd)
 	m, cmd = update(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	res := findOf[ui.PickerResultMsg](collectMsgs(cmd))
+	res := findOf[msg.PickerResultMsg](collectMsgs(cmd))
 	require.NotNil(t, res)
 	m, _ = update(t, m, res)
 

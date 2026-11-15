@@ -141,19 +141,19 @@ Large S3 listings use command chaining: each page fetch returns a message, the h
 
 ### Overlay Compositing
 
-Pickers, confirm dialogs, and toasts render on top of existing content using Lipgloss's Canvas/Layer system. The background view stays visible around the overlay.
+Pickers, confirm dialogs, and toasts render on top of existing content using Lipgloss's Canvas/Layer system. The background view stays visible around the overlay. The design and the invariants of the overlay stack are in `docs/design/a7-overlays.md`.
 
 The app has four overlays: help, the command bar, the confirm dialog, and the picker. Each one implements `ui.Overlay` (`Visible`, `Update`, `View`, `SetSize`). The components stay value fields of `app.Model`, and `ui.AsOverlay` adapts a pointer to a field. `internal/app/overlays.go` keeps the open overlays in a stack, bottom first:
 
-- Each time the app shows an overlay, it calls `openOverlay`, which puts the overlay on top. An overlay that opens again moves to the top.
-- The overlay on top gets each key press. Other messages, such as page loads and ticks, go on to the normal routing. One key comes first: while the quit confirm is open, a second ctrl+c quits, also when a late picker opened over the confirm.
+- Each time the app shows an overlay, it puts the overlay on top with its route (see below). An overlay that opens again moves to the top. Only help and the command bar have no route.
+- The overlay on top gets each key press. Other messages, such as page loads and ticks, go on to the normal routing. One key comes first: while the quit confirm is open, a second ctrl+c quits.
 - After a key press, the app removes the overlays that closed.
 - The app draws the views, then the overlays from bottom to top, then the toasts. The command bar draws its suggestions above the input line, and its input line replaces the status bar.
 - On each resize and after a theme switch, every overlay gets `SetSize`, also the closed ones.
 
 `push` makes a new slice, so two copies of `Model` never share a stack. Do not keep an adapter from `AsOverlay`, because it points into one copy of `Model`.
 
-Each stack entry has a `replyRoute`. When a view asks for a confirm, an action picker, or a sort picker, the request arrives as `nav.Routed`, and the entry records the view in `replyTo`. When a key closes that overlay, the reply goes out as an `overlayReplyMsg` that carries the route, and `deliverReply` sends it to that view with `nav.UpdateView`. So the reply reaches the view that asked, also when another view is on top by then, and esc and ctrl+x reach it as a cancel. If the view is gone, the app drops the reply and writes a debug line. The route holds the view instance, not its ID, because the same ID can be on the stack twice. A request without an origin has no route, and its reply goes the old way until A7 PR 8.
+Each stack entry has a `replyRoute`. When a view asks for a confirm, an action picker, or a sort picker, the request arrives as `nav.Routed`, and the entry records the view in `replyTo`. When a key closes that overlay, the reply goes out as an `overlayReplyMsg` that carries the route, and `deliverReply` sends it to that view with `nav.UpdateView`. So the reply reaches the view that asked, also when another view is on top by then, and esc and ctrl+x reach it as a cancel. If the view is gone, the app drops the reply and writes a debug line. The route holds the view instance, not its ID, because the same ID can be on the stack twice. A view sends every request through the navigator, so a request or a reply without an origin has no view to answer. The app drops it with a debug line.
 
 The app's own prompts use handlers (`internal/app/prompts.go`), not action strings or picker IDs. `askQuick`, `askQuit` and `pick` put a `replyHandler` in the route's `onReply`, and `deliverReply` calls it with the reply. A handler gets the current `Model` and must not keep one, because Bubble Tea copies `Model` on each update. The data that a prompt needs, such as the theme or the session switch that waits for the answer, lives in the handler's closure. So a reply to a prompt of a view can never run code of the app, whatever its action says. The quit confirm has `quit` set in its route, and while it is open a second ctrl+c quits at once. Before `setTheme` throws the prompt components away, `closePrompts` sends a decline on the route of each open prompt, so every prompt gets exactly one reply.
 
@@ -231,7 +231,7 @@ Cross-resource links use the `FocusResourceMsg` pattern. When a link includes a 
 
 Multi-field input forms use `charm.land/huh/v2` wrapped in a `FormView` (`internal/ui/form.go`). Unlike overlays (confirm, picker), forms are pushed onto the nav stack as full views. Views declare fields via `RequestFormMsg` with declarative `FormField` specs — no `huh` import needed. The `FormView` translates specs to huh fields, applies the LazyCloud theme, and emits `FormResultMsg` on submit/cancel.
 
-**Routing:** When a view asks for a form, the request arrives as `nav.Routed`, and `openForm` (`internal/app/forms.go`) records the form and the view that asked in `Model.forms`. The form sends its `FormResultMsg` as `nav.Routed` too. The app pops the form only when that form is on top, and `finishForm` sends the result to the view that asked. If that view is gone, the app drops the result with a debug line. The discard confirm replies to the form itself (`msg.FormDiscardAction`), and a yes makes the form send an aborted `FormResultMsg`. A form request without an origin sends its result to the view below the form, until A7 PR 8.
+**Routing:** When a view asks for a form, the request arrives as `nav.Routed`, and `openForm` (`internal/app/forms.go`) records the form and the view that asked in `Model.forms`. The form sends its `FormResultMsg` as `nav.Routed` too. The app pops the form only when that form is on top, and `finishForm` sends the result to the view that asked. If that view is gone, the app drops the result with a debug line. The discard confirm replies to the form itself (`msg.FormDiscardAction`), and a yes makes the form send an aborted `FormResultMsg`. A result from a form without a recorded asker closes the form, and the app drops the result.
 
 **Key handling:** A `FormView` always captures input (see Input Capture), so the app gives it every key except `ctrl+c`. The status bar shows only the hints of the form.
 

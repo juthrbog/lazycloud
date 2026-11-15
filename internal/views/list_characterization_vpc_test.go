@@ -323,10 +323,10 @@ func TestCharVPC_SortPicker(t *testing.T) {
 		CurrentCol: -1,
 	}}, collectMsgs(cmd))
 
-	v.Update(ui.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
+	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10], "a picker with another ID is ignored")
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10])
 	_, cmd = v.Update(keyPress('s'))
 	req, ok := firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))

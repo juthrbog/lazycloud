@@ -2,7 +2,7 @@ package msg
 
 // The replies of the prompts. The app sends each reply to the view that
 // asked for the prompt. They live here, so a view needs no ui import to
-// read a reply. ui keeps aliases until A7 PR 8.
+// read a reply.
 
 // ConfirmResultMsg is the reply of a confirm dialog.
 type ConfirmResultMsg struct {
@@ -29,7 +29,7 @@ const (
 type PickerResultMsg struct {
 	ID       string      // picker identifier
 	Outcome  PickOutcome // how the picker closed
-	Selected int         // the index of the picked option; -1 when Outcome is not Picked
+	Selected int         // the index of the picked option; only set when Outcome is Picked
 	Value    string      // the value of the picked option; empty when Outcome is not Picked
 }
 

@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
-	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 func TestPendingConfirm_TakeConfirmedReply(t *testing.T) {
@@ -21,17 +20,17 @@ func TestPendingConfirm_TakeConfirmedReply(t *testing.T) {
 	cmd := p.ask(msg.RequestConfirmMsg{Action: "x_stop", Message: "Stop?"})
 	assert.Equal(t, msg.RequestConfirmMsg{Action: "x_stop", Message: "Stop?"}, cmd())
 
-	keys, ok := p.take(ui.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
+	keys, ok := p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
 	require.True(t, ok)
 	assert.Equal(t, []string{"a", "b"}, keys)
 
 	// A second reply finds nothing.
-	_, ok = p.take(ui.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
+	_, ok = p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
 	assert.False(t, ok)
 }
 
 func TestPendingConfirm_OtherRepliesClear(t *testing.T) {
-	replies := map[string]ui.ConfirmResultMsg{
+	replies := map[string]msg.ConfirmResultMsg{
 		"decline":        {Confirmed: false, Action: "x_stop"},
 		"skipped prompt": {},
 		"other action":   {Confirmed: true, Action: "x_delete"},
@@ -43,7 +42,7 @@ func TestPendingConfirm_OtherRepliesClear(t *testing.T) {
 			p.ask(msg.RequestConfirmMsg{Action: "x_stop"})
 			_, ok := p.take(reply)
 			assert.False(t, ok)
-			_, ok = p.take(ui.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
+			_, ok = p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
 			assert.False(t, ok, "the targets are gone")
 		})
 	}
@@ -52,12 +51,12 @@ func TestPendingConfirm_OtherRepliesClear(t *testing.T) {
 func TestPendingConfirm_NoAskNoTake(t *testing.T) {
 	var p pendingConfirm
 	p.hold([]string{"a"})
-	_, ok := p.take(ui.ConfirmResultMsg{Confirmed: true, Action: ""})
+	_, ok := p.take(msg.ConfirmResultMsg{Confirmed: true, Action: ""})
 	assert.False(t, ok, "a held target with no request is not taken")
 
 	p.hold(nil)
 	p.ask(msg.RequestConfirmMsg{Action: "x_stop"})
-	_, ok = p.take(ui.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
+	_, ok = p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
 	assert.False(t, ok, "no targets")
 }
 
@@ -66,7 +65,7 @@ func TestPendingConfirm_HoldResetsAction(t *testing.T) {
 	p.hold([]string{"a"})
 	p.ask(msg.RequestConfirmMsg{Action: "x_stop"})
 	p.hold([]string{"b"})
-	_, ok := p.take(ui.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
+	_, ok := p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
 	assert.False(t, ok, "a new key press drops the old request")
 }
 

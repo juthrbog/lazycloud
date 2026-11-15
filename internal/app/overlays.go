@@ -29,9 +29,9 @@ var overlayKinds = []overlayKind{ovHelp, ovCommandBar, ovConfirm, ovPicker}
 // copies Model on each update.
 type replyHandler func(m Model, reply tea.Msg) (Model, tea.Cmd)
 
-// replyRoute says where the reply of an overlay goes. At most one of
-// replyTo and onReply is set. When neither is set, the reply goes the old
-// way and reaches the view on top (until PR 8).
+// replyRoute says where the reply of an overlay goes. Every confirm and
+// picker has exactly one of replyTo and onReply. Help and the command bar
+// have neither, because the app handles their results itself.
 type replyRoute struct {
 	// replyTo is the view that asked for the prompt. The reply goes to
 	// this view, also when another view is on top by then.
@@ -42,8 +42,7 @@ type replyRoute struct {
 	quit bool
 }
 
-// routed reports whether the reply has a place to go other than the old
-// way.
+// routed reports whether the reply has a place to go.
 func (r replyRoute) routed() bool {
 	return r.replyTo != nil || r.onReply != nil
 }
@@ -112,15 +111,14 @@ func (m *Model) overlay(k overlayKind) ui.Overlay {
 	}
 }
 
-// openOverlay puts the overlay of kind k on top of the stack. Call it each
-// time the app shows an overlay. The reply goes the old way.
+// openOverlay puts an overlay without a route, help or the command bar, on
+// top of the stack. Call it each time the app shows one.
 func (m *Model) openOverlay(k overlayKind) {
 	m.overlays = m.overlays.push(k, replyRoute{})
 }
 
 // openOverlayFor puts the overlay of kind k on top of the stack, and its
-// reply goes to asker. A nil asker means a request without an origin, and
-// its reply goes the old way.
+// reply goes to asker.
 func (m *Model) openOverlayFor(k overlayKind, asker nav.View) {
 	m.overlays = m.overlays.push(k, replyRoute{replyTo: asker})
 }

@@ -49,7 +49,7 @@ func run(t *testing.T, f *FormView, cmd tea.Cmd, out *formOut, depth int) {
 		for _, c := range m {
 			run(t, f, c, out, depth+1)
 		}
-	case RequestFormDiscardConfirmMsg:
+	case msg.RequestFormDiscardConfirmMsg:
 		out.discard = true
 	case msg.FormResultMsg:
 		out.result = &m
@@ -169,15 +169,15 @@ func TestFormDiscardReply(t *testing.T) {
 
 	f := newDirty()
 	var out formOut
-	send(t, f, ConfirmResultMsg{Confirmed: false, Action: FormDiscardAction}, &out)
+	send(t, f, msg.ConfirmResultMsg{Confirmed: false, Action: msg.FormDiscardAction}, &out)
 	assert.Nil(t, out.result, "a no keeps the form")
-	send(t, f, ConfirmResultMsg{Confirmed: true, Action: "other"}, &out)
+	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Action: "other"}, &out)
 	assert.Nil(t, out.result, "a reply to another question")
-	send(t, f, ConfirmResultMsg{Confirmed: true, Action: FormDiscardAction}, &out)
+	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Action: msg.FormDiscardAction}, &out)
 	require.NotNil(t, out.result, "a yes closes the form")
 	assert.Equal(t, msg.FormResultMsg{ID: "test", Aborted: true}, *out.result)
 
 	out = formOut{}
-	send(t, f, ConfirmResultMsg{Confirmed: true, Action: FormDiscardAction}, &out)
+	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Action: msg.FormDiscardAction}, &out)
 	assert.Nil(t, out.result, "a closed form sends no second result")
 }

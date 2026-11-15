@@ -119,7 +119,7 @@ func TestEC2List_StopTriggersConfirm(t *testing.T) {
 	loadInstances(view, []aws.Instance{testRunningInstance})
 	view.pending.hold([]string{"i-running"})
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
 	require.NotNil(t, cmd)
 
 	result := cmd()
@@ -134,7 +134,7 @@ func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
 	loadInstances(view, []aws.Instance{testRunningInstance})
 	view.pending.hold([]string{"i-running"})
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 2, Value: "Terminate"})
+	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 2, Value: "Terminate"})
 	require.NotNil(t, cmd)
 
 	result := cmd()
@@ -152,7 +152,7 @@ func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 
 	mockSvc.On("StartInstances", mock.Anything, []string{"i-stopped"}).Return(nil)
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Start"})
+	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Start"})
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok, "Start asks first")
@@ -161,7 +161,7 @@ func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 	assert.Equal(t, "stopped", view.find("i-stopped").State, "nothing changes before the answer")
 	mockSvc.AssertNotCalled(t, "StartInstances", mock.Anything, mock.Anything)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"})
 	require.NotNil(t, cmd)
 
 	// Verify optimistic state update happened immediately
@@ -216,13 +216,13 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 
 			_, cmd := view.Update(keyPress('m'))
 			require.NotNil(t, cmd)
-			_, cmd = view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: tc.action})
+			_, cmd = view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: tc.action})
 			require.NotNil(t, cmd)
 			confirm, ok := cmd().(msg.RequestConfirmMsg)
 			require.True(t, ok)
 
 			ui.SetReadOnly(true)
-			_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
+			_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
 			require.NotNil(t, cmd)
 			assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
 			assert.Empty(t, view.pending.keys)
@@ -232,7 +232,7 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 
 			// The targets are gone: a second confirm in ReadWrite mode does nothing.
 			ui.SetReadOnly(false)
-			_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
+			_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
 			assert.Nil(t, cmd)
 			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
 		})
@@ -266,7 +266,7 @@ func TestEC2List_ConfirmNamesSanitizedAndCapped(t *testing.T) {
 	loadInstances(view, insts)
 	view.pending.hold(ids)
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
@@ -285,7 +285,7 @@ func TestEC2List_ConfirmListsNames(t *testing.T) {
 	loadInstances(view, []aws.Instance{testRunningInstance, {ID: "i-noname", State: "running"}})
 	view.pending.hold([]string{"i-running", "i-noname", "i-gone"})
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 1, Value: "Reboot"})
+	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 1, Value: "Reboot"})
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)

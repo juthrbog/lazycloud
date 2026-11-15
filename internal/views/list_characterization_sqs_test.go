@@ -586,7 +586,7 @@ func TestCharSQS_SortPicker(t *testing.T) {
 	}, req)
 
 	// Counts sort as numbers: 3, 8, 10.
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 2, Value: "Messages"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 2, Value: "Messages"})
 	assert.Equal(t, []string{"qc", "qa", "qb"}, charSQSNames(v))
 	assert.Equal(t, 2, charSQSSortColCurrent(t, v))
 
@@ -611,7 +611,7 @@ func charSQSSortColCurrent(t *testing.T, v *SQSQueues) int {
 
 func TestCharSQS_SortSurvivesTierChangeAndReload(t *testing.T) {
 	v, svc := charSQSLoaded(t, 160, charSQSQueue("qa", 3), charSQSQueue("qb", 1), charSQSQueue("qc", 2))
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: charSQSSortCol(t, v, "Messages"), Value: "Messages"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: charSQSSortCol(t, v, "Messages"), Value: "Messages"})
 	require.Equal(t, []string{"qb", "qc", "qa"}, charSQSNames(v))
 
 	v.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
@@ -693,7 +693,7 @@ func TestCharSQS_CopyToast(t *testing.T) {
 // set again.
 func TestCharSQS_CursorSelectionSortKeptAcrossSetRows(t *testing.T) {
 	v, svc := charSQSThree(t)
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 2, Value: "Messages"}) // qc 3, qa 8, qb 10
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 2, Value: "Messages"}) // qc 3, qa 8, qb 10
 	require.Equal(t, charSQSURL("qa"), charSQSCursorURL(t, v), "the cursor follows qa")
 	charSQSSpace(v)
 	require.Equal(t, []string{charSQSURL("qa")}, charSQSTargets(t, v))
@@ -848,17 +848,17 @@ func TestCharSQS_UpdateReturnsSamePointer(t *testing.T) {
 		keyPress('d'), tea.KeyPressMsg{Code: tea.KeyEnter}, keyPress('p'), keyPress('y'),
 		keyPress('s'), keyPress('S'), keyPress(' '), keyPress('r'), tea.KeyPressMsg{Code: tea.KeyEscape},
 		tea.KeyPressMsg{Code: tea.KeyDown},
-		ui.PickerResultMsg{ID: "sort", Selected: 0, Value: "Queue Name"},
+		msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "Queue Name"},
 		ui.FilterChangedMsg{Text: "q"}, ui.FilterChangedMsg{},
 		keyPress('m'),
-		ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"},
+		msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"},
 		msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "x"}},
 		keyPress('m'),
-		ui.PickerResultMsg{ID: "action", Selected: 1, Value: "Purge Queue"},
-		ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"},
+		msg.PickerResultMsg{ID: "action", Selected: 1, Value: "Purge Queue"},
+		msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"},
 		keyPress('m'),
-		ui.PickerResultMsg{ID: "action", Selected: 2, Value: "Delete Queue"},
-		ui.ConfirmResultMsg{Confirmed: false, Action: "sqs_delete"},
+		msg.PickerResultMsg{ID: "action", Selected: 2, Value: "Delete Queue"},
+		msg.ConfirmResultMsg{Confirmed: false, Action: "sqs_delete"},
 		msg.ErrorMsg{Err: errors.New("x"), Context: "listing SQS queues"},
 		keyPress('/'), keyPress('a'), tea.KeyPressMsg{Code: tea.KeyEscape},
 	} {
@@ -891,7 +891,7 @@ func TestCharSQS_UnreadableQueue(t *testing.T) {
 	}, toasts(seen))
 
 	// Unknown counts sort before every number.
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 2, Value: "Messages"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 2, Value: "Messages"})
 	assert.Equal(t, []string{"qb", "qc", "qa"}, charSQSNames(v))
 }
 
@@ -951,7 +951,7 @@ func charSQSSendForm(t *testing.T, v *SQSQueues) msg.RequestFormMsg {
 	t.Helper()
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
-	_, cmd = v.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
+	_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
 	require.NotNil(t, cmd)
 	form, ok := cmd().(msg.RequestFormMsg)
 	require.True(t, ok)
@@ -1080,7 +1080,7 @@ func TestCharSQS_SendNeedsOneQueue(t *testing.T) {
 	charSQSSpace(v)
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
-	_, cmd = v.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
+	_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Select one queue to send a message")}, toasts(collectMsgs(cmd)))
 }
 
@@ -1088,7 +1088,7 @@ func charSQSConfirm(t *testing.T, v *SQSQueues, action string) msg.RequestConfir
 	t.Helper()
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
-	_, cmd = v.Update(ui.PickerResultMsg{ID: "action", Selected: 1, Value: action})
+	_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 1, Value: action})
 	require.NotNil(t, cmd)
 	req, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
@@ -1113,7 +1113,7 @@ func TestCharSQS_PurgeFlow(t *testing.T) {
 	svc.On("GetQueueAttributes", mock.Anything, charSQSURL("qb")).
 		Return(&aws.Queue{URL: charSQSURL("qb"), Name: "qb", Type: "Standard"}, nil).Once()
 
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	// Divergence #27 (fixed in PR 2). The spinner shows after the confirm.
 	assert.Equal(t, "3/3 queues  (2 selected)  ⣾  Purging 2 queue(s)...", plain(v.Footer()))
 	batch, ok := cmd().(tea.BatchMsg)
@@ -1134,7 +1134,7 @@ func TestCharSQS_PurgeFlow(t *testing.T) {
 	svc.On("PurgeQueue", mock.Anything, mock.Anything).Return(nil)
 	svc.On("GetQueueAttributes", mock.Anything, mock.Anything).
 		Return(&aws.Queue{URL: charSQSURL("qa"), Name: "qa", Type: "Standard"}, nil)
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	seen = pump(v, cmd, 4)
 	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Purged 2 queue(s) (60s cooldown before the next purge)")}, toasts(seen))
 }
@@ -1158,7 +1158,7 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qb")).Return(charSQSDenied).Once()
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qc")).Return(nil).Once()
 
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	// Divergence #27 (fixed in PR 2). The spinner shows after the confirm.
 	assert.Equal(t, "3/3 queues  (3 selected)  ⣾  Deleting 3 queue(s)...", plain(v.Footer()))
 	seen := pump(v, cmd, 3)
@@ -1169,7 +1169,7 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 
 	charSQSConfirm(t, v, "Delete Queue")
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qb")).Return(nil).Once()
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	seen = pump(v, cmd, 3)
 	assert.Equal(t, []msg.ToastMsg{msg.ToastSuccess("Deleted 1 queue(s)")}, toasts(seen))
 	assert.Equal(t, "0/0 queues", v.Footer())
@@ -1179,11 +1179,11 @@ func TestCharSQS_ConfirmDeclineClearsTargets(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "sqs_purge"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: false, Action: "sqs_purge"})
 	assert.Nil(t, cmd)
 
 	// A late confirm has no targets and calls nothing.
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }
@@ -1195,16 +1195,16 @@ func TestCharSQS_ConfirmActionChecked(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	assert.Nil(t, cmd)
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	assert.Nil(t, cmd, "the targets were cleared")
 
 	// An unknown Action clears the targets and does nothing.
 	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "other"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "other"})
 	assert.Nil(t, cmd)
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	assert.Nil(t, cmd, "the targets were cleared")
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
@@ -1222,7 +1222,7 @@ func TestCharSQS_CancelledPickerIgnoresConfirm(t *testing.T) {
 	require.Nil(t, cmd)
 	assert.Empty(t, v.pending.keys, "esc forgets the targets (A7 D2)")
 
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }
@@ -1240,13 +1240,13 @@ func TestCharSQS_ReadOnlyAtConfirmCallsNothing(t *testing.T) {
 	require.NotNil(t, cmd)
 	assert.Equal(t, "Manage Queue", cmd().(msg.RequestActionPickerMsg).Title)
 	charSQSConfirm(t, v, "Delete Queue")
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("ReadOnly mode — press W to switch")}, toasts(pump(v, cmd, 3)))
 	assert.Equal(t, "3/3 queues", plain(v.Footer()), "no spinner")
 
 	// The targets are gone, also after a switch to ReadWrite.
 	ui.SetReadOnly(false)
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
@@ -1274,13 +1274,13 @@ func TestCharSQS_MutationsSurviveLeavingTheView(t *testing.T) {
 	svc.On("SendMessage", mock.Anything, charSQSURL("qa"), "hi", int32(0), "", "").Run(record).Return(nil).Once()
 
 	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	pump(v, cmd, 3)
 	charSQSSendForm(t, v)
 	_, cmd = v.Update(msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "hi"}})
 	pump(v, cmd, 3)
 	charSQSConfirm(t, v, "Delete Queue")
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
 	pump(v, cmd, 2)
 
 	svc.AssertExpectations(t)
@@ -1393,7 +1393,7 @@ func TestCharSQS_PurgeRefreshHasOwnTimeouts(t *testing.T) {
 	}, charSQSURL("qb"))
 
 	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	purged := charSQSRun(cmd)
 	require.Len(t, purged, 1)
 	_, cmd = v.Update(purged[0])

@@ -22,11 +22,11 @@ import (
 // answerView records the confirm answers it gets.
 type answerView struct {
 	*views.EventLog
-	answers []ui.ConfirmResultMsg
+	answers []msg.ConfirmResultMsg
 }
 
 func (v *answerView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	if a, ok := m.(ui.ConfirmResultMsg); ok {
+	if a, ok := m.(msg.ConfirmResultMsg); ok {
 		v.answers = append(v.answers, a)
 	}
 	return v, nil
@@ -42,7 +42,7 @@ func TestSkippedPromptIsANoForItsView(t *testing.T) {
 
 	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Replace it?", Action: "s3_overwrite:1"}})
 	require.Len(t, v.answers, 1)
-	assert.Equal(t, ui.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"}, v.answers[0])
+	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"}, v.answers[0])
 	assert.True(t, m.quitAsked(), "the quit confirm stays")
 }
 
@@ -116,11 +116,9 @@ func TestLeavingAViewDoesNotCancelAMutation(t *testing.T) {
 	m, _ = update(t, m, findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]"))
 	m, c = update(t, m, press("m"))
 	m, _ = update(t, m, findOf[msg.RequestActionPickerMsg](collectMsgs(c)))
-	m.picker = ui.NewPicker()
-	m, c = update(t, m, ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	m, c = reply(t, m, tea.KeyPressMsg{Code: tea.KeyEnter}) // Stop
 	m, _ = update(t, m, findOf[msg.RequestConfirmMsg](collectMsgs(c)))
-	m.confirm = ui.NewConfirm()
-	m, stopCmd := update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	m, stopCmd := reply(t, m, typedConfirm()...)
 
 	update(t, m, press("q")) // leave the view before the call runs
 	require.NotNil(t, findMsg(collectMsgs(stopCmd), "views.ec2InstanceMutatedMsg"))

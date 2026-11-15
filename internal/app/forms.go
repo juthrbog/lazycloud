@@ -13,7 +13,7 @@ import (
 // a view on the navigation stack, not an overlay.
 type formRoute struct {
 	form  *ui.FormView
-	asker nav.View // nil for a request without an origin
+	asker nav.View
 }
 
 // openForm pushes the form that req asks for and records asker. The app
@@ -35,9 +35,8 @@ func (m Model) openForm(req appmsg.RequestFormMsg, asker nav.View) (Model, tea.C
 }
 
 // finishForm pops form and sends its result to the view that asked for it.
-// The caller made sure that form is on top. If the asker is gone, the
-// result is dropped. A form without a recorded asker sends its result to
-// the view below it, as before.
+// The caller made sure that form is on top. If the asker is gone, or the
+// app has no record of it, the result is dropped.
 func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, tea.Cmd) {
 	var asker nav.View
 	forms := make([]formRoute, 0, len(m.forms))
@@ -52,7 +51,8 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 	m.nav.Pop()
 	m.resizeViews()
 	if asker == nil {
-		return m, m.nav.UpdateCurrent(res)
+		eventlog.Debugf(eventlog.CatNav, "Dropped %T: no view asked for the form", res)
+		return m, nil
 	}
 	if !m.nav.Contains(asker) {
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T for %s: view no longer exists", res, asker.ID())
@@ -65,20 +65,9 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 const discardText = "Discard unsaved changes?"
 
 // askDiscard asks whether to discard the changes of a form. The reply goes
-// to form, which closes itself on a yes. A nil form means a request
-// without an origin: on a yes, the app closes the form on top (until PR 8).
+// to form, which closes itself on a yes.
 func (m Model) askDiscard(form nav.View) (Model, tea.Cmd) {
 	route := replyRoute{replyTo: form}
-	if form == nil {
-		route = replyRoute{onReply: confirmHandler(func(m Model) (Model, tea.Cmd) {
-			fv, ok := m.nav.Current().(*ui.FormView)
-			if !ok {
-				return m, nil
-			}
-			formID := fv.FormID()
-			return m, func() tea.Msg { return appmsg.FormResultMsg{ID: formID, Aborted: true} }
-		}, nil)}
-	}
 	if m.promptOpen() {
 		cmd := m.refuseOpen(discardText, route, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
 		return m, cmd

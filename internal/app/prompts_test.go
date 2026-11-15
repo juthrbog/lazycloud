@@ -29,7 +29,7 @@ func TestViewConfirmNeverRunsAnAppPrompt(t *testing.T) {
 	reply := cmd()
 	assert.IsType(t, overlayReplyMsg{}, reply)
 	m, cmd = update(t, m, reply)
-	assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: true, Action: "app_quit"}}, v.confirms)
+	assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true, Action: "app_quit"}}, v.confirms)
 	if cmd != nil {
 		assert.NotEqual(t, tea.QuitMsg{}, cmd(), "the app does not quit")
 	}
@@ -44,12 +44,12 @@ func TestStrayRepliesRunNoAppCode(t *testing.T) {
 	m = startTestOp(t, m)
 	region := m.activeRegion()
 	for _, stray := range []tea.Msg{
-		ui.ConfirmResultMsg{Confirmed: true, Action: "app_quit"},
-		ui.ConfirmResultMsg{Confirmed: true, Action: "app_session_switch"},
-		ui.ConfirmResultMsg{Confirmed: true, Action: "theme_switch"},
-		ui.PickerResultMsg{ID: "region", Value: "eu-west-1"},
-		ui.PickerResultMsg{ID: "theme", Value: "latte"},
-		ui.PickerResultMsg{ID: "cancel_op", Value: "1"},
+		msg.ConfirmResultMsg{Confirmed: true, Action: "app_quit"},
+		msg.ConfirmResultMsg{Confirmed: true, Action: "app_session_switch"},
+		msg.ConfirmResultMsg{Confirmed: true, Action: "theme_switch"},
+		msg.PickerResultMsg{ID: "region", Value: "eu-west-1"},
+		msg.PickerResultMsg{ID: "theme", Value: "latte"},
+		msg.PickerResultMsg{ID: "cancel_op", Value: "1"},
 	} {
 		var cmd tea.Cmd
 		m, cmd = update(t, m, stray)
@@ -140,19 +140,22 @@ func typeInto(t *testing.T, m Model, text string) Model {
 	return m
 }
 
-// closePrompts skips a prompt without a route. Its reply has no place to
-// go, so a decline would only reach deliverReply with nothing to deliver.
-func TestThemeSwitchSkipsAPromptWithoutRoute(t *testing.T) {
+// Help and the command bar have no route and send no reply that a decline
+// could stand for, so closePrompts skips them.
+func TestClosePromptsSkipsHelpAndTheCommandBar(t *testing.T) {
 	m := newTestModel(140, 40)
+	m, _ = update(t, m, press(":"))
+	m.help.Show(nil, 140, 40)
+	m.openOverlay(ovHelp)
+	require.Len(t, m.overlays, 2)
+	assert.Nil(t, m.closePrompts())
+
+	// A reply without a route goes nowhere.
 	v := newReplyView()
 	m.pushView(v)
-	m, _ = update(t, m, msg.RequestConfirmMsg{Message: "Sure?", Action: "a", Quick: true})
-	require.True(t, m.confirm.Visible())
-
-	cmd := m.closePrompts()
-	assert.Nil(t, cmd, "no decline for a prompt without a route")
-	m, _ = update(t, m, overlayReplyMsg{msg: ui.ConfirmResultMsg{Action: "a"}})
-	assert.Empty(t, v.confirms, "a reply without a route goes nowhere")
+	m, cmd := update(t, m, overlayReplyMsg{msg: msg.ConfirmResultMsg{Action: "a"}})
+	assert.Nil(t, cmd)
+	assert.Empty(t, v.confirms)
 }
 
 // A pick in the region, profile, and mode pickers runs its handler.
@@ -221,22 +224,22 @@ func TestEveryPromptRequestIsRefusedWhileAPromptIsOpen(t *testing.T) {
 		{"confirm", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestConfirmMsg{Message: "Go?", Action: "go"})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: false, Action: "go"}}, v.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false, Action: "go"}}, v.confirms)
 		}},
 		{"action picker", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestActionPickerMsg{Options: []string{"Stop"}})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"sort picker", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestSortPickerMsg{Columns: []string{"Name"}})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.PickerResultMsg{{ID: "sort", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{ID: "sort", Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"discard confirm", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestFormDiscardConfirmMsg{})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
 		}},
 	} {
 		for _, open := range []string{"confirm", "picker"} {
@@ -305,13 +308,13 @@ func TestPromptFromBelowTheTopGetsAToastAndADecline(t *testing.T) {
 		want func(t *testing.T, v *replyView)
 	}{
 		{"action picker", msg.RequestActionPickerMsg{Options: []string{"Stop"}}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"sort picker", msg.RequestSortPickerMsg{Columns: []string{"Name"}}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.PickerResultMsg{{ID: "sort", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{ID: "sort", Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"discard confirm", msg.RequestFormDiscardConfirmMsg{}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -347,27 +350,20 @@ func TestPromptFromAGoneViewIsDropped(t *testing.T) {
 	}
 }
 
-// A request without an origin follows the same rule while a prompt is
-// open. It has no asker, so only the toast tells about it.
-func TestRequestWithoutOriginIsRefusedWhileAPromptIsOpen(t *testing.T) {
-	for _, req := range []tea.Msg{
-		msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
-		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
-		msg.RequestSortPickerMsg{Columns: []string{"Name"}},
-		msg.RequestFormDiscardConfirmMsg{},
-		msg.RequestFeaturePickerMsg{Service: "EC2", Labels: []string{"A"}, ViewIDs: []string{"a"}},
-	} {
-		m := newTestModel(140, 40)
-		m.askQuit("Quit?")
-		require.True(t, m.quitAsked())
+// The app sends the feature picker request to itself, after a pick in the
+// service picker, so it has no origin. It follows the same rule as every
+// prompt request while a prompt is open.
+func TestFeaturePickerRequestIsRefusedWhileAPromptIsOpen(t *testing.T) {
+	m := newTestModel(140, 40)
+	m.askQuit("Quit?")
+	require.True(t, m.quitAsked())
 
-		m, cmd := update(t, m, req)
-		assert.True(t, m.quitAsked(), "%T: the quit confirm stays", req)
-		assert.False(t, m.picker.Visible(), "%T", req)
-		assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays), "%T", req)
-		assert.True(t, m.toasts.HasActive(), "%T", req)
-		assert.NotNil(t, cmd, "%T", req)
-	}
+	m, cmd := update(t, m, msg.RequestFeaturePickerMsg{Service: "EC2", Labels: []string{"A"}, ViewIDs: []string{"a"}})
+	assert.True(t, m.quitAsked(), "the quit confirm stays")
+	assert.False(t, m.picker.Visible())
+	assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays))
+	assert.True(t, m.toasts.HasActive())
+	assert.NotNil(t, cmd)
 }
 
 // A show function of the app returns the refusal, so its caller can pass

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"github.com/juthrbog/lazycloud/internal/msg"
 	"strings"
 	"testing"
 
@@ -203,7 +204,7 @@ func TestPickerSelectAfterScroll(t *testing.T) {
 	}
 	_, cmd := p.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.NotNil(t, cmd)
-	res, ok := cmd().(PickerResultMsg)
+	res, ok := cmd().(msg.PickerResultMsg)
 	require.True(t, ok)
 	assert.Equal(t, 18, res.Selected)
 	assert.Equal(t, "opt-18", res.Value)
@@ -226,7 +227,7 @@ func TestPickerWidthStableWhileScrolling(t *testing.T) {
 }
 
 // closeWith presses k on a picker shown with clearable, and returns the reply.
-func closeWith(t *testing.T, clearable bool, k tea.KeyPressMsg) PickerResultMsg {
+func closeWith(t *testing.T, clearable bool, k tea.KeyPressMsg) msg.PickerResultMsg {
 	t.Helper()
 	var p Picker
 	p.Show("id", "Title", pickerOptions(3), 1)
@@ -234,7 +235,7 @@ func closeWith(t *testing.T, clearable bool, k tea.KeyPressMsg) PickerResultMsg 
 	p, cmd := p.Update(k)
 	require.False(t, p.Visible())
 	require.NotNil(t, cmd)
-	res, ok := cmd().(PickerResultMsg)
+	res, ok := cmd().(msg.PickerResultMsg)
 	require.True(t, ok)
 	return res
 }
@@ -245,16 +246,16 @@ func TestPickerOutcomes(t *testing.T) {
 	ctrlX := tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}
 
 	picked := closeWith(t, false, enter)
-	assert.Equal(t, PickerResultMsg{ID: "id", Outcome: Picked, Selected: 1, Value: "opt-01"}, picked)
+	assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.Picked, Selected: 1, Value: "opt-01"}, picked)
 	assert.True(t, picked.Picked())
 
 	for _, clearable := range []bool{false, true} {
-		assert.Equal(t, PickerResultMsg{ID: "id", Outcome: PickCancelled, Selected: -1}, closeWith(t, clearable, esc))
+		assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.PickCancelled}, closeWith(t, clearable, esc))
 	}
-	assert.Equal(t, PickerResultMsg{ID: "id", Outcome: PickCancelled, Selected: -1}, closeWith(t, false, ctrlX),
+	assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.PickCancelled}, closeWith(t, false, ctrlX),
 		"ctrl+x cancels a picker that cannot be cleared")
 	cleared := closeWith(t, true, ctrlX)
-	assert.Equal(t, PickerResultMsg{ID: "id", Outcome: PickCleared, Selected: -1}, cleared)
+	assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.PickCleared}, cleared)
 	assert.False(t, cleared.Picked())
 }
 

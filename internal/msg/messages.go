@@ -74,8 +74,9 @@ type RequestSortPickerMsg struct {
 }
 
 // RequestFeaturePickerMsg asks the app to show a service feature picker.
-// Labels and ViewIDs are parallel slices. The PickerResultMsg (ID="feature")
-// is handled by the root model, which navigates to the selected view.
+// Labels and ViewIDs are parallel slices. The app sends it to itself after
+// a pick in the service picker. The handler of the picker navigates to the
+// selected view.
 type RequestFeaturePickerMsg struct {
 	Service string   // picker title (e.g. "EC2")
 	Labels  []string // display names (e.g. "Instances", "AMIs")

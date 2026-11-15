@@ -23,8 +23,8 @@ import (
 // replyView records the prompt replies that reach it.
 type replyView struct {
 	*views.EventLog
-	picks    []ui.PickerResultMsg
-	confirms []ui.ConfirmResultMsg
+	picks    []msg.PickerResultMsg
+	confirms []msg.ConfirmResultMsg
 	forms    []msg.FormResultMsg
 	lastCmd  tea.Cmd // set by tests that keep the command of an update
 }
@@ -33,9 +33,9 @@ func newReplyView() *replyView { return &replyView{EventLog: views.NewEventLog()
 
 func (v *replyView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		v.picks = append(v.picks, m)
-	case ui.ConfirmResultMsg:
+	case msg.ConfirmResultMsg:
 		v.confirms = append(v.confirms, m)
 	case msg.FormResultMsg:
 		v.forms = append(v.forms, m)
@@ -74,7 +74,7 @@ func TestOverlayPin_ConfirmOverHelpAndCommandBar(t *testing.T) {
 			m = answer(t, m, press("y"))
 			assert.False(t, m.confirm.Visible())
 			assert.True(t, tc.shown(m), "the %s stays open under the confirm", tc.name)
-			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
 		})
 	}
 }
@@ -103,11 +103,11 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		req   tea.Msg
-		clear ui.PickOutcome // what ctrl+x sends to the view
-		hint  bool           // the hint names ctrl+x
+		clear msg.PickOutcome // what ctrl+x sends to the view
+		hint  bool            // the hint names ctrl+x
 	}{
-		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0}, ui.PickCleared, true},
-		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, ui.PickCancelled, false},
+		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0}, msg.PickCleared, true},
+		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, msg.PickCancelled, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(140, 40)
@@ -119,12 +119,12 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 			m = answer(t, m, press("esc"))
 			assert.False(t, m.picker.Visible())
 			id := tc.name
-			assert.Equal(t, []ui.PickerResultMsg{{ID: id, Outcome: ui.PickCancelled, Selected: -1}}, v.picks, "esc reaches the view")
+			assert.Equal(t, []msg.PickerResultMsg{{ID: id, Outcome: msg.PickCancelled}}, v.picks, "esc reaches the view")
 
 			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
 			m = answer(t, m, keyCtrlX)
 			assert.False(t, m.picker.Visible())
-			assert.Equal(t, ui.PickerResultMsg{ID: id, Outcome: tc.clear, Selected: -1}, v.picks[len(v.picks)-1])
+			assert.Equal(t, msg.PickerResultMsg{ID: id, Outcome: tc.clear}, v.picks[len(v.picks)-1])
 			assert.Len(t, v.picks, 2)
 		})
 	}
@@ -172,7 +172,7 @@ func TestOverlayPin_FormDiscardConfirm(t *testing.T) {
 	form := m.nav.Current()
 	require.IsType(t, &ui.FormView{}, form)
 
-	m, _ = update(t, m, nav.Routed{Origin: form, Msg: ui.RequestFormDiscardConfirmMsg{}})
+	m, _ = update(t, m, nav.Routed{Origin: form, Msg: msg.RequestFormDiscardConfirmMsg{}})
 	require.True(t, m.confirm.Visible())
 	m, cmd := update(t, m, press("n"))
 	assert.False(t, m.confirm.Visible())
@@ -180,7 +180,7 @@ func TestOverlayPin_FormDiscardConfirm(t *testing.T) {
 	m = pump(t, m, cmd)
 	assert.Same(t, form, m.nav.Current())
 
-	m, _ = update(t, m, nav.Routed{Origin: form, Msg: ui.RequestFormDiscardConfirmMsg{}})
+	m, _ = update(t, m, nav.Routed{Origin: form, Msg: msg.RequestFormDiscardConfirmMsg{}})
 	m = answer(t, m, press("y"))
 	assert.Same(t, v, m.nav.Current(), "a yes closes the form")
 	assert.Empty(t, v.confirms, "the discard confirm does not reach the view")
@@ -215,7 +215,7 @@ func TestOverlayPin_ReplyGoesToTheViewThatAsked(t *testing.T) {
 	other := newReplyView()
 	m.pushView(other)
 	m = answer(t, m, keyEnter)
-	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, asker.picks)
+	assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, asker.picks)
 	assert.Empty(t, other.picks, "the view on top gets no reply")
 }
 

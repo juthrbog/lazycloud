@@ -136,7 +136,7 @@ func charEC2Picker(t *testing.T, v *EC2List) msg.RequestActionPickerMsg {
 // charEC2Confirm picks the action and returns the confirm request.
 func charEC2Confirm(t *testing.T, v *EC2List, action string) msg.RequestConfirmMsg {
 	t.Helper()
-	_, cmd := v.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: action})
+	_, cmd := v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: action})
 	c, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	return c
@@ -510,7 +510,7 @@ func TestCharEC2_SortPicker(t *testing.T) {
 	}
 	require.Equal(t, []string{"i-1", "i-2", "i-3"}, ids())
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 3, Value: "Type"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 3, Value: "Type"})
 	assert.Equal(t, []string{"i-2", "i-1", "i-3"}, ids(), "t3.large, t3.micro, t3.nano")
 	_, cmd = v.Update(keyPress('s'))
 	req, _ = firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
@@ -537,7 +537,7 @@ func TestCharEC2_SortPicker(t *testing.T) {
 // C4: the filter deselects hidden rows. M8: the marker is not in the key.
 func TestCharEC2_TableKeepsIdentity(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
 	v.Update(msg.FocusResourceMsg{ResourceID: "i-2"}) // cursor to i-2; the detail cmd is not run
 	v.Update(keyPress(' '))                           // select i-2
 	ids := func() []string {
@@ -654,10 +654,10 @@ func TestCharEC2_UpdateReturnsSamePointer(t *testing.T) {
 		keyPress('s'), keyPress('S'), keyPress('y'), keyPress('m'), keyPress('o'), keyPress('d'),
 		tea.KeyPressMsg{Code: tea.KeyEnter}, tea.KeyPressMsg{Code: tea.KeyDown}, keyPress('r'),
 		tea.KeyPressMsg{Code: tea.KeyEscape}, tea.KeyPressMsg{Code: tea.KeyEscape},
-		ui.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"},
-		ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"},
-		ui.PickerResultMsg{ID: "other", Selected: 0},
-		ui.ConfirmResultMsg{Confirmed: false, Action: "ec2_stop"},
+		msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"},
+		msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"},
+		msg.PickerResultMsg{ID: "other", Selected: 0},
+		msg.ConfirmResultMsg{Confirmed: false, Action: "ec2_stop"},
 		ui.FilterChangedMsg{Text: "x"},
 		msg.FocusResourceMsg{ResourceID: "i-1"},
 		msg.ErrorMsg{Err: errors.New("e")},
@@ -790,7 +790,7 @@ func TestCharEC2_TargetsFrozenAtManage(t *testing.T) {
 	charEC2Confirm(t, v, "Stop")
 
 	svc.On("StopInstances", mock.Anything, []string{"i-1"}).Return(nil).Once()
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 	collectMsgsTimed(cmd, maxWait)
 	svc.AssertExpectations(t)
 }
@@ -801,13 +801,13 @@ func TestCharEC2_DeclineClearsTargets(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	charEC2Picker(t, v)
 	charEC2Confirm(t, v, "Stop")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "ec2_stop"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: false, Action: "ec2_stop"})
 	assert.Nil(t, cmd)
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 	assert.Contains(t, charEC2Text(v), "● running", "no optimistic state")
 
 	// Divergence #25 (fixed in PR 2).
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 	assert.Nil(t, cmd)
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 	svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
@@ -820,7 +820,7 @@ func TestCharEC2_ConfirmActionChecked(t *testing.T) {
 		v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 		charEC2Picker(t, v)
 		charEC2Confirm(t, v, "Stop")
-		_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
+		_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
 		// Divergence #25 (fixed in PR 2).
 		assert.Nil(t, cmd)
 		assert.Equal(t, "3/3 instances", plain(v.Footer()))
@@ -832,7 +832,7 @@ func TestCharEC2_ConfirmActionChecked(t *testing.T) {
 		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
 		charEC2Picker(t, v)
 		charEC2Confirm(t, v, "Stop")
-		_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+		_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
 		assert.Nil(t, cmd)
 		// Divergence #25 and #26 (fixed in PR 2): no spinner.
 		assert.Equal(t, "3/3 instances", plain(v.Footer()))
@@ -858,7 +858,7 @@ func TestCharEC2_OptimisticStatesAndSpinner(t *testing.T) {
 			charEC2Picker(t, v)
 			c := charEC2Confirm(t, v, tc.action)
 			svc.On(tc.method, mock.Anything, []string{tc.id}).Return(nil).Once()
-			_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: c.Action})
+			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: c.Action})
 			assert.Equal(t, tc.footer, plain(v.Footer()))
 			var row string
 			for _, l := range charEC2Lines(v) {
@@ -881,7 +881,7 @@ func TestCharEC2_MutationDetachedAndOutcome(t *testing.T) {
 	v.SetContext(ctx)
 	charEC2Picker(t, v)
 	charEC2Confirm(t, v, "Stop")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 	cancel()
 
 	svc.On("StopInstances", mock.MatchedBy(func(c context.Context) bool {
@@ -903,7 +903,7 @@ func TestCharEC2_OutcomeTexts(t *testing.T) {
 	v.Update(keyPress(' '))
 	charEC2Picker(t, v)
 	charEC2Confirm(t, v, "Terminate")
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
 	svc.On("TerminateInstances", mock.Anything, []string{"i-1", "i-3"}).
 		Return(&smithy.GenericAPIError{Code: "OperationNotPermitted", Message: "protected"}).Once()
 	res := charEC2NoTicks(collectMsgsTimed(cmd, maxWait))
@@ -926,7 +926,7 @@ func TestCharEC2_MutationFailureRefreshesTargets(t *testing.T) {
 	svc.On("RefreshInstances", mock.Anything, []string{"i-1", "i-3"}).
 		Return([]aws.Instance{{ID: "i-1", State: "stopping"}, {ID: "i-3", State: "running"}}, nil).Once()
 
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 	require.Equal(t, "3/3 instances  (2 selected)  ⣾  Stopping 2 instance(s)...", plain(v.Footer()))
 	mutated := charEC2NoTicks(collectMsgsTimed(cmd, maxWait))
 	require.Len(t, mutated, 1)
@@ -954,7 +954,7 @@ func TestCharEC2_MutationSuccessDelayedReload(t *testing.T) {
 	charEC2Picker(t, v)
 	charEC2Confirm(t, v, "Stop")
 	svc.On("StopInstances", mock.Anything, []string{"i-1"}).Return(nil).Once()
-	_, cmd := v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 	require.Equal(t, "3/3 instances  (1 selected)  ⣾  Stopping 1 instance(s)...", plain(v.Footer()))
 	mutated := charEC2NoTicks(collectMsgsTimed(cmd, maxWait))
 	require.Len(t, mutated, 1)

@@ -285,10 +285,10 @@ func TestCharSG_SortPicker(t *testing.T) {
 		CurrentCol: -1,
 	}}, collectMsgs(cmd))
 
-	v.Update(ui.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
+	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
 	assert.Equal(t, "sg-111", netRows(v)[0][:6], "a picker with another ID is ignored")
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
 	assert.Equal(t, []string{
 		"sg-222 | db-sg | vpc-aaa | Database | 1 | 0",
 		"sg-111 | web-sg | vpc-aaa | Web servers | 2 | 1",
@@ -325,7 +325,7 @@ func TestCharSG_InCountSortsAsNumber(t *testing.T) {
 	many := aws.SecurityGroup{ID: "sg-many", Name: "many", InboundRules: make([]aws.SecurityGroupRule, 10)}
 	few := aws.SecurityGroup{ID: "sg-few", Name: "few", InboundRules: make([]aws.SecurityGroupRule, 9)}
 	v, _ := newCharSG(t, few, many)
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 4, Value: "In"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 4, Value: "In"})
 	rows := netRows(v)
 	require.Len(t, rows, 2)
 	// Divergence #46 (fixed in PR 3): 9 sorts before 10.
@@ -340,7 +340,7 @@ func TestCharSG_CursorAndSortKeptAcrossReload(t *testing.T) {
 	v := NewSGList(svc)
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
 	pump(v, v.Init(), 5)
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 0, Value: "Group ID"})
+	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "Group ID"})
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	require.Equal(t, []string{"Copied: sg-222"}, netCopied(v))
 
