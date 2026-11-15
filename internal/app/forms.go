@@ -63,9 +63,20 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 
 // askDiscard asks whether to discard the changes of a form. The reply goes
 // to form, which closes itself on a yes. A nil form means a request
-// without an origin, and its reply goes the old way.
+// without an origin: on a yes, the app closes the form on top (until PR 8).
 func (m Model) askDiscard(form nav.View) Model {
 	m.confirm.ShowQuick("Discard unsaved changes?", appmsg.FormDiscardAction)
-	m.openOverlayFor(ovConfirm, form)
+	if form != nil {
+		m.openOverlayFor(ovConfirm, form)
+		return m
+	}
+	m.openOverlayRoute(ovConfirm, replyRoute{onReply: confirmHandler(func(m Model) (Model, tea.Cmd) {
+		fv, ok := m.nav.Current().(*ui.FormView)
+		if !ok {
+			return m, nil
+		}
+		formID := fv.FormID()
+		return m, func() tea.Msg { return appmsg.FormResultMsg{ID: formID, Aborted: true} }
+	}, nil)})
 	return m
 }

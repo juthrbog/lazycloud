@@ -79,9 +79,6 @@ type Model struct {
 	// Cross-navigation history for back traversal
 	crossNavHistory []crossNavEntry
 
-	// Pending theme name awaiting confirmation when nav stack is deep
-	pendingTheme string
-
 	// ops holds the long operations that run in the background (see
 	// appmsg.StartOpMsg). The pointer is shared by every copy of Model.
 	ops *ops.Registry
@@ -90,9 +87,6 @@ type Model struct {
 	// opsShown is true while the layout has the operations line. It
 	// changes only in syncOpsLine, which also resizes the views.
 	opsShown bool
-	// pendingSession is the profile or region switch that waits for the
-	// user to confirm, because operations are still running.
-	pendingSession *sessionChange
 }
 
 // sessionChange is a profile or region switch. kind and value name the
@@ -100,12 +94,6 @@ type Model struct {
 type sessionChange struct {
 	profile, region, kind, value string
 }
-
-// Confirm actions that the app handles itself. Views never use them.
-const (
-	confirmQuit          = "app_quit"
-	confirmSessionSwitch = "app_session_switch"
-)
 
 // New creates the root model with the home view as the starting screen.
 func New(cfg config.Config) Model {
@@ -398,7 +386,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	// The overlay on top of the stack gets each key press. Other messages,
 	// such as page loads and spinner ticks, go on to the normal routing.
 	if k, isKey := teaMsg.(tea.KeyPressMsg); isKey {
-		if m.confirm.Visible() && m.confirm.Action() == confirmQuit && k.String() == "ctrl+c" {
+		if m.quitAsked() && k.String() == "ctrl+c" {
 			// A second ctrl+c quits without the answer, also when a late
 			// picker opened over the quit confirm.
 			return m.quitNow()
@@ -578,55 +566,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.showSortPicker(msg, nil), nil
 
 	case appmsg.RequestFeaturePickerMsg:
-		var options []ui.PickerOption
-		for i, label := range msg.Labels {
-			options = append(options, ui.PickerOption{Label: label, Value: msg.ViewIDs[i]})
-		}
-		m.picker.Show("feature", msg.Service, options, 0)
-		m.openOverlay(ovPicker)
+		m.showFeaturePicker(msg)
 		return m, nil
 
 	case appmsg.ConfirmResultMsg:
-		switch msg.Action {
-		case confirmQuit:
-			if msg.Confirmed {
-				return m.quitNow()
-			}
-			return m, nil
-		case confirmSessionSwitch:
-			change := m.pendingSession
-			m.pendingSession = nil
-			if change == nil {
-				return m, nil
-			}
-			if msg.Confirmed {
-				return m.switchSession(change.profile, change.region, change.kind, change.value)
-			}
-			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", change.kind, change.value)
-			return m, nil
-		}
-		if msg.Action == "theme_switch" {
-			if msg.Confirmed && m.pendingTheme != "" {
-				name := m.pendingTheme
-				m.pendingTheme = ""
-				return m.applyTheme(name)
-			}
-			m.pendingTheme = ""
-			return m, nil
-		}
-		if msg.Action == appmsg.FormDiscardAction {
-			// The reply to a discard confirm without an origin (until PR 8).
-			if msg.Confirmed {
-				if fv, ok := m.nav.Current().(*ui.FormView); ok {
-					formID := fv.FormID()
-					return m, func() tea.Msg {
-						return appmsg.FormResultMsg{ID: formID, Aborted: true}
-					}
-				}
-			}
-			return m, nil
-		}
-		// Route to current view
+		// The reply to a confirm request without an origin. The prompts of
+		// the app reply to their handlers, so this goes to the view on top
+		// (until PR 8).
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
@@ -641,75 +587,14 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, opsTick()
 
 	case appmsg.PickerResultMsg:
-		if msg.ID == cancelPickerID {
-			return m.cancelOp(msg)
-		}
-		// Service picker: navigate to selected service (or show feature picker for multi-feature)
-		if msg.ID == "service" {
-			if !msg.Picked() {
-				return m, nil
-			}
-			for _, svc := range registry.Services {
-				if svc.Name == msg.Value {
-					if len(svc.Features) == 1 {
-						viewID := svc.Features[0].ViewID
-						return m, func() tea.Msg {
-							return appmsg.NavigateMsg{ViewID: viewID}
-						}
-					}
-					labels := make([]string, len(svc.Features))
-					viewIDs := make([]string, len(svc.Features))
-					for i, f := range svc.Features {
-						labels[i] = f.Name
-						viewIDs[i] = f.ViewID
-					}
-					return m, func() tea.Msg {
-						return appmsg.RequestFeaturePickerMsg{
-							Service: svc.Name,
-							Labels:  labels,
-							ViewIDs: viewIDs,
-						}
-					}
-				}
-			}
-			return m, nil
-		}
-		// Feature picker: navigate to the selected view
-		if msg.ID == "feature" {
-			if !msg.Picked() {
-				return m, nil
-			}
-			viewID := msg.Value
-			return m, func() tea.Msg {
-				return appmsg.NavigateMsg{ViewID: viewID}
-			}
-		}
-		// Sort and action pickers: route to current view
+		// The reply to a picker request without an origin. The pickers of
+		// the app reply to their handlers (until PR 8).
 		if msg.ID == "sort" || msg.ID == "action" {
 			if msg.Outcome == appmsg.PickCancelled {
-				return m, nil // a reply without a route: esc stays with the app (until PR 8)
+				return m, nil // a reply without a route: esc stays with the app
 			}
 			cmd := m.nav.UpdateCurrent(msg)
 			return m, cmd
-		}
-		if !msg.Picked() {
-			return m, nil
-		}
-		switch msg.ID {
-		case "theme":
-			if m.nav.Depth() > 1 {
-				m.pendingTheme = msg.Value
-				m.confirm.ShowQuick("Switching themes resets the current view. Continue?", "theme_switch")
-				m.openOverlay(ovConfirm)
-				return m, nil
-			}
-			return m.applyTheme(msg.Value)
-		case "region":
-			return m.applyRegion(msg.Value)
-		case "profile":
-			return m.applyProfile(msg.Value)
-		case "mode":
-			return m.applyMode(msg.Value)
 		}
 		return m, nil
 
@@ -1137,8 +1022,15 @@ func (m *Model) showThemePicker() {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: name})
 	}
-	m.picker.Show("theme", "Select Theme", options, currentIdx)
-	m.openOverlay(ovPicker)
+	m.pick("Select Theme", options, currentIdx, onPicked(func(m Model, name string) (Model, tea.Cmd) {
+		if m.nav.Depth() == 1 {
+			return m.applyTheme(name)
+		}
+		// Below the home view, ask first: the switch resets the views.
+		m.askQuick("Switching themes resets the current view. Continue?",
+			func(m Model) (Model, tea.Cmd) { return m.applyTheme(name) }, nil)
+		return m, nil
+	}))
 }
 
 func (m *Model) showServicePicker() {
@@ -1147,8 +1039,44 @@ func (m *Model) showServicePicker() {
 		label := svc.Icon.Icon() + "  " + svc.Name
 		options = append(options, ui.PickerOption{Label: label, Value: svc.Name})
 	}
-	m.picker.Show("service", "Select Service", options, 0)
-	m.openOverlay(ovPicker)
+	m.pick("Select Service", options, 0, onPicked(Model.openService))
+}
+
+// openService opens the service that the user picked. A service with more
+// than one feature asks which feature to open.
+func (m Model) openService(name string) (Model, tea.Cmd) {
+	for _, svc := range registry.Services {
+		if svc.Name != name {
+			continue
+		}
+		if len(svc.Features) == 1 {
+			viewID := svc.Features[0].ViewID
+			return m, func() tea.Msg {
+				return appmsg.NavigateMsg{ViewID: viewID}
+			}
+		}
+		labels := make([]string, len(svc.Features))
+		viewIDs := make([]string, len(svc.Features))
+		for i, f := range svc.Features {
+			labels[i] = f.Name
+			viewIDs[i] = f.ViewID
+		}
+		return m, func() tea.Msg {
+			return appmsg.RequestFeaturePickerMsg{Service: svc.Name, Labels: labels, ViewIDs: viewIDs}
+		}
+	}
+	return m, nil
+}
+
+// showFeaturePicker asks which feature of a service to open.
+func (m *Model) showFeaturePicker(req appmsg.RequestFeaturePickerMsg) {
+	options := make([]ui.PickerOption, 0, len(req.Labels))
+	for i, label := range req.Labels {
+		options = append(options, ui.PickerOption{Label: label, Value: req.ViewIDs[i]})
+	}
+	m.pick(req.Service, options, 0, onPicked(func(m Model, viewID string) (Model, tea.Cmd) {
+		return m, func() tea.Msg { return appmsg.NavigateMsg{ViewID: viewID} }
+	}))
 }
 
 // Common AWS regions, ordered by popularity.
@@ -1195,8 +1123,7 @@ func (m *Model) showProfilePicker() tea.Cmd {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: p})
 	}
-	m.picker.Show("profile", "Select Profile", options, currentIdx)
-	m.openOverlay(ovPicker)
+	m.pick("Select Profile", options, currentIdx, onPicked(Model.applyProfile))
 	return nil
 }
 
@@ -1212,11 +1139,14 @@ func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 	if n == 0 {
 		return m.switchSession(c.profile, c.region, c.kind, c.value)
 	}
-	m.pendingSession = &c
-	m.confirm.ShowQuick(fmt.Sprintf(
+	m.askQuick(fmt.Sprintf(
 		"%s running on %s. %s in the background. Switch the %s to %s?",
-		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value), confirmSessionSwitch)
-	m.openOverlay(ovConfirm)
+		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value),
+		func(m Model) (Model, tea.Cmd) { return m.switchSession(c.profile, c.region, c.kind, c.value) },
+		func(m Model) (Model, tea.Cmd) {
+			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", c.kind, c.value)
+			return m, nil
+		})
 	return m, nil
 }
 
@@ -1239,8 +1169,7 @@ func (m Model) requestQuit() (Model, tea.Cmd) {
 	if n == 0 {
 		return m.quitNow()
 	}
-	m.confirm.ShowQuick(fmt.Sprintf("%s running. Quit and cancel %s?", countOps(n), itOrThem(n)), confirmQuit)
-	m.openOverlay(ovConfirm)
+	m.askQuit(fmt.Sprintf("%s running. Quit and cancel %s?", countOps(n), itOrThem(n)))
 	return m, nil
 }
 
@@ -1333,8 +1262,7 @@ func (m *Model) showModePicker() {
 	if !ui.IsReadOnly() {
 		currentIdx = 1
 	}
-	m.picker.Show("mode", "Access Mode", options, currentIdx)
-	m.openOverlay(ovPicker)
+	m.pick("Access Mode", options, currentIdx, onPicked(Model.applyMode))
 }
 
 func (m Model) applyMode(mode string) (Model, tea.Cmd) {
@@ -1366,8 +1294,7 @@ func (m *Model) showRegionPicker() {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: r})
 	}
-	m.picker.Show("region", "Select Region", options, currentIdx)
-	m.openOverlay(ovPicker)
+	m.pick("Select Region", options, currentIdx, onPicked(Model.applyRegion))
 }
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
@@ -1388,12 +1315,14 @@ func (m Model) setTheme(name string) (Model, tea.Cmd) {
 		ui.ActiveTheme = t
 		ui.RebuildStyles()
 	}
+	// Every open prompt gets a decline before its component goes away.
+	declines := m.closePrompts()
 	cmd := m.resetNav()
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
 	m.pruneOverlays()
 	m.resizeOverlays()
-	return m, cmd
+	return m, tea.Batch(declines, cmd)
 }
 
 func (m Model) View() tea.View {

@@ -38,12 +38,12 @@ func TestSkippedPromptIsANoForItsView(t *testing.T) {
 	m := newTestModel(140, 40)
 	v := &answerView{EventLog: views.NewEventLog()}
 	m.pushView(v)
-	m.confirm.ShowQuick("Quit?", confirmQuit)
+	m.askQuit("Quit?")
 
 	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Replace it?", Action: "s3_overwrite:1"}})
 	require.Len(t, v.answers, 1)
 	assert.Equal(t, ui.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"}, v.answers[0])
-	assert.Equal(t, confirmQuit, m.confirm.Action())
+	assert.True(t, m.quitAsked(), "the quit confirm stays")
 }
 
 // These tests cover M3: view contexts, background operations, and the
@@ -139,12 +139,10 @@ func TestBackgroundOperationSurvivesLeavingAndSwitching(t *testing.T) {
 
 	m, _ = m.applyRegion("eu-west-1")
 	require.True(t, m.confirm.Visible(), "a switch with a running operation asks first")
-	assert.Equal(t, confirmSessionSwitch, m.confirm.Action())
 	assert.Contains(t, m.confirm.View(), "keeps running in the background")
 	assert.NotEqual(t, "eu-west-1", m.activeRegion(), "nothing switches before the answer")
 
-	m.confirm = ui.NewConfirm()
-	m, _ = update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: confirmSessionSwitch})
+	m = answer(t, m, press("y"))
 	assert.Equal(t, "eu-west-1", m.activeRegion())
 	require.NoError(t, ctx.Err(), "the operation keeps running after the switch")
 	assert.Equal(t, 1, m.ops.Count())
@@ -155,10 +153,10 @@ func TestDeclinedSessionSwitchKeepsTheSession(t *testing.T) {
 	before := m.activeRegion()
 	m = startTestOp(t, m)
 	m, _ = m.applyRegion("eu-west-1")
-	m.confirm = ui.NewConfirm()
-	m, _ = update(t, m, ui.ConfirmResultMsg{Confirmed: false, Action: confirmSessionSwitch})
+	m = answer(t, m, press("n"))
 	assert.Equal(t, before, m.activeRegion())
-	assert.Nil(t, m.pendingSession)
+	assert.False(t, m.confirm.Visible())
+	assert.Empty(t, m.overlays, "nothing waits for an answer")
 }
 
 func TestSessionSwitchWithoutOperationsDoesNotAsk(t *testing.T) {
@@ -175,18 +173,20 @@ func TestQuitWithARunningOperationAsks(t *testing.T) {
 
 	m, cmd := update(t, m, press("q"))
 	assert.Nil(t, cmd, "no quit before the answer")
-	require.True(t, m.confirm.Visible())
-	assert.Equal(t, confirmQuit, m.confirm.Action())
+	require.True(t, m.quitAsked())
 	require.NoError(t, ctx.Err())
 
-	m, _ = update(t, m, press("n"))
-	m, cmd = update(t, m, ui.ConfirmResultMsg{Confirmed: false, Action: confirmQuit})
+	m, cmd = update(t, m, press("n"))
+	require.NotNil(t, cmd)
+	m, cmd = update(t, m, cmd())
 	assert.Nil(t, cmd)
 	require.NoError(t, ctx.Err(), "no keeps the operation")
 
 	m, _ = update(t, m, keyCtrlC)
-	require.True(t, m.confirm.Visible(), "ctrl+c asks too")
-	_, cmd = update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: confirmQuit})
+	require.True(t, m.quitAsked(), "ctrl+c asks too")
+	m, cmd = update(t, m, press("y"))
+	require.NotNil(t, cmd)
+	_, cmd = update(t, m, cmd())
 	require.NotNil(t, cmd)
 	assert.IsType(t, tea.QuitMsg{}, cmd())
 	require.ErrorIs(t, ctx.Err(), context.Canceled, "quitting cancels the operation")
@@ -231,12 +231,12 @@ func TestLatePromptDoesNotReplaceAnOpenPrompt(t *testing.T) {
 	m := newTestModel(140, 40)
 	m = startTestOp(t, m)
 	m, _ = update(t, m, press("q"))
-	require.Equal(t, confirmQuit, m.confirm.Action())
+	require.True(t, m.quitAsked())
 
 	late := msg.RequestConfirmMsg{Message: "s3://b/k exists. Replace it?", Action: "s3_overwrite"}
 	m, cmd := update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: late})
 	assert.True(t, m.confirm.Visible())
-	assert.Equal(t, confirmQuit, m.confirm.Action(), "the open prompt stays")
+	assert.True(t, m.quitAsked(), "the open prompt stays")
 	require.NotNil(t, cmd)
 	assert.True(t, m.toasts.HasActive(), "the user learns about the skipped prompt")
 }

@@ -42,15 +42,14 @@ Execute the `tea.Cmd` returned by `Update()`, type-assert the resulting `tea.Msg
 func TestFeaturePickerResultNavigatesToView(t *testing.T) {
     m := newTestModel(140, 40)
 
-    // Simulate picker selection
-    result, cmd := m.Update(msg.PickerResultMsg{ID: "feature", Selected: 1, Value: "ami_list"})
-    m = result.(Model)
-    require.NotNil(t, cmd)
-
-    // Execute the NavigateMsg cmd and feed back
-    navMsg := cmd()
-    result, _ = m.Update(navMsg)
-    m = result.(Model)
+    // Open the picker and pick the second option with the keys. The
+    // reply goes to the handler of the picker, which returns a cmd
+    // that sends a NavigateMsg.
+    m.showFeaturePicker(msg.RequestFeaturePickerMsg{
+        Service: "EC2", Labels: []string{"Instances", "AMIs"}, ViewIDs: []string{"ec2_list", "ami_list"},
+    })
+    m, _ = update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+    m = answer(t, m, keyEnter) // runs each cmd and feeds its message back
 
     assert.Equal(t, "AMIs", m.nav.Current().Title())
 }

@@ -95,6 +95,11 @@ func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) 
 	p.keepCursorVisible()
 }
 
+// ID returns the ID of the picker that is shown or was shown last.
+func (p Picker) ID() string {
+	return p.id
+}
+
 // SetMaxHeight sets the most rows the dialog may use, border included.
 // The app gives it the terminal height. 0 means no limit.
 func (p *Picker) SetMaxHeight(h int) {

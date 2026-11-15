@@ -213,15 +213,12 @@ func TestFeaturePickerResultNavigatesToView(t *testing.T) {
 	m := newTestModel(140, 40)
 	initialDepth := m.nav.Depth()
 
-	// Simulate picker selection of "AMIs" (index 1, value "ami_list")
-	result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Selected: 1, Value: "ami_list"})
-	m = result.(Model)
-	require.NotNil(t, cmd)
-
-	// Execute the NavigateMsg cmd
-	navMsg := cmd()
-	result, _ = m.Update(navMsg)
-	m = result.(Model)
+	// Pick "AMIs", the second option.
+	m.showFeaturePicker(msg.RequestFeaturePickerMsg{
+		Service: "EC2", Labels: []string{"Instances", "AMIs"}, ViewIDs: []string{"ec2_list", "ami_list"},
+	})
+	m, _ = update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = answer(t, m, keyEnter)
 
 	assert.Greater(t, m.nav.Depth(), initialDepth)
 	assert.Equal(t, "AMIs", m.nav.Current().Title())
@@ -231,11 +228,13 @@ func TestFeaturePickerEscDoesNothing(t *testing.T) {
 	m := newTestModel(140, 40)
 	initialDepth := m.nav.Depth()
 
-	result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Outcome: ui.PickCancelled, Selected: -1})
-	m = result.(Model)
+	m.showFeaturePicker(msg.RequestFeaturePickerMsg{
+		Service: "EC2", Labels: []string{"Instances", "AMIs"}, ViewIDs: []string{"ec2_list", "ami_list"},
+	})
+	m = answer(t, m, press("esc"))
 
+	assert.False(t, m.picker.Visible())
 	assert.Equal(t, initialDepth, m.nav.Depth())
-	assert.Nil(t, cmd)
 }
 
 // --- Region/profile apply ---
