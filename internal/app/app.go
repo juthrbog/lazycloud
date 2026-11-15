@@ -536,6 +536,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		initialIdx := max(msg.CurrentCol, 0)
 		m.picker.Show("sort", "Sort by Column", options, initialIdx)
+		m.picker.SetClearable(true) // ctrl+x removes the sort
 		return m, nil
 
 	case appmsg.RequestFeaturePickerMsg:
@@ -605,7 +606,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Service picker: navigate to selected service (or show feature picker for multi-feature)
 		if msg.ID == "service" {
-			if msg.Selected < 0 {
+			if !msg.Picked() {
 				return m, nil
 			}
 			for _, svc := range registry.Services {
@@ -635,7 +636,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Feature picker: navigate to the selected view
 		if msg.ID == "feature" {
-			if msg.Selected < 0 {
+			if !msg.Picked() {
 				return m, nil
 			}
 			viewID := msg.Value
@@ -645,13 +646,13 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Sort and action pickers: route to current view
 		if msg.ID == "sort" || msg.ID == "action" {
-			if msg.Selected == -1 {
-				return m, nil // esc cancel — do nothing
+			if msg.Outcome == ui.PickCancelled {
+				return m, nil // esc: the view does not hear of it (until A7 PR 3)
 			}
 			cmd := m.nav.UpdateCurrent(msg)
 			return m, cmd
 		}
-		if msg.Selected < 0 {
+		if !msg.Picked() {
 			return m, nil
 		}
 		switch msg.ID {

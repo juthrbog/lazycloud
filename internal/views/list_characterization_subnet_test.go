@@ -390,7 +390,7 @@ func TestCharSubnet_SortPicker(t *testing.T) {
 	assert.Equal(t, "subnet-aa", netRows(v)[0][:9])
 	_, cmd = v.Update(keyPress('s'))
 	req, _ = firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
-	assert.Equal(t, -1, req.CurrentCol, "_clear clears the sort")
+	assert.Equal(t, -1, req.CurrentCol, "a clear removes the sort")
 }
 
 func TestCharSubnet_CopySpaceEsc(t *testing.T) {

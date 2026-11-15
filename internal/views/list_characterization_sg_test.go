@@ -318,7 +318,7 @@ func TestCharSG_SortPicker(t *testing.T) {
 	assert.Equal(t, "Group ID | Name | VPC | In | Out", netHeader(v))
 	_, cmd = v.Update(keyPress('s'))
 	req, _ = firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
-	assert.Equal(t, -1, req.CurrentCol, "_clear clears the sort")
+	assert.Equal(t, -1, req.CurrentCol, "a clear removes the sort")
 }
 
 func TestCharSG_InCountSortsAsNumber(t *testing.T) {

@@ -309,7 +309,7 @@ func (e *EC2List) manage() tea.Cmd {
 // onActionPicked asks for confirmation of the picked action. A canceled
 // picker forgets the targets.
 func (e *EC2List) onActionPicked(m ui.PickerResultMsg) tea.Cmd {
-	if a, ok := ec2ActionByLabel(m.Value); ok && m.Selected >= 0 {
+	if a, ok := ec2ActionByLabel(m.Value); ok && m.Picked() {
 		return e.pending.ask(e.confirmRequest(a))
 	}
 	e.pending.clear()

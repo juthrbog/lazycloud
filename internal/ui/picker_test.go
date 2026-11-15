@@ -224,3 +224,48 @@ func TestPickerWidthStableWhileScrolling(t *testing.T) {
 	}
 	assert.NotContains(t, ansi.Strip(p.View()), strings.Repeat("x", 70), "long label scrolled off")
 }
+
+// closeWith presses k on a picker shown with clearable, and returns the reply.
+func closeWith(t *testing.T, clearable bool, k tea.KeyPressMsg) PickerResultMsg {
+	t.Helper()
+	var p Picker
+	p.Show("id", "Title", pickerOptions(3), 1)
+	p.SetClearable(clearable)
+	p, cmd := p.Update(k)
+	require.False(t, p.Visible())
+	require.NotNil(t, cmd)
+	res, ok := cmd().(PickerResultMsg)
+	require.True(t, ok)
+	return res
+}
+
+func TestPickerOutcomes(t *testing.T) {
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	esc := tea.KeyPressMsg{Code: tea.KeyEscape}
+	ctrlX := tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}
+
+	picked := closeWith(t, false, enter)
+	assert.Equal(t, PickerResultMsg{ID: "id", Outcome: Picked, Selected: 1, Value: "opt-01"}, picked)
+	assert.True(t, picked.Picked())
+
+	for _, clearable := range []bool{false, true} {
+		assert.Equal(t, PickerResultMsg{ID: "id", Outcome: PickCancelled, Selected: -1}, closeWith(t, clearable, esc))
+	}
+	assert.Equal(t, PickerResultMsg{ID: "id", Outcome: PickCancelled, Selected: -1}, closeWith(t, false, ctrlX),
+		"ctrl+x cancels a picker that cannot be cleared")
+	cleared := closeWith(t, true, ctrlX)
+	assert.Equal(t, PickerResultMsg{ID: "id", Outcome: PickCleared, Selected: -1}, cleared)
+	assert.False(t, cleared.Picked())
+}
+
+// The default hint names ctrl+x only on a clearable picker, and Show makes
+// the picker not clearable again.
+func TestPickerClearHint(t *testing.T) {
+	var p Picker
+	p.Show("id", "Title", pickerOptions(3), 0)
+	assert.NotContains(t, ansi.Strip(p.View()), "ctrl+x")
+	p.SetClearable(true)
+	assert.Contains(t, ansi.Strip(p.View()), "ctrl+x clear")
+	p.Show("id", "Title", pickerOptions(3), 0)
+	assert.NotContains(t, ansi.Strip(p.View()), "ctrl+x", "Show resets the clear flag")
+}

@@ -526,7 +526,7 @@ func TestCharEC2_SortPicker(t *testing.T) {
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
 	assert.Equal(t, []string{"i-2", "i-1", "i-3"}, ids())
 
-	// A cancelled picker does nothing; _clear clears.
+	// A cancelled picker does nothing, and a clear removes the sort.
 	v.Update(sortCancelled())
 	assert.Equal(t, []string{"i-2", "i-1", "i-3"}, ids())
 	v.Update(sortCleared())

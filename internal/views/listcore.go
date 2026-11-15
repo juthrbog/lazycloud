@@ -444,15 +444,7 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 		c.table.Filter(m.Text)
 		return nil, true
 	case ui.PickerResultMsg:
-		if m.ID != "sort" {
-			return nil, false
-		}
-		if m.Value == "_clear" {
-			c.table.ClearSort()
-		} else if m.Selected >= 0 {
-			c.table.Sort(m.Selected)
-		}
-		return nil, true
+		return nil, applySortPick(&c.table, m)
 	case tea.KeyPressMsg:
 		return c.handleKey(m)
 	}

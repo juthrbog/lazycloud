@@ -320,7 +320,7 @@ func (s *SQSQueues) manage() tea.Cmd {
 // onActionPicked opens the send form or the confirm prompt of the picked
 // action.
 func (s *SQSQueues) onActionPicked(m ui.PickerResultMsg) tea.Cmd {
-	if m.Selected < 0 {
+	if !m.Picked() {
 		return nil
 	}
 	urls := s.pending.keys

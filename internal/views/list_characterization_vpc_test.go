@@ -349,7 +349,7 @@ func TestCharVPC_SortPicker(t *testing.T) {
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10])
 	_, cmd = v.Update(keyPress('s'))
 	req, _ = firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
-	assert.Equal(t, -1, req.CurrentCol, "_clear clears the sort")
+	assert.Equal(t, -1, req.CurrentCol, "a clear removes the sort")
 }
 
 func TestCharVPC_CursorKeptAcrossReload(t *testing.T) {

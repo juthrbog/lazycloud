@@ -143,7 +143,7 @@ func TestEscKeepsTheOperation(t *testing.T) {
 	m := newTestModel(140, 40)
 	m = startTestOp(t, m)
 	m, _ = update(t, m, keyCtrlX)
-	m, _ = update(t, m, ui.PickerResultMsg{ID: cancelPickerID, Selected: -1})
+	m, _ = update(t, m, ui.PickerResultMsg{ID: cancelPickerID, Outcome: ui.PickCancelled, Selected: -1})
 	require.NoError(t, m.ops.Running()[0].Ctx.Err())
 	m.ops.CancelAll()
 }

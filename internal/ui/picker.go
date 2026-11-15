@@ -8,12 +8,31 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+// PickOutcome says how a picker closed.
+type PickOutcome uint8
+
+const (
+	// Picked: the user picked an option. It is the zero value, so a
+	// PickerResultMsg with only Selected and Value set is a pick.
+	Picked PickOutcome = iota
+	// PickCancelled: the user closed the picker with esc, or with ctrl+x
+	// on a picker that cannot be cleared.
+	PickCancelled
+	// PickCleared: the user pressed ctrl+x on a picker that can be
+	// cleared, such as the sort picker. See Picker.SetClearable.
+	PickCleared
+)
+
 // PickerResultMsg is emitted when the user selects an option or cancels.
 type PickerResultMsg struct {
-	ID       string // picker identifier
-	Selected int    // -1 if cancelled
-	Value    string // selected option value, empty if cancelled
+	ID       string      // picker identifier
+	Outcome  PickOutcome // how the picker closed
+	Selected int         // the index of the picked option; -1 when Outcome is not Picked
+	Value    string      // the value of the picked option; empty when Outcome is not Picked
 }
+
+// Picked reports whether the user picked an option.
+func (r PickerResultMsg) Picked() bool { return r.Outcome == Picked }
 
 // PickerOption is a single selectable item in the picker.
 type PickerOption struct {
@@ -31,6 +50,9 @@ type Picker struct {
 	filter   string         // current search text
 	hint     string         // key hint under the options; "" for the default
 	visible  bool
+	// clearable is true when ctrl+x clears the setting that the picker
+	// changes. Otherwise ctrl+x cancels the picker.
+	clearable bool
 
 	// maxHeight is the most rows the whole dialog may use, border
 	// included. 0 means no limit.
@@ -67,6 +89,7 @@ func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) 
 	p.options = options
 	p.filter = ""
 	p.hint = ""
+	p.clearable = false
 	p.visible = true
 	p.rebuildFiltered()
 
@@ -128,6 +151,13 @@ func (p *Picker) keepCursorVisible() {
 // SetHint replaces the key hint under the options until the next Show.
 func (p *Picker) SetHint(hint string) {
 	p.hint = hint
+}
+
+// SetClearable makes ctrl+x clear the setting that the picker changes,
+// for example the sort of a table, until the next Show. The picker then
+// replies PickCleared, and the default hint names ctrl+x.
+func (p *Picker) SetClearable(clearable bool) {
+	p.clearable = clearable
 }
 
 // Hide dismisses the picker.
@@ -194,14 +224,19 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 			p.visible = false
 			id := p.id
 			return p, func() tea.Msg {
-				return PickerResultMsg{ID: id, Selected: -1}
+				return PickerResultMsg{ID: id, Outcome: PickCancelled, Selected: -1}
 			}
 		case "ctrl+x":
-			// Clear/reset — dismiss picker with a special value
+			// The picker takes ctrl+x, so it never cancels an operation
+			// while the picker is open. It clears or cancels.
 			p.visible = false
 			id := p.id
+			outcome := PickCancelled
+			if p.clearable {
+				outcome = PickCleared
+			}
 			return p, func() tea.Msg {
-				return PickerResultMsg{ID: id, Selected: -2, Value: "_clear"}
+				return PickerResultMsg{ID: id, Outcome: outcome, Selected: -1}
 			}
 		case "backspace":
 			if len(p.filter) > 0 {
@@ -336,7 +371,10 @@ func (p Picker) View() string {
 	if lay.showHint {
 		hint := p.hint
 		if hint == "" {
-			hint = "↑↓ navigate  enter select  ctrl+x clear  esc cancel"
+			hint = "↑↓ navigate  enter select  esc cancel"
+			if p.clearable {
+				hint = "↑↓ navigate  enter select  ctrl+x clear  esc cancel"
+			}
 		}
 		b.WriteString("\n" + hintStyle.Render(hint))
 	}
