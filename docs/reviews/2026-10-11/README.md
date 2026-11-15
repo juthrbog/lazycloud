@@ -225,7 +225,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 
 ## Low
 
-- [ ] L1. `pushView` sizes the view with `height-5` (`app.go:595`) and ignores the footer that `chromeHeight` counts. The view draws 22 lines into 20, so the last 2 rows are cut off until the next resize.
+- [x] L1. Fixed in #274 (A11): `pushView` and `resizeViews` both use `contentSize()`, which also counts the operations line and the side panel. `pushView` sized the view with `height-5` (`app.go:595`) and ignores the footer that `chromeHeight` counts. The view draws 22 lines into 20, so the last 2 rows are cut off until the next resize.
 - [x] L2. Fixed in #232: the navigator has no cache. A popped view is gone, and opening a resource again builds a new view. The navigator cache never removes views (`navigator.go:35-43`). Content viewers get unique IDs, so the cache keeps each one forever, up to 1 MB each. When the ID is already on the stack, the navigator pushes the same pointer twice. This happens for `L` on the event log, VPC and subnet links, and SQS DLQ links.
 - [x] L3. Fixed in #215: each `Home.Init()` starts a tick chain with a new generation, and the app calls it each time Home is shown again. The home animation tick has no generation (`home.go:44-55`). `:home` on Home starts a second tick chain, so the animation runs twice as fast. A theme or region reset from a deeper view never restarts the tick, so the animation stops.
 - [ ] L4. Configuration gaps: flags can only turn booleans off, so nothing can turn nerd fonts back on. Read-write mode cannot be set in the file. Unknown keys such as `nerd_font` are ignored without a warning. A missing `--config` file is ignored without a warning. `--init-config` says "written" when the file exists. `AWS_ENDPOINT_URL` forces the dummy `test` credentials.
@@ -392,7 +392,7 @@ Three gaps cause most of the bugs above:
   ```
 
   The base type owns the keymap, filter, sort, spinner, footer, error view, width tiers, paging with view and generation guards, selection by ID, deferred focus, selective refresh, copy ID, `InputActive()`, ReadOnly at key press and at run time, prompts that list names, and per-item results. Each view supplies columns, rows, detail tabs, fetch functions, actions, and extra keys. Migration order: port sg, vpc, and subnet first. Then add actions and port ec2 and sqs_queues. Then port AMI, with search as a second fetch. Keep s3_objects and sqs_messages custom, but reuse the helpers. Write one conformance test suite that runs against every spec.
-- [ ] A11. Use one `contentSize()` function for `pushView` and `resizeViews` (L1). Remove content views from the cache when they close (L2).
+- [x] A11. Done in #274: one `contentSize()` function for `pushView` and `resizeViews` (L1). L2 was fixed in #232, when the navigator lost its cache.
 - [ ] A12. Typed tags for the prompts of the views, split from A7 (decision D1 in `docs/design/a7-overlays.md`). A confirm request carries a typed tag with its frozen targets, which removes `pendingConfirm` and `"s3_overwrite:N"`. Typed sort and action pickers remove the label matching and `PickerResultMsg.ID`. Do this after A7.
 
 ## ReadOnly coverage

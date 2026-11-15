@@ -785,14 +785,13 @@ func (m Model) resizeCmd() tea.Cmd {
 	return nil
 }
 
-// pushView pushes a view onto the navigator and sends it the current window size.
+// pushView pushes a view onto the navigator and sends it the size that
+// resizeViews would give it (see contentSize).
 func (m *Model) pushView(v nav.View) tea.Cmd {
 	initCmd := m.nav.Push(v)
 	if m.width > 0 && m.height > 0 {
-		sizeCmd := m.nav.UpdateCurrent(tea.WindowSizeMsg{
-			Width:  m.width - 2,
-			Height: m.height - 5,
-		})
+		w, h := m.contentSize()
+		sizeCmd := m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: w, Height: h})
 		return tea.Batch(initCmd, sizeCmd)
 	}
 	return initCmd
@@ -976,18 +975,28 @@ func (m Model) chromeHeight() int {
 	return h
 }
 
+// contentSize returns the size of the view on top: the window without the
+// header, the status bar, the border, the footer of the view, and the
+// operations line. When the side panel is open, the view gets the width
+// next to it. pushView and resizeViews both use it, so a view that opens
+// gets the same size as after a resize.
+func (m Model) contentSize() (width, height int) {
+	height = m.height - m.chromeHeight()
+	width = m.width - 2 // the borders of the main box
+	if m.panelOpen && m.panel != nil {
+		width = m.width - m.panelWidth() - 3 // panel, gap (1), main borders (2)
+	}
+	return width, height
+}
+
 func (m *Model) resizeViews() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	innerH := m.height - m.chromeHeight()
+	w, h := m.contentSize()
+	m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: w, Height: h})
 	if m.panelOpen && m.panel != nil {
-		pw := m.panelWidth()
-		mainW := m.width - pw - 3 // inner content width: total(m.width) - panel(pw) - gap(1) - main borders(2)
-		m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: mainW, Height: innerH})
-		m.panel.SetSize(pw-2, innerH)
-	} else {
-		m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: m.width - 2, Height: innerH})
+		m.panel.SetSize(m.panelWidth()-2, h)
 	}
 }
 
