@@ -109,9 +109,11 @@ func (m Model) showCancelPicker() (Model, tea.Cmd) {
 			Value: strconv.Itoa(op.ID),
 		}
 	}
-	m.pick("Cancel which operation?", options, 0, Model.cancelOp)
-	m.picker.SetHint("↑↓ navigate  enter cancel it  esc keep running")
-	return m, nil
+	cmd := m.pick("Cancel which operation?", options, 0, Model.cancelOp)
+	if m.picker.Visible() {
+		m.picker.SetHint("↑↓ navigate  enter cancel it  esc keep running")
+	}
+	return m, cmd
 }
 
 // cancelOp cancels the operation that the user picked. The operation ends
