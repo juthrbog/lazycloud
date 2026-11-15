@@ -27,9 +27,6 @@ func opsTick() tea.Cmd {
 	return tea.Tick(opsTickInterval, func(time.Time) tea.Msg { return opsTickMsg{} })
 }
 
-// cancelPickerID is the picker that asks which operation to cancel.
-const cancelPickerID = "cancel_op"
-
 // maxOpTextWidth limits the text of one operation in the cancel picker.
 const maxOpTextWidth = 70
 
@@ -112,8 +109,7 @@ func (m Model) showCancelPicker() (Model, tea.Cmd) {
 			Value: strconv.Itoa(op.ID),
 		}
 	}
-	m.picker.Show(cancelPickerID, "Cancel which operation?", options, 0)
-	m.openOverlay(ovPicker)
+	m.pick("Cancel which operation?", options, 0, Model.cancelOp)
 	m.picker.SetHint("↑↓ navigate  enter cancel it  esc keep running")
 	return m, nil
 }
