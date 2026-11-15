@@ -153,3 +153,31 @@ func TestFormSubmitUsesFieldValues(t *testing.T) {
 	assert.False(t, out.result.Aborted)
 	assert.Equal(t, map[string]string{"a": "one!", "b": "keep"}, out.result.Values)
 }
+
+// The app sends the reply of the discard confirm to the form. A yes closes
+// the form, a no keeps it open, and a reply to another question does
+// nothing.
+func TestFormDiscardReply(t *testing.T) {
+	newDirty := func() *FormView {
+		f := newTestForm(t, msg.FormField{Key: "name", Title: "Name"})
+		var out formOut
+		formType(t, f, "x", &out)
+		send(t, f, keyEsc, &out)
+		require.True(t, out.discard)
+		return f
+	}
+
+	f := newDirty()
+	var out formOut
+	send(t, f, ConfirmResultMsg{Confirmed: false, Action: FormDiscardAction}, &out)
+	assert.Nil(t, out.result, "a no keeps the form")
+	send(t, f, ConfirmResultMsg{Confirmed: true, Action: "other"}, &out)
+	assert.Nil(t, out.result, "a reply to another question")
+	send(t, f, ConfirmResultMsg{Confirmed: true, Action: FormDiscardAction}, &out)
+	require.NotNil(t, out.result, "a yes closes the form")
+	assert.Equal(t, msg.FormResultMsg{ID: "test", Aborted: true}, *out.result)
+
+	out = formOut{}
+	send(t, f, ConfirmResultMsg{Confirmed: true, Action: FormDiscardAction}, &out)
+	assert.Nil(t, out.result, "a closed form sends no second result")
+}

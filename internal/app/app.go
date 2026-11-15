@@ -52,6 +52,7 @@ type Model struct {
 	help       ui.HelpOverlay
 	commandBar ui.CommandBar
 	overlays   overlayStack // the open overlays, bottom first
+	forms      []formRoute  // the open forms and the views that asked for them
 	toasts     ui.ToastManager
 	width      int
 	height     int
@@ -227,10 +228,27 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		}
 		return m.showSortPicker(inner.(appmsg.RequestSortPickerMsg), r.Origin), nil
 
+	case appmsg.RequestFormMsg, appmsg.FormResultMsg, ui.RequestFormDiscardConfirmMsg:
+		// A form acts on what the user sees, like navigation below. The
+		// app records the view that asked, and the result goes to it.
+		if !m.nav.IsCurrent(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view is not on top", inner, r.Origin.ID())
+			return m, nil
+		}
+		switch inner := inner.(type) {
+		case appmsg.RequestFormMsg:
+			return m.openForm(inner, r.Origin)
+		case appmsg.FormResultMsg:
+			if fv, ok := r.Origin.(*ui.FormView); ok {
+				return m.finishForm(fv, inner)
+			}
+		default:
+			return m.askDiscard(r.Origin), nil
+		}
+		return m.Update(inner)
+
 	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
-		appmsg.RequestFormMsg, appmsg.FormResultMsg,
-		appmsg.RequestFeaturePickerMsg, ui.RequestFormDiscardConfirmMsg,
-		ui.ContentLinkActivatedMsg:
+		appmsg.RequestFeaturePickerMsg, ui.ContentLinkActivatedMsg:
 		// Navigation, overlays, and the side panel act on what the user sees.
 		// A late result from a view that is no longer on top must not move
 		// the user or open a dialog or panel over an unrelated view.
@@ -532,13 +550,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.RequestFormMsg:
-		formView := ui.NewFormView(msg)
-		m.dismissPanel()
-		cmd := m.pushView(formView)
-		return m, cmd
+		// A request without an origin. Its result goes the old way.
+		return m.openForm(msg, nil)
 
 	case appmsg.FormResultMsg:
-		// Pop the form view, then route the result to the revealed parent view.
+		// A result that no form sent. Pop the top view and send the result
+		// to the view below (until PR 8).
 		if m.nav.Depth() > 1 {
 			m.nav.Pop()
 			m.resizeViews()
@@ -547,9 +564,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ui.RequestFormDiscardConfirmMsg:
-		m.confirm.ShowQuick("Discard unsaved changes?", "form_discard")
-		m.openOverlay(ovConfirm)
-		return m, nil
+		// A request without an origin. Its reply goes the old way.
+		return m.askDiscard(nil), nil
 
 	case appmsg.RequestConfirmMsg:
 		// A request without an origin. Its reply goes the old way.
@@ -598,7 +614,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingTheme = ""
 			return m, nil
 		}
-		if msg.Action == "form_discard" {
+		if msg.Action == ui.FormDiscardAction {
+			// The reply to a discard confirm without an origin (until PR 8).
 			if msg.Confirmed {
 				if fv, ok := m.nav.Current().(*ui.FormView); ok {
 					formID := fv.FormID()
@@ -1300,6 +1317,7 @@ func (m *Model) resetNav() tea.Cmd {
 	// Stop the loads of the old views. Background operations keep running.
 	m.nav.Close()
 	m.nav = nav.New(views.NewHome())
+	m.forms = nil
 	if m.svcErr != nil {
 		m.err, m.errView = noSessionText(m.svcErr), m.nav.Current()
 	}

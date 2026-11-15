@@ -15,6 +15,10 @@ import (
 // when the user presses Esc on a form with unsaved modifications.
 type RequestFormDiscardConfirmMsg struct{}
 
+// FormDiscardAction is the Action of the discard confirm. The app sends the
+// reply to the form that asked.
+const FormDiscardAction = "form_discard"
+
 // FormView wraps a huh.Form as a nav.View, providing a reusable multi-field
 // form that integrates with the app's message routing and theme system.
 type FormView struct {
@@ -105,6 +109,18 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m := m.(type) {
+	case ConfirmResultMsg:
+		if m.Action != FormDiscardAction {
+			return f, nil
+		}
+		if !m.Confirmed {
+			return f, nil // keep editing
+		}
+		f.done = true
+		formID := f.formID
+		return f, func() tea.Msg {
+			return msg.FormResultMsg{ID: formID, Aborted: true}
+		}
 	case tea.WindowSizeMsg:
 		f.width = m.Width
 		f.height = m.Height
