@@ -399,17 +399,19 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	// Remove expired toasts as a fallback in case dismiss commands were dropped.
 	m.toasts.Cleanup()
 
-	// The overlay on top of the stack gets each key press. Other messages,
+	// The overlay on top of the stack gets each key press and each paste,
+	// so a paste does not go into the view under a picker. Other messages,
 	// such as page loads and spinner ticks, go on to the normal routing.
-	if k, isKey := teaMsg.(tea.KeyPressMsg); isKey {
-		if m.quitAsked() && k.String() == "ctrl+c" {
+	switch input := teaMsg.(type) {
+	case tea.KeyPressMsg, tea.PasteMsg:
+		if k, isKey := input.(tea.KeyPressMsg); isKey && m.quitAsked() && k.String() == "ctrl+c" {
 			// A second ctrl+c quits without the answer, also when a late
 			// picker opened over the quit confirm.
 			return m.quitNow()
 		}
 		m.pruneOverlays()
 		if top, ok := m.overlays.top(); ok {
-			return m.sendOverlayKey(top, k)
+			return m.sendOverlayInput(top, input)
 		}
 	}
 

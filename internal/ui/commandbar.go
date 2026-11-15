@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -23,7 +24,7 @@ type CommandEntry struct {
 // CommandBar is a vim/k9s-style text input at the bottom of the screen
 // with autocomplete suggestions and command history.
 type CommandBar struct {
-	input     string
+	input     queryInput
 	visible   bool
 	commands  []CommandEntry
 	filtered  []int // indices into commands matching input
@@ -46,7 +47,7 @@ func NewCommandBar() CommandBar {
 func (c *CommandBar) Show(commands []CommandEntry, width int) {
 	c.commands = commands
 	c.width = width
-	c.input = ""
+	c.input = queryInput{}
 	c.visible = true
 	c.selected = -1
 	c.histIdx = -1
@@ -105,14 +106,14 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 
 		switch key {
 		case "enter":
-			if c.input == "" {
+			if c.query() == "" {
 				c.visible = false
 				return c, func() tea.Msg {
 					return CommandBarResultMsg{Cancelled: true}
 				}
 			}
 			c.visible = false
-			value := c.input
+			value := c.query()
 			if len(c.filtered) > 0 {
 				idx := 0
 				if c.selected >= 0 && c.selected < len(c.filtered) {
@@ -137,7 +138,7 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 				idx = c.selected
 			}
 			if len(c.filtered) > 0 {
-				c.input = c.commands[c.filtered[idx]].Name
+				c.input.set(c.commands[c.filtered[idx]].Name)
 				c.selected = -1
 				c.histIdx = -1
 				c.rebuildFiltered()
@@ -153,12 +154,12 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			case c.selected == -1 && len(c.history) > 0:
 				// Start browsing history
 				if c.histIdx == -1 {
-					c.histDraft = c.input
+					c.histDraft = c.input.String()
 					c.histIdx = len(c.history) - 1
 				} else if c.histIdx > 0 {
 					c.histIdx--
 				}
-				c.input = c.history[c.histIdx]
+				c.input.set(c.history[c.histIdx])
 				c.rebuildFiltered()
 			}
 			return c, nil
@@ -169,11 +170,11 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 				// Browsing history forward
 				if c.histIdx < len(c.history)-1 {
 					c.histIdx++
-					c.input = c.history[c.histIdx]
+					c.input.set(c.history[c.histIdx])
 				} else {
 					// Back to draft
 					c.histIdx = -1
-					c.input = c.histDraft
+					c.input.set(c.histDraft)
 				}
 				c.rebuildFiltered()
 			case c.selected >= 0 && c.selected < len(c.filtered)-1:
@@ -186,8 +187,7 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			return c, nil
 
 		case "backspace":
-			if len(c.input) > 0 {
-				c.input = c.input[:len(c.input)-1]
+			if c.input.update(msg) {
 				c.selected = -1
 				c.histIdx = -1
 				c.rebuildFiltered()
@@ -201,24 +201,28 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			return c, nil
 
 		case "ctrl+u":
-			c.input = ""
+			c.input = queryInput{}
 			c.selected = -1
 			c.histIdx = -1
 			c.rebuildFiltered()
 			return c, nil
 
 		default:
-			// Single printable character
-			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
-				c.input += key
-				c.selected = -1
-				c.histIdx = -1
-				c.rebuildFiltered()
-				return c, nil
-			}
+			c.typed(msg)
 		}
+	case tea.PasteMsg:
+		c.typed(msg)
 	}
 	return c, nil
+}
+
+// typed applies typed or pasted text to the input.
+func (c *CommandBar) typed(msg tea.Msg) {
+	if c.input.update(msg) {
+		c.selected = -1
+		c.histIdx = -1
+		c.rebuildFiltered()
+	}
 }
 
 // ViewInput renders the command input line (replaces the status bar).
@@ -229,9 +233,14 @@ func (c CommandBar) ViewInput(width int) string {
 	s := S
 
 	prefix := s.FilterPrompt.Render(":")
-	inputText := lipgloss.NewStyle().Foreground(ActiveTheme.Text).Render(c.input)
 	cursor := s.CommandCursor.Render("█")
 	hint := s.Muted.Render("  tab complete  ↑↓ history  enter execute  esc cancel")
+	// A long input takes the room of the hint, and then shows its end.
+	room := width - lipgloss.Width(prefix) - lipgloss.Width(cursor)
+	if lipgloss.Width(c.input.String()) > room-lipgloss.Width(hint) {
+		hint = ""
+	}
+	inputText := lipgloss.NewStyle().Foreground(ActiveTheme.Text).Render(c.input.view(room))
 
 	bar := prefix + inputText + cursor + hint
 
@@ -287,59 +296,20 @@ func (c CommandBar) ViewSuggestions() string {
 	return box.Render(b.String())
 }
 
-// rebuildFiltered updates the filtered list based on current input.
+// query returns the input without the spaces around it. A space before or
+// after a command name is not part of the command.
+func (c CommandBar) query() string {
+	return strings.TrimSpace(c.input.String())
+}
+
+// rebuildFiltered updates the filtered list based on current input. A
+// prefix counts only on the name of a command.
 func (c *CommandBar) rebuildFiltered() {
-	c.filtered = c.filtered[:0]
-	query := strings.ToLower(c.input)
-
-	if query == "" {
-		for i := range c.commands {
-			c.filtered = append(c.filtered, i)
-		}
-		return
-	}
-
-	var prefix, contains, fuzzyOnly []int
-	for i, cmd := range c.commands {
-		name := strings.ToLower(cmd.Name)
-		desc := strings.ToLower(cmd.Description)
-
-		// Also check aliases
-		aliasMatch := false
-		for _, alias := range cmd.Aliases {
-			a := strings.ToLower(alias)
-			if strings.HasPrefix(a, query) || strings.Contains(a, query) {
-				aliasMatch = true
-				break
-			}
-		}
-
-		switch {
-		case strings.HasPrefix(name, query):
-			prefix = append(prefix, i)
-		case aliasMatch || strings.Contains(name, query) || strings.Contains(desc, query):
-			contains = append(contains, i)
-		case cmdFuzzyMatch(name, query) || cmdFuzzyMatch(desc, query):
-			fuzzyOnly = append(fuzzyOnly, i)
-		}
-	}
-
-	c.filtered = append(c.filtered, prefix...)
-	c.filtered = append(c.filtered, contains...)
-	c.filtered = append(c.filtered, fuzzyOnly...)
-
+	c.filtered = rankMatches(c.filtered, c.query(), len(c.commands), func(i int) (lead, rest []string) {
+		cmd := c.commands[i]
+		return []string{cmd.Name}, slices.Concat(cmd.Aliases, []string{cmd.Description})
+	})
 	if c.selected >= len(c.filtered) {
 		c.selected = -1
 	}
-}
-
-// cmdFuzzyMatch checks if all chars in pattern appear in s in order.
-func cmdFuzzyMatch(s, pattern string) bool {
-	pi := 0
-	for i := 0; i < len(s) && pi < len(pattern); i++ {
-		if s[i] == pattern[pi] {
-			pi++
-		}
-	}
-	return pi == len(pattern)
 }

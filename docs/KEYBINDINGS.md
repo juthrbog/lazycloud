@@ -105,7 +105,9 @@ Modal UI components that intercept all input when visible and don't expose hints
 - `help.go` -- the help overlay itself (j/k scroll, filter input, esc/? close)
 - `form.go` -- multi-field forms via `huh/v2` (pushed as nav view, not overlay)
 
-These stay string-based because they're self-contained, don't participate in the hint system, and don't benefit from `key.Binding`. Help, the command bar, the confirm dialog and the picker are the overlays of the app. The overlay on top gets every key press before the global keys and the view (see "Overlay Compositing" in [ARCHITECTURE.md](ARCHITECTURE.md)). While a picker is open, `ctrl+x` goes to the picker, so it never cancels a running operation.
+These stay string-based because they're self-contained, don't participate in the hint system, and don't benefit from `key.Binding`. Help, the command bar, the confirm dialog and the picker are the overlays of the app. The overlay on top gets every key press and every paste before the global keys and the view (see "Overlay Compositing" in [ARCHITECTURE.md](ARCHITECTURE.md)). While a picker is open, `ctrl+x` goes to the picker, so it never cancels a running operation.
+
+The picker, the command bar, and the help filter type into the same query input (`queryInput` in `internal/ui/query.go`). It takes the text of a key press, also `space` and letters outside ASCII, and the text of a paste. A shortcut such as `ctrl+a` types nothing, but AltGr types its character. The input removes control characters, a line break or a tab in a paste becomes a space, and `backspace` removes one character as the user sees it. The input keeps at most 256 characters. When the text is wider than its room, the input shows the end of the text after `…`.
 
 ## Input Capture
 

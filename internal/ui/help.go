@@ -13,7 +13,7 @@ import (
 type HelpOverlay struct {
 	viewport viewport.Model
 	visible  bool
-	filter   string
+	filter   queryInput
 	hints    []HintBinding
 	width    int
 	height   int
@@ -29,7 +29,7 @@ func (h *HelpOverlay) Show(hints []HintBinding, width, height int) {
 	h.hints = hints
 	h.width = width
 	h.height = height
-	h.filter = ""
+	h.filter = queryInput{}
 	h.visible = true
 	h.viewport = viewport.New()
 	h.viewport.SetWidth(h.contentWidth())
@@ -77,18 +77,10 @@ func (h HelpOverlay) Update(msg tea.Msg) (HelpOverlay, tea.Cmd) {
 			h.visible = false
 			return h, nil
 		case "backspace":
-			if len(h.filter) > 0 {
-				h.filter = h.filter[:len(h.filter)-1]
-				h.viewport.SetContent(h.renderContent())
-				h.viewport.GotoTop()
-			}
+			h.typed(msg)
 			return h, nil
 		default:
-			// Single printable character → append to filter
-			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
-				h.filter += key
-				h.viewport.SetContent(h.renderContent())
-				h.viewport.GotoTop()
+			if h.typed(msg) {
 				return h, nil
 			}
 		}
@@ -97,9 +89,22 @@ func (h HelpOverlay) Update(msg tea.Msg) (HelpOverlay, tea.Cmd) {
 		var cmd tea.Cmd
 		h.viewport, cmd = h.viewport.Update(msg)
 		return h, cmd
+	case tea.PasteMsg:
+		h.typed(msg)
 	}
 
 	return h, nil
+}
+
+// typed applies typed or pasted text to the filter. It returns true when
+// the filter changed.
+func (h *HelpOverlay) typed(msg tea.Msg) bool {
+	if !h.filter.update(msg) {
+		return false
+	}
+	h.viewport.SetContent(h.renderContent())
+	h.viewport.GotoTop()
+	return true
 }
 
 // View renders the help overlay as a bordered popup.
@@ -112,8 +117,10 @@ func (h HelpOverlay) View() string {
 	var header strings.Builder
 	header.WriteString(s.Title.Render("Keybindings"))
 
-	if h.filter != "" {
-		header.WriteString("  " + s.FilterPrompt.Render("/ "+h.filter))
+	if h.filter.String() != "" {
+		// The title, the gap, and "/ " come before the text.
+		room := h.contentWidth() - lipgloss.Width(header.String()) - 4
+		header.WriteString("  " + s.FilterPrompt.Render("/ "+h.filter.view(room)))
 	} else {
 		header.WriteString("  " + s.Muted.Render("type to filter"))
 	}
@@ -169,8 +176,8 @@ func (h HelpOverlay) renderContent() string {
 	groups := make(map[string][]HintBinding)
 	for _, hint := range h.hints {
 		help := hint.Help()
-		if h.filter != "" {
-			lower := strings.ToLower(h.filter)
+		if h.filter.String() != "" {
+			lower := strings.ToLower(h.filter.String())
 			if !strings.Contains(strings.ToLower(help.Key), lower) &&
 				!strings.Contains(strings.ToLower(help.Desc), lower) &&
 				!strings.Contains(strings.ToLower(hint.Category), lower) {

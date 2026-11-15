@@ -20,6 +20,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260316093931-f2fb44ab3145
 	github.com/pelletier/go-toml/v2 v2.4.3
+	github.com/rivo/uniseg v0.4.7
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/sync v0.24.0
 )
@@ -57,7 +58,6 @@ require (
 	github.com/mattn/go-runewidth v0.0.30 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/xo/terminfo v1.0.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect

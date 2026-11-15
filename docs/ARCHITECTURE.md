@@ -146,7 +146,7 @@ Pickers, confirm dialogs, and toasts render on top of existing content using Lip
 The app has four overlays: help, the command bar, the confirm dialog, and the picker. Each one implements `ui.Overlay` (`Visible`, `Update`, `View`, `SetSize`). The components stay value fields of `app.Model`, and `ui.AsOverlay` adapts a pointer to a field. `internal/app/overlays.go` keeps the open overlays in a stack, bottom first:
 
 - Each time the app shows an overlay, it puts the overlay on top with its route (see below). An overlay that opens again moves to the top. Only help and the command bar have no route.
-- The overlay on top gets each key press. Other messages, such as page loads and ticks, go on to the normal routing. One key comes first: while the quit confirm is open, a second ctrl+c quits.
+- The overlay on top gets each key press and each paste, so a paste does not go into the view under a picker. Other messages, such as page loads and ticks, go on to the normal routing. One key comes first: while the quit confirm is open, a second ctrl+c quits.
 - After a key press, the app removes the overlays that closed.
 - The app draws the views, then the overlays from bottom to top, then the toasts. The command bar draws its suggestions above the input line, and its input line replaces the status bar.
 - On each resize and after a theme switch, every overlay gets `SetSize`, also the closed ones.

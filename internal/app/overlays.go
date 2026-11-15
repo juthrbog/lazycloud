@@ -129,11 +129,12 @@ func (m *Model) openOverlayRoute(k overlayKind, route replyRoute) {
 	m.overlays = m.overlays.push(k, route)
 }
 
-// sendOverlayKey gives a key press to the overlay on top. If the key closes
-// an overlay with a route, the reply goes out with its route.
-func (m Model) sendOverlayKey(top overlayEntry, k tea.KeyPressMsg) (Model, tea.Cmd) {
+// sendOverlayInput gives a key press or a paste to the overlay on top. If
+// the input closes an overlay with a route, the reply goes out with its
+// route.
+func (m Model) sendOverlayInput(top overlayEntry, input tea.Msg) (Model, tea.Cmd) {
 	o := m.overlay(top.kind)
-	cmd := o.Update(k)
+	cmd := o.Update(input)
 	closed := !o.Visible()
 	m.pruneOverlays()
 	if !closed || !top.route.routed() || cmd == nil {
