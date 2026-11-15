@@ -316,7 +316,7 @@ func TestCharSQS_FirstLoadPhasesAndSnapshots(t *testing.T) {
 	assert.Equal(t, "0/0 queues  ⣾  Loading attributes for 2 queues...", plain(v.Footer()))
 	svc.AssertNumberOfCalls(t, "FetchAllQueueAttributes", 1)
 
-	assert.Empty(t, charSQSDeliver(v, attrs...))
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}}, charSQSDeliver(v, attrs...))
 	assert.Equal(t, "Queue Name Type Messages In-Flight Delayed", charSQSHeader(v))
 	assert.Equal(t, []string{"qa Standard 3 0 0", "qb Standard 0 0 0"}, charSQSRows(v))
 	assert.Equal(t, "2/2 queues", plain(v.Footer()))

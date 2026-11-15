@@ -241,7 +241,7 @@ func TestCharSubnet_Paging(t *testing.T) {
 	assert.Equal(t, "1/1 subnets  (loading... 1 so far)  ⣾  Loading subnets... 1 so far", netFooter(v))
 
 	_, done := v.Update(netLoadMsg(next))
-	assert.Nil(t, done)
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}}, collectMsgs(done), "the last page ends the load")
 	// Divergence #14 (fixed in PR 5): the duplicate row is dropped before
 	// the append, so the items stay equal to the table rows.
 	assert.Equal(t, "2/2 subnets", netFooter(v))

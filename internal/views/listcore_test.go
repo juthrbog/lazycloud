@@ -265,7 +265,7 @@ func TestListCore_FocusAndPendingFocus(t *testing.T) {
 	assert.Nil(t, cmd, "stored while loading")
 
 	cmd, _ = c.handle(listPageMsg[fakeItem]{items: []fakeItem{fakeA, fakeB}})
-	assert.Equal(t, []tea.Msg{msg.TabbedContentMsg{PanelTitle: "b"}}, collectMsgs(cmd))
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}, msg.TabbedContentMsg{PanelTitle: "b"}}, collectMsgs(cmd))
 	assert.Equal(t, "b", cursorID(c))
 	assert.Empty(t, c.pendingFocus)
 
@@ -399,7 +399,7 @@ func TestListCore_PagesAppendAndDedupe(t *testing.T) {
 	require.Equal(t, 2, page2.(listPageMsg[fakeItem]).page)
 
 	cmd, _ = c.handle(page2)
-	assert.Nil(t, cmd, "the last page ends the load")
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}}, collectMsgs(cmd), "the last page ends the load")
 	assert.Equal(t, []fakeItem{fakeA, fakeB, fakeC}, c.items, "b is not appended twice")
 	_, total := c.table.RowCount()
 	assert.Len(t, c.items, total, "the items stay equal to the table rows")

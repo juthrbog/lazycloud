@@ -111,7 +111,7 @@ func TestListCore_CompleteBuffersPagesUntilRunReturns(t *testing.T) {
 	assert.Equal(t, []fakeItem{fakeA, fakeB}, r.got[0])
 	assert.True(t, r.deadline, "Run has the Complete timeout")
 
-	assert.Empty(t, collectMsgs(mustHandle(t, c, complete)))
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}}, collectMsgs(mustHandle(t, c, complete)))
 	assert.Equal(t, []fakeItem{{"a", "a-done"}, {"b", "b-done"}}, c.items)
 	assert.Empty(t, c.buf)
 	assert.False(t, c.completing)

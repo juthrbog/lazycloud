@@ -165,7 +165,9 @@ func (c *listCore[T]) defaultSpec() loadSpec[T] {
 // --- lifecycle ---
 
 // init deselects and starts the first load. A view that is shown again
-// (loading is false) does not reload.
+// (loading is false) does not reload. The app opens a list as a new view,
+// and only the home view gets Init again. So a list keeps its selection
+// when the user comes back to it from a view below it.
 func (c *listCore[T]) init() tea.Cmd {
 	c.table.DeselectAll()
 	if !c.loading {
@@ -384,7 +386,7 @@ func (c *listCore[T]) finishLoad() tea.Cmd {
 	c.err = nil
 	c.spinner.Hide()
 	eventlog.Infof(eventlog.CatAWS, "Loaded %d %s (%d pages)", len(c.items), c.cfg.Noun, c.pages)
-	var cmds []tea.Cmd
+	cmds := []tea.Cmd{msg.Loaded}
 	if c.cfg.OnLoaded != nil {
 		cmds = append(cmds, c.cfg.OnLoaded(c.items, c.load.tag))
 	}

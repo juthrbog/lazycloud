@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/msg"
@@ -134,10 +135,8 @@ func buildRulesContent(rules []aws.SecurityGroupRule) string {
 		proto := formatProtocol(r.Protocol)
 		ports := formatPorts(r.Protocol, r.FromPort, r.ToPort)
 		sources := formatRuleSources(r)
-		desc := r.Description
-		if len(desc) > 30 {
-			desc = desc[:27] + "..."
-		}
+		// Cut by display width, so that a multibyte character stays whole.
+		desc := ansi.Truncate(r.Description, 30, "...")
 		fmt.Fprintf(&b, "%-8s %-14s %-40s %s\n", proto, ports, sources, desc)
 	}
 	return b.String()
