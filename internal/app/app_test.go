@@ -443,6 +443,7 @@ func TestHelpOverlayInterceptsInput(t *testing.T) {
 func TestHelpDoesNotOpenWhenPickerVisible(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.picker.Show("test", "Test", []ui.PickerOption{{Label: "a", Value: "a"}}, 0)
+	m.openOverlay(ovPicker)
 	assert.True(t, m.picker.Visible())
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: '?', Text: "?"})

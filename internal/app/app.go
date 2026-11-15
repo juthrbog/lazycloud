@@ -51,6 +51,7 @@ type Model struct {
 	picker     ui.Picker
 	help       ui.HelpOverlay
 	commandBar ui.CommandBar
+	overlays   overlayStack // the open overlays, bottom first
 	toasts     ui.ToastManager
 	width      int
 	height     int
@@ -319,31 +320,18 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	// Remove expired toasts as a fallback in case dismiss commands were dropped.
 	m.toasts.Cleanup()
 
-	// Overlays intercept key input when visible, but let async data messages
-	// (page loads, spinner ticks, etc.) fall through to normal routing.
+	// The overlay on top of the stack gets each key press. Other messages,
+	// such as page loads and spinner ticks, go on to the normal routing.
 	if k, isKey := teaMsg.(tea.KeyPressMsg); isKey {
 		if m.confirm.Visible() && m.confirm.Action() == confirmQuit && k.String() == "ctrl+c" {
-			// A second ctrl+c quits without the answer.
+			// A second ctrl+c quits without the answer, also when a late
+			// picker opened over the quit confirm.
 			return m.quitNow()
 		}
-		if m.picker.Visible() {
-			var cmd tea.Cmd
-			m.picker, cmd = m.picker.Update(teaMsg)
-			return m, cmd
-		}
-		if m.confirm.Visible() {
-			var cmd tea.Cmd
-			m.confirm, cmd = m.confirm.Update(teaMsg)
-			return m, cmd
-		}
-		if m.help.Visible() {
-			var cmd tea.Cmd
-			m.help, cmd = m.help.Update(teaMsg)
-			return m, cmd
-		}
-		if m.commandBar.Visible() {
-			var cmd tea.Cmd
-			m.commandBar, cmd = m.commandBar.Update(teaMsg)
+		m.pruneOverlays()
+		if top, ok := m.overlays.top(); ok {
+			cmd := m.overlay(top.kind).Update(teaMsg)
+			m.pruneOverlays()
 			return m, cmd
 		}
 	}
@@ -376,7 +364,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.picker.SetMaxHeight(msg.Height)
+		m.resizeOverlays()
 		if m.panelOpen && !m.canShowPanel() {
 			m.stashPanel()
 			m.closePanel()
@@ -502,6 +490,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.RequestFormDiscardConfirmMsg:
 		m.confirm.ShowQuick("Discard unsaved changes?", "form_discard")
+		m.openOverlay(ovConfirm)
 		return m, nil
 
 	case appmsg.RequestConfirmMsg:
@@ -512,9 +501,11 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Quick {
 			m.confirm.ShowQuick(msg.Message, msg.Action)
+			m.openOverlay(ovConfirm)
 			return m, nil
 		}
 		m.confirm.Show(msg.Message, msg.Action, msg.Phrase)
+		m.openOverlay(ovConfirm)
 		return m, nil
 
 	case appmsg.RequestActionPickerMsg:
@@ -527,6 +518,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			title = "Action"
 		}
 		m.picker.Show("action", title, options, 0)
+		m.openOverlay(ovPicker)
 		return m, nil
 
 	case appmsg.RequestSortPickerMsg:
@@ -536,6 +528,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		initialIdx := max(msg.CurrentCol, 0)
 		m.picker.Show("sort", "Sort by Column", options, initialIdx)
+		m.openOverlay(ovPicker)
 		m.picker.SetClearable(true) // ctrl+x removes the sort
 		return m, nil
 
@@ -545,6 +538,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			options = append(options, ui.PickerOption{Label: label, Value: msg.ViewIDs[i]})
 		}
 		m.picker.Show("feature", msg.Service, options, 0)
+		m.openOverlay(ovPicker)
 		return m, nil
 
 	case ui.ConfirmResultMsg:
@@ -660,6 +654,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.nav.Depth() > 1 {
 				m.pendingTheme = msg.Value
 				m.confirm.ShowQuick("Switching themes resets the current view. Continue?", "theme_switch")
+				m.openOverlay(ovConfirm)
 				return m, nil
 			}
 			return m.applyTheme(msg.Value)
@@ -738,6 +733,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		case key.Matches(msg, m.keys.CommandBar.Binding):
 			m.commandBar.Show(registry.CommandBarEntries(), m.width)
+			m.openOverlay(ovCommandBar)
 			return m, nil
 		case key.Matches(msg, m.keys.ServicePicker.Binding):
 			if m.nav.Depth() == 1 {
@@ -747,6 +743,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.Help.Binding):
 			hints := m.collectAllKeyHints()
 			m.help.Show(hints, m.width, m.height)
+			m.openOverlay(ovHelp)
 			return m, nil
 		case key.Matches(msg, m.keys.CrossNavBack.Binding):
 			if len(m.crossNavHistory) > 0 {
@@ -1095,6 +1092,7 @@ func (m *Model) showThemePicker() {
 		options = append(options, ui.PickerOption{Label: label, Value: name})
 	}
 	m.picker.Show("theme", "Select Theme", options, currentIdx)
+	m.openOverlay(ovPicker)
 }
 
 func (m *Model) showServicePicker() {
@@ -1104,6 +1102,7 @@ func (m *Model) showServicePicker() {
 		options = append(options, ui.PickerOption{Label: label, Value: svc.Name})
 	}
 	m.picker.Show("service", "Select Service", options, 0)
+	m.openOverlay(ovPicker)
 }
 
 // Common AWS regions, ordered by popularity.
@@ -1151,6 +1150,7 @@ func (m *Model) showProfilePicker() tea.Cmd {
 		options = append(options, ui.PickerOption{Label: label, Value: p})
 	}
 	m.picker.Show("profile", "Select Profile", options, currentIdx)
+	m.openOverlay(ovPicker)
 	return nil
 }
 
@@ -1170,6 +1170,7 @@ func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 	m.confirm.ShowQuick(fmt.Sprintf(
 		"%s running on %s. %s in the background. Switch the %s to %s?",
 		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value), confirmSessionSwitch)
+	m.openOverlay(ovConfirm)
 	return m, nil
 }
 
@@ -1193,6 +1194,7 @@ func (m Model) requestQuit() (Model, tea.Cmd) {
 		return m.quitNow()
 	}
 	m.confirm.ShowQuick(fmt.Sprintf("%s running. Quit and cancel %s?", countOps(n), itOrThem(n)), confirmQuit)
+	m.openOverlay(ovConfirm)
 	return m, nil
 }
 
@@ -1285,6 +1287,7 @@ func (m *Model) showModePicker() {
 		currentIdx = 1
 	}
 	m.picker.Show("mode", "Access Mode", options, currentIdx)
+	m.openOverlay(ovPicker)
 }
 
 func (m Model) applyMode(mode string) (Model, tea.Cmd) {
@@ -1317,6 +1320,7 @@ func (m *Model) showRegionPicker() {
 		options = append(options, ui.PickerOption{Label: label, Value: r})
 	}
 	m.picker.Show("region", "Select Region", options, currentIdx)
+	m.openOverlay(ovPicker)
 }
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
@@ -1340,7 +1344,8 @@ func (m Model) setTheme(name string) (Model, tea.Cmd) {
 	cmd := m.resetNav()
 	m.confirm = ui.NewConfirm()
 	m.picker = ui.NewPicker()
-	m.picker.SetMaxHeight(m.height)
+	m.pruneOverlays()
+	m.resizeOverlays()
 	return m, cmd
 }
 
@@ -1490,34 +1495,7 @@ func (m Model) View() tea.View {
 	}
 	body := lipgloss.JoinVertical(lipgloss.Left, append(parts, statusBar)...)
 
-	// Help overlay
-	if m.help.Visible() {
-		body = composeOverlay(body, m.help.View(), m.width, m.height)
-	}
-
-	// Overlay popup centered on the full screen
-	if m.picker.Visible() || m.confirm.Visible() {
-		var dialog string
-		if m.picker.Visible() {
-			dialog = m.picker.View()
-		} else {
-			dialog = m.confirm.View()
-		}
-		body = composeOverlay(body, dialog, m.width, m.height)
-	}
-
-	// Command bar suggestions above the input line
-	if m.commandBar.Visible() {
-		if suggestions := m.commandBar.ViewSuggestions(); suggestions != "" {
-			sugH := lipgloss.Height(suggestions)
-			y := max(m.height-sugH-1, 0)
-			comp := lipgloss.NewCompositor(
-				lipgloss.NewLayer(body).Z(0),
-				lipgloss.NewLayer(suggestions).X(1).Y(y).Z(1),
-			)
-			body = comp.Render()
-		}
-	}
+	body = m.drawOverlays(body)
 
 	// Overlay toasts in bottom-right
 	if m.toasts.HasActive() {

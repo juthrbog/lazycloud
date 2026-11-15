@@ -143,6 +143,16 @@ Large S3 listings use command chaining: each page fetch returns a message, the h
 
 Pickers, confirm dialogs, and toasts render on top of existing content using Lipgloss's Canvas/Layer system. The background view stays visible around the overlay.
 
+The app has four overlays: help, the command bar, the confirm dialog, and the picker. Each one implements `ui.Overlay` (`Visible`, `Update`, `View`, `SetSize`). The components stay value fields of `app.Model`, and `ui.AsOverlay` adapts a pointer to a field. `internal/app/overlays.go` keeps the open overlays in a stack, bottom first:
+
+- Each time the app shows an overlay, it calls `openOverlay`, which puts the overlay on top. An overlay that opens again moves to the top.
+- The overlay on top gets each key press. Other messages, such as page loads and ticks, go on to the normal routing. One key comes first: while the quit confirm is open, a second ctrl+c quits, also when a late picker opened over the confirm.
+- After a key press, the app removes the overlays that closed.
+- The app draws the views, then the overlays from bottom to top, then the toasts. The command bar draws its suggestions above the input line, and its input line replaces the status bar.
+- On each resize and after a theme switch, every overlay gets `SetSize`, also the closed ones.
+
+`push` makes a new slice, so two copies of `Model` never share a stack. Do not keep an adapter from `AsOverlay`, because it points into one copy of `Model`.
+
 ### Contextual Keybindings
 
 Each view declares its own `KeyMap()` using `key.Binding` structs. The status bar merges view-specific hints with global hints, so available actions update automatically as you navigate. See [KEYBINDINGS.md](KEYBINDINGS.md) for the full dispatch system.
@@ -223,7 +233,7 @@ Multi-field input forms use `charm.land/huh/v2` wrapped in a `FormView` (`intern
 
 **Dirty tracking:** `FormView` snapshots initial field values at construction and compares on Esc. If any field changed, it shows a "Discard unsaved changes?" confirm overlay before closing. Two huh details matter here:
 - `form.GetString(key)` only returns values committed on field transition (Tab/Enter). The focused field's live value must be read via `form.GetFocusedField().GetValue()`.
-- While the confirm overlay is visible, the overlay priority system intercepts all keys before they reach the form, so form data stays intact without extra state management.
+- While the confirm overlay is visible, the overlay stack sends all keys to the confirm before they reach the form, so form data stays intact without extra state management.
 
 ---
 

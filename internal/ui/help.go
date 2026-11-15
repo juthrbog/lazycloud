@@ -37,6 +37,22 @@ func (h *HelpOverlay) Show(hints []HintBinding, width, height int) {
 	h.viewport.SetContent(h.renderContent())
 }
 
+// SetSize gives the help overlay the terminal size. While it is open, it
+// lays out the text again for the new size.
+func (h *HelpOverlay) SetSize(width, height int) {
+	h.width = width
+	h.height = height
+	if !h.visible {
+		return
+	}
+	h.viewport.SetWidth(h.contentWidth())
+	h.viewport.SetHeight(h.contentHeight())
+	h.viewport.SetContent(h.renderContent())
+	// SetContent keeps the vertical offset in range, but not the
+	// horizontal one. Lines that fit the new width must start at column 0.
+	h.viewport.SetXOffset(h.viewport.XOffset())
+}
+
 // Hide dismisses the help overlay.
 func (h *HelpOverlay) Hide() {
 	h.visible = false

@@ -112,6 +112,12 @@ func (p *Picker) SetMaxHeight(h int) {
 	p.keepCursorVisible()
 }
 
+// SetSize gives the picker the terminal size. The dialog fits its width to
+// the options, so only the height counts.
+func (p *Picker) SetSize(_, height int) {
+	p.SetMaxHeight(height)
+}
+
 // layout finds how many option rows fit in maxHeight. When all options do
 // not fit, one line above and one line below the options say how many
 // more there are. When the height is very small, the blank lines and the
