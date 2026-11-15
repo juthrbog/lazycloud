@@ -1,10 +1,12 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -89,16 +91,20 @@ func TestOverlayPin_CtrlXOnAnOpenPickerKeepsTheOperation(t *testing.T) {
 	assert.False(t, m.picker.Visible(), "no cancel picker opens")
 }
 
-// esc on a sort or an action picker never reaches the view. ctrl+x on them
-// reaches the view as a clear. D2: from PR 3, esc reaches the view.
+// esc on a sort or an action picker never reaches the view. ctrl+x on the
+// sort picker reaches the view as a clear. The action picker cannot be
+// cleared, so ctrl+x cancels it like esc (D4, PR 1). D2: from PR 3, esc
+// reaches the view.
 func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		req  tea.Msg
-		id   string
+		name  string
+		req   tea.Msg
+		clear []ui.PickerResultMsg // what ctrl+x sends to the view
+		hint  bool                 // the hint names ctrl+x
 	}{
-		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0}, "sort"},
-		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, "action"},
+		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0},
+			[]ui.PickerResultMsg{{ID: "sort", Outcome: ui.PickCleared, Selected: -1}}, true},
+		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, nil, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(140, 40)
@@ -106,6 +112,7 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 			m.pushView(v)
 
 			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
+			assert.Equal(t, tc.hint, strings.Contains(ansi.Strip(m.picker.View()), "ctrl+x clear"), "the clear hint")
 			m = answer(t, m, press("esc"))
 			assert.False(t, m.picker.Visible())
 			assert.Empty(t, v.picks, "esc does not reach the view")
@@ -113,7 +120,7 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
 			m = answer(t, m, keyCtrlX)
 			assert.False(t, m.picker.Visible())
-			assert.Equal(t, []ui.PickerResultMsg{{ID: tc.id, Selected: -2, Value: "_clear"}}, v.picks)
+			assert.Equal(t, tc.clear, v.picks)
 		})
 	}
 }
@@ -266,6 +273,7 @@ func TestOverlayPin_EscAndClearOnAppPickers(t *testing.T) {
 				m = tc.open(t, m)
 				defer m.ops.CancelAll()
 				require.True(t, m.picker.Visible(), "the %s picker opens", tc.name)
+				assert.NotContains(t, ansi.Strip(m.picker.View()), "ctrl+x clear", "only the sort picker can be cleared (D4)")
 				before := stateOf(m)
 
 				m = answer(t, m, k.key)

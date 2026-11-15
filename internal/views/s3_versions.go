@@ -140,11 +140,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.PickerResultMsg:
 		if m.ID == "sort" {
-			if m.Value == "_clear" {
-				s.table.ClearSort()
-			} else if m.Selected >= 0 {
-				s.table.Sort(m.Selected)
-			}
+			applySortPick(&s.table, m)
 		}
 		return s, nil
 

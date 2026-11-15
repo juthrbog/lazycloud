@@ -14,19 +14,22 @@ import (
 
 // Shared helpers for the view tests.
 
-// The replies of a sort or an action picker that picks no option. A7
-// changes how the picker reports them, so the tests build them here.
+// The replies of a sort or an action picker that picks no option.
 
 // sortCancelled is the reply of a sort picker closed with esc.
-func sortCancelled() ui.PickerResultMsg { return ui.PickerResultMsg{ID: "sort", Selected: -1} }
+func sortCancelled() ui.PickerResultMsg {
+	return ui.PickerResultMsg{ID: "sort", Outcome: ui.PickCancelled, Selected: -1}
+}
 
 // sortCleared is the reply of a sort picker cleared with ctrl+x.
 func sortCleared() ui.PickerResultMsg {
-	return ui.PickerResultMsg{ID: "sort", Selected: -2, Value: "_clear"}
+	return ui.PickerResultMsg{ID: "sort", Outcome: ui.PickCleared, Selected: -1}
 }
 
 // actionCancelled is the reply of an action picker closed with esc.
-func actionCancelled() ui.PickerResultMsg { return ui.PickerResultMsg{ID: "action", Selected: -1} }
+func actionCancelled() ui.PickerResultMsg {
+	return ui.PickerResultMsg{ID: "action", Outcome: ui.PickCancelled, Selected: -1}
+}
 
 func keyPress(char rune) tea.KeyPressMsg {
 	return tea.KeyPressMsg{Code: char, Text: string(char)}

@@ -231,7 +231,7 @@ func TestFeaturePickerEscDoesNothing(t *testing.T) {
 	m := newTestModel(140, 40)
 	initialDepth := m.nav.Depth()
 
-	result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Selected: -1, Value: ""})
+	result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Outcome: ui.PickCancelled, Selected: -1})
 	m = result.(Model)
 
 	assert.Equal(t, initialDepth, m.nav.Depth())

@@ -443,13 +443,10 @@ func redriveEnd(queue string, tasks []aws.MessageMoveTask) (sqsRedriveDoneMsg, b
 func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case ui.PickerResultMsg:
-		if m.ID == "sort" {
-			if m.Value == "_clear" {
-				s.table.ClearSort()
-			} else if m.Selected >= 0 {
-				s.table.Sort(m.Selected)
-			}
-		} else if m.ID == "action" && m.Selected >= 0 {
+		if applySortPick(&s.table, m) {
+			return s, nil
+		}
+		if m.ID == "action" && m.Picked() {
 			switch m.Value {
 			case "Start Redrive":
 				if s.queueARN == "" {

@@ -119,7 +119,7 @@ func (m Model) showCancelPicker() (Model, tea.Cmd) {
 // cancelOp cancels the operation that the user picked. The operation ends
 // on its own and reports its result.
 func (m Model) cancelOp(r ui.PickerResultMsg) (Model, tea.Cmd) {
-	if r.Selected < 0 {
+	if !r.Picked() {
 		return m, nil
 	}
 	id, err := strconv.Atoi(r.Value)
