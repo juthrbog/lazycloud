@@ -59,6 +59,17 @@ func (c *CommandBar) Hide() {
 	c.visible = false
 }
 
+// SetSize gives the command bar the terminal width.
+func (c *CommandBar) SetSize(width, _ int) {
+	c.width = width
+}
+
+// View returns the suggestions, which the app draws over the views. The
+// input line replaces the status bar, so ViewInput draws it.
+func (c CommandBar) View() string {
+	return c.ViewSuggestions()
+}
+
 // Visible returns whether the command bar is currently shown.
 func (c CommandBar) Visible() bool {
 	return c.visible

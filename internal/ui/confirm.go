@@ -75,6 +75,10 @@ func (c *Confirm) Hide() {
 	c.input.Blur()
 }
 
+// SetSize does nothing: the dialog fits its size to the text. It is here so
+// that Confirm is an Overlay.
+func (c *Confirm) SetSize(_, _ int) {}
+
 // Action returns the action of the dialog that is shown or was shown last.
 func (c Confirm) Action() string {
 	return c.action

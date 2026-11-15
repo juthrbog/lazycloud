@@ -181,16 +181,19 @@ func TestOverlayPin_FormDiscardConfirm(t *testing.T) {
 	assert.Empty(t, v.confirms, "the discard confirm does not reach the view")
 }
 
-// Help keeps the size it had when it opened. PR 2 changes this on purpose:
-// help then gets the new size.
-func TestOverlayPin_HelpKeepsItsSizeOnResize(t *testing.T) {
+// Help gets the new size when the window changes while it is open. Before
+// PR 2, it kept the size that it had when it opened.
+func TestOverlayPin_HelpGetsTheNewSizeOnResize(t *testing.T) {
 	m := newTestModel(140, 40)
 	m, _ = update(t, m, press("?"))
 	require.True(t, m.help.Visible())
 	before := lipgloss.Width(m.help.View())
 
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: 60, Height: 20})
-	assert.Equal(t, before, lipgloss.Width(m.help.View()), "help keeps its size (until PR 2)")
+	after := m.help.View()
+	assert.Less(t, lipgloss.Width(after), before)
+	assert.LessOrEqual(t, lipgloss.Width(after), 60)
+	assert.LessOrEqual(t, lipgloss.Height(after), 20)
 }
 
 // A reply goes to the view on top when the reply comes, not to the view

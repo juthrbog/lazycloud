@@ -4,7 +4,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func init() {
@@ -106,4 +108,21 @@ func TestHelpOverlayNoMatchesFilter(t *testing.T) {
 
 	content := h.renderContent()
 	assert.Contains(t, content, "no matches")
+}
+
+// When help gets wider while it is scrolled to the right, lines that now
+// fit start at column 0 again, so no key name is cut.
+func TestHelpOverlaySetSizeResetsTheSideScroll(t *testing.T) {
+	hints := []HintBinding{
+		NewHintBinding([]string{"ctrl+x"}, "ctrl+x", "cancel an operation"),
+		NewHintBinding([]string{"tab"}, "tab", "toggle panel focus"),
+	}
+	var h HelpOverlay
+	h.Show(hints, 54, 40)
+	h, _ = h.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	require.Positive(t, h.viewport.XOffset(), "the narrow help scrolled to the right")
+
+	h.SetSize(120, 40)
+	assert.Zero(t, h.viewport.XOffset())
+	assert.Contains(t, ansi.Strip(h.View()), "ctrl+x")
 }

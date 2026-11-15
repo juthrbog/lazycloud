@@ -202,6 +202,22 @@ func TestSecondCtrlCForcesTheQuit(t *testing.T) {
 	assert.IsType(t, tea.QuitMsg{}, cmd())
 }
 
+// A picker that a late result opens over the quit confirm does not stop the
+// second ctrl+c. The service picker reply is async, so the feature picker
+// can open after ctrl+c opened the quit confirm.
+func TestSecondCtrlCQuitsUnderALatePicker(t *testing.T) {
+	m := newTestModel(140, 40)
+	m = startTestOp(t, m)
+	m, _ = update(t, m, keyCtrlC)
+	require.True(t, m.confirm.Visible())
+	m, _ = update(t, m, msg.RequestFeaturePickerMsg{Service: "S3", Labels: []string{"A", "B"}, ViewIDs: []string{"a", "b"}})
+	require.True(t, m.picker.Visible(), "the picker opened over the quit confirm")
+
+	_, cmd := update(t, m, keyCtrlC)
+	require.NotNil(t, cmd)
+	assert.IsType(t, tea.QuitMsg{}, cmd())
+}
+
 func TestQuitWithoutOperationsDoesNotAsk(t *testing.T) {
 	m := newTestModel(140, 40)
 	_, cmd := update(t, m, press("q"))

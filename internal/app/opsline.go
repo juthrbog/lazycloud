@@ -112,6 +112,7 @@ func (m Model) showCancelPicker() (Model, tea.Cmd) {
 		}
 	}
 	m.picker.Show(cancelPickerID, "Cancel which operation?", options, 0)
+	m.openOverlay(ovPicker)
 	m.picker.SetHint("↑↓ navigate  enter cancel it  esc keep running")
 	return m, nil
 }
