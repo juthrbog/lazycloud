@@ -207,7 +207,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 			// as y to quit, would then answer this one.
 			why = "Not asked, another prompt is open: "
 		default:
-			return m.Update(inner)
+			return m.askConfirm(inner, r.Origin)
 		}
 		m, toastCmd := m.skippedPrompt(why + inner.Message)
 		// A question that was not asked counts as a no, so the view
@@ -215,9 +215,20 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		decline := m.nav.UpdateView(r.Origin, ui.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
 		return m, tea.Batch(toastCmd, decline)
 
+	case appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg:
+		// A picker acts on what the user sees, like navigation below. Its
+		// reply goes to the view that asked.
+		if !m.nav.IsCurrent(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view is not on top", inner, r.Origin.ID())
+			return m, nil
+		}
+		if req, ok := inner.(appmsg.RequestActionPickerMsg); ok {
+			return m.showActionPicker(req, r.Origin), nil
+		}
+		return m.showSortPicker(inner.(appmsg.RequestSortPickerMsg), r.Origin), nil
+
 	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
 		appmsg.RequestFormMsg, appmsg.FormResultMsg,
-		appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg,
 		appmsg.RequestFeaturePickerMsg, ui.RequestFormDiscardConfirmMsg,
 		ui.ContentLinkActivatedMsg:
 		// Navigation, overlays, and the side panel act on what the user sees.
@@ -307,6 +318,52 @@ func (m Model) skippedPrompt(text string) (Model, tea.Cmd) {
 	return m, cmd
 }
 
+// askConfirm shows the confirm dialog that req asks for. Its reply goes to
+// asker, or the old way when asker is nil.
+func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, tea.Cmd) {
+	if m.confirm.Visible() || m.picker.Visible() {
+		// Never replace an open prompt: the key meant for it, such as y
+		// to quit, would then answer this one.
+		return m.skippedPrompt("Not asked, another prompt is open: " + req.Message)
+	}
+	if req.Quick {
+		m.confirm.ShowQuick(req.Message, req.Action)
+	} else {
+		m.confirm.Show(req.Message, req.Action, req.Phrase)
+	}
+	m.openOverlayFor(ovConfirm, asker)
+	return m, nil
+}
+
+// showActionPicker shows the action picker that req asks for. Its reply
+// goes to asker, or the old way when asker is nil.
+func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.View) Model {
+	options := make([]ui.PickerOption, 0, len(req.Options))
+	for _, opt := range req.Options {
+		options = append(options, ui.PickerOption{Label: opt, Value: opt})
+	}
+	title := req.Title
+	if title == "" {
+		title = "Action"
+	}
+	m.picker.Show("action", title, options, 0)
+	m.openOverlayFor(ovPicker, asker)
+	return m
+}
+
+// showSortPicker shows the sort picker that req asks for. Its reply goes
+// to asker, or the old way when asker is nil.
+func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) Model {
+	options := make([]ui.PickerOption, 0, len(req.Columns))
+	for _, col := range req.Columns {
+		options = append(options, ui.PickerOption{Label: col, Value: col})
+	}
+	m.picker.Show("sort", "Sort by Column", options, max(req.CurrentCol, 0))
+	m.picker.SetClearable(true) // ctrl+x removes the sort
+	m.openOverlayFor(ovPicker, asker)
+	return m
+}
+
 // visibleErr returns the status bar error for the current view. An error
 // stays with the view that caused it, so navigating away hides it.
 func (m Model) visibleErr() string {
@@ -330,15 +387,16 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.pruneOverlays()
 		if top, ok := m.overlays.top(); ok {
-			cmd := m.overlay(top.kind).Update(teaMsg)
-			m.pruneOverlays()
-			return m, cmd
+			return m.sendOverlayKey(top, k)
 		}
 	}
 
 	switch msg := teaMsg.(type) {
 	case nav.Routed:
 		return m.handleRouted(msg)
+
+	case overlayReplyMsg:
+		return m.deliverReply(msg)
 
 	case tea.BackgroundColorMsg:
 		m.isDark = msg.IsDark()
@@ -494,43 +552,14 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.RequestConfirmMsg:
-		if m.confirm.Visible() || m.picker.Visible() {
-			// Never replace an open prompt: the key meant for it, such
-			// as y to quit, would then answer this one.
-			return m.skippedPrompt("Not asked, another prompt is open: " + msg.Message)
-		}
-		if msg.Quick {
-			m.confirm.ShowQuick(msg.Message, msg.Action)
-			m.openOverlay(ovConfirm)
-			return m, nil
-		}
-		m.confirm.Show(msg.Message, msg.Action, msg.Phrase)
-		m.openOverlay(ovConfirm)
-		return m, nil
+		// A request without an origin. Its reply goes the old way.
+		return m.askConfirm(msg, nil)
 
 	case appmsg.RequestActionPickerMsg:
-		var options []ui.PickerOption
-		for _, opt := range msg.Options {
-			options = append(options, ui.PickerOption{Label: opt, Value: opt})
-		}
-		title := msg.Title
-		if title == "" {
-			title = "Action"
-		}
-		m.picker.Show("action", title, options, 0)
-		m.openOverlay(ovPicker)
-		return m, nil
+		return m.showActionPicker(msg, nil), nil
 
 	case appmsg.RequestSortPickerMsg:
-		var options []ui.PickerOption
-		for _, col := range msg.Columns {
-			options = append(options, ui.PickerOption{Label: col, Value: col})
-		}
-		initialIdx := max(msg.CurrentCol, 0)
-		m.picker.Show("sort", "Sort by Column", options, initialIdx)
-		m.openOverlay(ovPicker)
-		m.picker.SetClearable(true) // ctrl+x removes the sort
-		return m, nil
+		return m.showSortPicker(msg, nil), nil
 
 	case appmsg.RequestFeaturePickerMsg:
 		var options []ui.PickerOption
@@ -641,7 +670,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		// Sort and action pickers: route to current view
 		if msg.ID == "sort" || msg.ID == "action" {
 			if msg.Outcome == ui.PickCancelled {
-				return m, nil // esc: the view does not hear of it (until A7 PR 3)
+				return m, nil // a reply without a route: esc stays with the app (until PR 8)
 			}
 			cmd := m.nav.UpdateCurrent(msg)
 			return m, cmd

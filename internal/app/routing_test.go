@@ -60,8 +60,11 @@ func collectMsgs(cmd tea.Cmd) []tea.Msg {
 }
 
 func unwrapRouted(m tea.Msg) tea.Msg {
-	if r, ok := m.(nav.Routed); ok {
+	switch r := m.(type) {
+	case nav.Routed:
 		return r.Msg
+	case overlayReplyMsg:
+		return r.msg
 	}
 	return m
 }

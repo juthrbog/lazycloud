@@ -1217,8 +1217,10 @@ func TestCharSQS_CancelledPickerIgnoresConfirm(t *testing.T) {
 	v, svc := charSQSThree(t)
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
+	require.NotEmpty(t, v.pending.keys, "m holds the targets")
 	_, cmd = v.Update(actionCancelled())
 	require.Nil(t, cmd)
+	assert.Empty(t, v.pending.keys, "esc forgets the targets (A7 D2)")
 
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
 	assert.Nil(t, cmd)

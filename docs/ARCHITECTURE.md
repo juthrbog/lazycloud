@@ -153,6 +153,8 @@ The app has four overlays: help, the command bar, the confirm dialog, and the pi
 
 `push` makes a new slice, so two copies of `Model` never share a stack. Do not keep an adapter from `AsOverlay`, because it points into one copy of `Model`.
 
+Each stack entry has a `replyRoute`. When a view asks for a confirm, an action picker, or a sort picker, the request arrives as `nav.Routed`, and the entry records the view in `replyTo`. When a key closes that overlay, the reply goes out as an `overlayReplyMsg` that carries the route, and `deliverReply` sends it to that view with `nav.UpdateView`. So the reply reaches the view that asked, also when another view is on top by then, and esc and ctrl+x reach it as a cancel. If the view is gone, the app drops the reply and writes a debug line. The route holds the view instance, not its ID, because the same ID can be on the stack twice. The app's own prompts and a request without an origin have no `replyTo`, and their replies go the old way until A7 PR 8.
+
 ### Contextual Keybindings
 
 Each view declares its own `KeyMap()` using `key.Binding` structs. The status bar merges view-specific hints with global hints, so available actions update automatically as you navigate. See [KEYBINDINGS.md](KEYBINDINGS.md) for the full dispatch system.
