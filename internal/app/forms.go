@@ -61,22 +61,29 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 	return m, m.nav.UpdateView(asker, res)
 }
 
+// discardText is the question of the discard confirm.
+const discardText = "Discard unsaved changes?"
+
 // askDiscard asks whether to discard the changes of a form. The reply goes
 // to form, which closes itself on a yes. A nil form means a request
 // without an origin: on a yes, the app closes the form on top (until PR 8).
-func (m Model) askDiscard(form nav.View) Model {
-	m.confirm.ShowQuick("Discard unsaved changes?", appmsg.FormDiscardAction)
-	if form != nil {
-		m.openOverlayFor(ovConfirm, form)
-		return m
+func (m Model) askDiscard(form nav.View) (Model, tea.Cmd) {
+	route := replyRoute{replyTo: form}
+	if form == nil {
+		route = replyRoute{onReply: confirmHandler(func(m Model) (Model, tea.Cmd) {
+			fv, ok := m.nav.Current().(*ui.FormView)
+			if !ok {
+				return m, nil
+			}
+			formID := fv.FormID()
+			return m, func() tea.Msg { return appmsg.FormResultMsg{ID: formID, Aborted: true} }
+		}, nil)}
 	}
-	m.openOverlayRoute(ovConfirm, replyRoute{onReply: confirmHandler(func(m Model) (Model, tea.Cmd) {
-		fv, ok := m.nav.Current().(*ui.FormView)
-		if !ok {
-			return m, nil
-		}
-		formID := fv.FormID()
-		return m, func() tea.Msg { return appmsg.FormResultMsg{ID: formID, Aborted: true} }
-	}, nil)})
-	return m
+	if m.promptOpen() {
+		cmd := m.refuseOpen(discardText, route, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
+		return m, cmd
+	}
+	m.confirm.ShowQuick(discardText, appmsg.FormDiscardAction)
+	m.openOverlayRoute(ovConfirm, route)
+	return m, nil
 }

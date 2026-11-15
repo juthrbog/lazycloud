@@ -26,6 +26,7 @@ type replyView struct {
 	picks    []ui.PickerResultMsg
 	confirms []ui.ConfirmResultMsg
 	forms    []msg.FormResultMsg
+	lastCmd  tea.Cmd // set by tests that keep the command of an update
 }
 
 func newReplyView() *replyView { return &replyView{EventLog: views.NewEventLog()} }

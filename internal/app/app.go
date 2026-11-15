@@ -185,38 +185,44 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
 			return m, nil
 		}
-		var why string
-		switch {
-		case !m.nav.IsCurrent(r.Origin):
-			// A prompt over another view would be confusing, but the
-			// user must learn that the view needs an answer.
-			why = r.Origin.Title() + " needs an answer, but it is not on top: "
-		case m.confirm.Visible() || m.picker.Visible():
-			// Never replace an open prompt: the key meant for it, such
-			// as y to quit, would then answer this one.
-			why = "Not asked, another prompt is open: "
-		default:
-			return m.askConfirm(inner, r.Origin)
+		if !m.nav.IsCurrent(r.Origin) {
+			cmd := m.refuseBelowTop(r.Origin, inner.Message, appmsg.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
+			return m, cmd
 		}
-		m, toastCmd := m.skippedPrompt(why + inner.Message)
-		// A question that was not asked counts as a no, so the view
-		// forgets the action that waits for the answer.
-		decline := m.nav.UpdateView(r.Origin, appmsg.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
-		return m, tea.Batch(toastCmd, decline)
+		return m.askConfirm(inner, r.Origin)
 
 	case appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg:
 		// A picker acts on what the user sees, like navigation below. Its
 		// reply goes to the view that asked.
-		if !m.nav.IsCurrent(r.Origin) {
-			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view is not on top", inner, r.Origin.ID())
+		if !m.nav.Contains(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
 			return m, nil
 		}
 		if req, ok := inner.(appmsg.RequestActionPickerMsg); ok {
-			return m.showActionPicker(req, r.Origin), nil
+			if !m.nav.IsCurrent(r.Origin) {
+				cmd := m.refuseBelowTop(r.Origin, actionTitle(req), pickDecline("action"))
+				return m, cmd
+			}
+			return m.showActionPicker(req, r.Origin)
 		}
-		return m.showSortPicker(inner.(appmsg.RequestSortPickerMsg), r.Origin), nil
+		if !m.nav.IsCurrent(r.Origin) {
+			cmd := m.refuseBelowTop(r.Origin, sortTitle, pickDecline("sort"))
+			return m, cmd
+		}
+		return m.showSortPicker(inner.(appmsg.RequestSortPickerMsg), r.Origin)
 
-	case appmsg.RequestFormMsg, appmsg.FormResultMsg, appmsg.RequestFormDiscardConfirmMsg:
+	case appmsg.RequestFormDiscardConfirmMsg:
+		if !m.nav.Contains(r.Origin) {
+			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
+			return m, nil
+		}
+		if !m.nav.IsCurrent(r.Origin) {
+			cmd := m.refuseBelowTop(r.Origin, discardText, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
+			return m, cmd
+		}
+		return m.askDiscard(r.Origin)
+
+	case appmsg.RequestFormMsg, appmsg.FormResultMsg:
 		// A form acts on what the user sees, like navigation below. The
 		// app records the view that asked, and the result goes to it.
 		if !m.nav.IsCurrent(r.Origin) {
@@ -230,8 +236,6 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 			if fv, ok := r.Origin.(*ui.FormView); ok {
 				return m.finishForm(fv, inner)
 			}
-		default:
-			return m.askDiscard(r.Origin), nil
 		}
 		return m.Update(inner)
 
@@ -316,21 +320,12 @@ func (m Model) startOp(origin nav.View, s appmsg.StartOpMsg) tea.Cmd {
 	})
 }
 
-// skippedPrompt tells the user about a confirmation that the app did not
-// show, because another prompt is open or the view is not on top.
-func (m Model) skippedPrompt(text string) (Model, tea.Cmd) {
-	eventlog.Warnf(eventlog.CatUI, "Prompt skipped: %s", text)
-	_, cmd := m.toasts.Add(text, ui.ToastInfo, 0)
-	return m, cmd
-}
-
 // askConfirm shows the confirm dialog that req asks for. Its reply goes to
 // asker, or the old way when asker is nil.
 func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, tea.Cmd) {
-	if m.confirm.Visible() || m.picker.Visible() {
-		// Never replace an open prompt: the key meant for it, such as y
-		// to quit, would then answer this one.
-		return m.skippedPrompt("Not asked, another prompt is open: " + req.Message)
+	if m.promptOpen() {
+		cmd := m.refuseOpen(req.Message, replyRoute{replyTo: asker}, appmsg.ConfirmResultMsg{Confirmed: false, Action: req.Action})
+		return m, cmd
 	}
 	if req.Quick {
 		m.confirm.ShowQuick(req.Message, req.Action)
@@ -341,33 +336,53 @@ func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, 
 	return m, nil
 }
 
+// sortTitle is the title of the sort picker.
+const sortTitle = "Sort by Column"
+
+// actionTitle is the title of the action picker that req asks for.
+func actionTitle(req appmsg.RequestActionPickerMsg) string {
+	if req.Title == "" {
+		return "Action"
+	}
+	return req.Title
+}
+
+// pickDecline is the reply of a picker with id that was not shown.
+func pickDecline(id string) appmsg.PickerResultMsg {
+	return appmsg.PickerResultMsg{ID: id, Outcome: appmsg.PickCancelled, Selected: -1}
+}
+
 // showActionPicker shows the action picker that req asks for. Its reply
 // goes to asker, or the old way when asker is nil.
-func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.View) Model {
+func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.View) (Model, tea.Cmd) {
+	if m.promptOpen() {
+		cmd := m.refuseOpen(actionTitle(req), replyRoute{replyTo: asker}, pickDecline("action"))
+		return m, cmd
+	}
 	options := make([]ui.PickerOption, 0, len(req.Options))
 	for _, opt := range req.Options {
 		options = append(options, ui.PickerOption{Label: opt, Value: opt})
 	}
-	title := req.Title
-	if title == "" {
-		title = "Action"
-	}
-	m.picker.Show("action", title, options, 0)
+	m.picker.Show("action", actionTitle(req), options, 0)
 	m.openOverlayFor(ovPicker, asker)
-	return m
+	return m, nil
 }
 
 // showSortPicker shows the sort picker that req asks for. Its reply goes
 // to asker, or the old way when asker is nil.
-func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) Model {
+func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) (Model, tea.Cmd) {
+	if m.promptOpen() {
+		cmd := m.refuseOpen(sortTitle, replyRoute{replyTo: asker}, pickDecline("sort"))
+		return m, cmd
+	}
 	options := make([]ui.PickerOption, 0, len(req.Columns))
 	for _, col := range req.Columns {
 		options = append(options, ui.PickerOption{Label: col, Value: col})
 	}
-	m.picker.Show("sort", "Sort by Column", options, max(req.CurrentCol, 0))
+	m.picker.Show("sort", sortTitle, options, max(req.CurrentCol, 0))
 	m.picker.SetClearable(true) // ctrl+x removes the sort
 	m.openOverlayFor(ovPicker, asker)
-	return m
+	return m, nil
 }
 
 // visibleErr returns the status bar error for the current view. An error
@@ -553,21 +568,21 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.RequestFormDiscardConfirmMsg:
 		// A request without an origin. Its reply goes the old way.
-		return m.askDiscard(nil), nil
+		return m.askDiscard(nil)
 
 	case appmsg.RequestConfirmMsg:
 		// A request without an origin. Its reply goes the old way.
 		return m.askConfirm(msg, nil)
 
 	case appmsg.RequestActionPickerMsg:
-		return m.showActionPicker(msg, nil), nil
+		return m.showActionPicker(msg, nil)
 
 	case appmsg.RequestSortPickerMsg:
-		return m.showSortPicker(msg, nil), nil
+		return m.showSortPicker(msg, nil)
 
 	case appmsg.RequestFeaturePickerMsg:
-		m.showFeaturePicker(msg)
-		return m, nil
+		cmd := m.showFeaturePicker(msg)
+		return m, cmd
 
 	case appmsg.ConfirmResultMsg:
 		// The reply to a confirm request without an origin. The prompts of
@@ -647,16 +662,17 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		case key.Matches(msg, m.keys.ThemePicker.Binding):
-			m.showThemePicker()
-			return m, nil
+			cmd := m.showThemePicker()
+			return m, cmd
 		case key.Matches(msg, m.keys.ProfilePicker.Binding):
-			return m, m.showProfilePicker()
+			cmd := m.showProfilePicker()
+			return m, cmd
 		case key.Matches(msg, m.keys.RegionPicker.Binding):
-			m.showRegionPicker()
-			return m, nil
+			cmd := m.showRegionPicker()
+			return m, cmd
 		case key.Matches(msg, m.keys.ModePicker.Binding):
-			m.showModePicker()
-			return m, nil
+			cmd := m.showModePicker()
+			return m, cmd
 		case key.Matches(msg, m.keys.EventLog.Binding):
 			eventlog.Debug(eventlog.CatUI, "Event log opened")
 			m.dismissPanel()
@@ -668,8 +684,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.ServicePicker.Binding):
 			if m.nav.Depth() == 1 {
-				m.showServicePicker()
-				return m, nil
+				cmd := m.showServicePicker()
+				return m, cmd
 			}
 		case key.Matches(msg, m.keys.Help.Binding):
 			hints := m.collectAllKeyHints()
@@ -721,8 +737,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Enter on home screen opens the service picker
 		if msg.String() == "enter" && m.nav.Depth() == 1 {
-			m.showServicePicker()
-			return m, nil
+			cmd := m.showServicePicker()
+			return m, cmd
 		}
 
 		// ReadOnly mode blocks the ReadWrite keys of the view here, before the
@@ -777,18 +793,20 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 	case "quit":
 		return m.requestQuit()
 	case "home":
-		return m, m.resetNav()
+		cmd := m.resetNav()
+		return m, cmd
 	case "mode":
-		m.showModePicker()
-		return m, nil
+		cmd := m.showModePicker()
+		return m, cmd
 	case "theme":
-		m.showThemePicker()
-		return m, nil
+		cmd := m.showThemePicker()
+		return m, cmd
 	case "region":
-		m.showRegionPicker()
-		return m, nil
+		cmd := m.showRegionPicker()
+		return m, cmd
 	case "profile":
-		return m, m.showProfilePicker()
+		cmd := m.showProfilePicker()
+		return m, cmd
 	default:
 		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
@@ -1010,7 +1028,7 @@ func (m *Model) resizeViews() {
 	}
 }
 
-func (m *Model) showThemePicker() {
+func (m *Model) showThemePicker() tea.Cmd {
 	var options []ui.PickerOption
 	currentIdx := 0
 	for i, name := range ui.ThemeOrder {
@@ -1022,24 +1040,24 @@ func (m *Model) showThemePicker() {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: name})
 	}
-	m.pick("Select Theme", options, currentIdx, onPicked(func(m Model, name string) (Model, tea.Cmd) {
+	return m.pick("Select Theme", options, currentIdx, onPicked(func(m Model, name string) (Model, tea.Cmd) {
 		if m.nav.Depth() == 1 {
 			return m.applyTheme(name)
 		}
 		// Below the home view, ask first: the switch resets the views.
-		m.askQuick("Switching themes resets the current view. Continue?",
+		cmd := m.askQuick("Switching themes resets the current view. Continue?",
 			func(m Model) (Model, tea.Cmd) { return m.applyTheme(name) }, nil)
-		return m, nil
+		return m, cmd
 	}))
 }
 
-func (m *Model) showServicePicker() {
+func (m *Model) showServicePicker() tea.Cmd {
 	var options []ui.PickerOption
 	for _, svc := range registry.Services {
 		label := svc.Icon.Icon() + "  " + svc.Name
 		options = append(options, ui.PickerOption{Label: label, Value: svc.Name})
 	}
-	m.pick("Select Service", options, 0, onPicked(Model.openService))
+	return m.pick("Select Service", options, 0, onPicked(Model.openService))
 }
 
 // openService opens the service that the user picked. A service with more
@@ -1069,12 +1087,12 @@ func (m Model) openService(name string) (Model, tea.Cmd) {
 }
 
 // showFeaturePicker asks which feature of a service to open.
-func (m *Model) showFeaturePicker(req appmsg.RequestFeaturePickerMsg) {
+func (m *Model) showFeaturePicker(req appmsg.RequestFeaturePickerMsg) tea.Cmd {
 	options := make([]ui.PickerOption, 0, len(req.Labels))
 	for i, label := range req.Labels {
 		options = append(options, ui.PickerOption{Label: label, Value: req.ViewIDs[i]})
 	}
-	m.pick(req.Service, options, 0, onPicked(func(m Model, viewID string) (Model, tea.Cmd) {
+	return m.pick(req.Service, options, 0, onPicked(func(m Model, viewID string) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return appmsg.NavigateMsg{ViewID: viewID} }
 	}))
 }
@@ -1123,8 +1141,7 @@ func (m *Model) showProfilePicker() tea.Cmd {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: p})
 	}
-	m.pick("Select Profile", options, currentIdx, onPicked(Model.applyProfile))
-	return nil
+	return m.pick("Select Profile", options, currentIdx, onPicked(Model.applyProfile))
 }
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
@@ -1139,7 +1156,7 @@ func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 	if n == 0 {
 		return m.switchSession(c.profile, c.region, c.kind, c.value)
 	}
-	m.askQuick(fmt.Sprintf(
+	cmd := m.askQuick(fmt.Sprintf(
 		"%s running on %s. %s in the background. Switch the %s to %s?",
 		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value),
 		func(m Model) (Model, tea.Cmd) { return m.switchSession(c.profile, c.region, c.kind, c.value) },
@@ -1147,7 +1164,7 @@ func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", c.kind, c.value)
 			return m, nil
 		})
-	return m, nil
+	return m, cmd
 }
 
 // opsSessions names the sessions that the running operations use. After
@@ -1169,8 +1186,8 @@ func (m Model) requestQuit() (Model, tea.Cmd) {
 	if n == 0 {
 		return m.quitNow()
 	}
-	m.askQuit(fmt.Sprintf("%s running. Quit and cancel %s?", countOps(n), itOrThem(n)))
-	return m, nil
+	cmd := m.askQuit(fmt.Sprintf("%s running. Quit and cancel %s?", countOps(n), itOrThem(n)))
+	return m, cmd
 }
 
 // quitNow cancels the operations and quits. main waits a short time for
@@ -1253,7 +1270,7 @@ func (m *Model) resetNav() tea.Cmd {
 	return tea.Batch(m.nav.InitCurrent(), m.resizeCmd())
 }
 
-func (m *Model) showModePicker() {
+func (m *Model) showModePicker() tea.Cmd {
 	options := []ui.PickerOption{
 		{Label: "ReadOnly    Browse only, no mutations", Value: "readonly"},
 		{Label: "ReadWrite   Allow create/delete/copy/move", Value: "readwrite"},
@@ -1262,7 +1279,7 @@ func (m *Model) showModePicker() {
 	if !ui.IsReadOnly() {
 		currentIdx = 1
 	}
-	m.pick("Access Mode", options, currentIdx, onPicked(Model.applyMode))
+	return m.pick("Access Mode", options, currentIdx, onPicked(Model.applyMode))
 }
 
 func (m Model) applyMode(mode string) (Model, tea.Cmd) {
@@ -1281,7 +1298,7 @@ func (m Model) applyMode(mode string) (Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) showRegionPicker() {
+func (m *Model) showRegionPicker() tea.Cmd {
 	current := m.activeRegion()
 
 	var options []ui.PickerOption
@@ -1294,7 +1311,7 @@ func (m *Model) showRegionPicker() {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: r})
 	}
-	m.pick("Select Region", options, currentIdx, onPicked(Model.applyRegion))
+	return m.pick("Select Region", options, currentIdx, onPicked(Model.applyRegion))
 }
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {

@@ -66,23 +66,38 @@ func TestStrayRepliesRunNoAppCode(t *testing.T) {
 // A theme switch throws the prompt components away. Each open prompt gets
 // exactly one decline first, so no handler waits for an answer.
 func TestThemeSwitchDeclinesOpenPrompts(t *testing.T) {
-	m := newTestModel(140, 40)
-	var confirms, picks []string
-	m.pick("Pick", []ui.PickerOption{{Label: "a", Value: "a"}}, 0, func(m Model, r msg.PickerResultMsg) (Model, tea.Cmd) {
-		picks = append(picks, map[bool]string{true: "pick", false: "cancel"}[r.Picked()])
-		return m, nil
-	})
-	m.askQuick("Sure?",
-		func(m Model) (Model, tea.Cmd) { confirms = append(confirms, "yes"); return m, nil },
-		func(m Model) (Model, tea.Cmd) { confirms = append(confirms, "no"); return m, nil })
+	// Only one prompt can be open (D3), so each case opens one.
+	t.Run("confirm", func(t *testing.T) {
+		m := newTestModel(140, 40)
+		var replies []string
+		m.askQuick("Sure?",
+			func(m Model) (Model, tea.Cmd) { replies = append(replies, "yes"); return m, nil },
+			func(m Model) (Model, tea.Cmd) { replies = append(replies, "no"); return m, nil })
+		require.True(t, m.confirm.Visible())
+		require.Empty(t, replies)
 
-	m, cmd := m.setTheme(ui.ThemeOrder[0])
-	assert.False(t, m.confirm.Visible())
-	assert.False(t, m.picker.Visible())
-	assert.Empty(t, m.overlays)
-	pump(t, m, cmd)
-	assert.Equal(t, []string{"no"}, confirms)
-	assert.Equal(t, []string{"cancel"}, picks)
+		m, cmd := m.setTheme(ui.ThemeOrder[0])
+		assert.False(t, m.confirm.Visible())
+		assert.Empty(t, m.overlays)
+		pump(t, m, cmd)
+		assert.Equal(t, []string{"no"}, replies)
+	})
+	t.Run("picker", func(t *testing.T) {
+		m := newTestModel(140, 40)
+		var replies []string
+		m.pick("Pick", []ui.PickerOption{{Label: "a", Value: "a"}}, 0, func(m Model, r msg.PickerResultMsg) (Model, tea.Cmd) {
+			replies = append(replies, map[bool]string{true: "pick", false: "cancel"}[r.Picked()])
+			return m, nil
+		})
+		require.True(t, m.picker.Visible())
+		require.Empty(t, replies)
+
+		m, cmd := m.setTheme(ui.ThemeOrder[0])
+		assert.False(t, m.picker.Visible())
+		assert.Empty(t, m.overlays)
+		pump(t, m, cmd)
+		assert.Equal(t, []string{"cancel"}, replies)
+	})
 }
 
 // The decline of closePrompts for a view's prompt finds no view after the
@@ -186,4 +201,185 @@ func TestServicePickerOpensTheService(t *testing.T) {
 	m = answer(t, m, keyEnter)
 	assert.True(t, m.picker.Visible(), "EC2 asks which feature")
 	assert.Equal(t, 1, m.nav.Depth())
+}
+
+// While a prompt is open, every prompt request gets the same answer: the
+// app does not show it, the user gets a toast, and the asker gets one
+// decline (D3, PR 7). The open prompt stays and keeps the keys.
+func TestEveryPromptRequestIsRefusedWhileAPromptIsOpen(t *testing.T) {
+	type tc struct {
+		name string
+		ask  func(t *testing.T, m Model, v *replyView) Model
+		want func(t *testing.T, v *replyView)
+	}
+	ask := func(t *testing.T, m Model, v *replyView, req tea.Msg) Model {
+		m, cmd := update(t, m, nav.Routed{Origin: v, Msg: req})
+		v.lastCmd = cmd
+		return m
+	}
+	for _, c := range []tc{
+		{"confirm", func(t *testing.T, m Model, v *replyView) Model {
+			return ask(t, m, v, msg.RequestConfirmMsg{Message: "Go?", Action: "go"})
+		}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: false, Action: "go"}}, v.confirms)
+		}},
+		{"action picker", func(t *testing.T, m Model, v *replyView) Model {
+			return ask(t, m, v, msg.RequestActionPickerMsg{Options: []string{"Stop"}})
+		}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+		}},
+		{"sort picker", func(t *testing.T, m Model, v *replyView) Model {
+			return ask(t, m, v, msg.RequestSortPickerMsg{Columns: []string{"Name"}})
+		}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.PickerResultMsg{{ID: "sort", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+		}},
+		{"discard confirm", func(t *testing.T, m Model, v *replyView) Model {
+			return ask(t, m, v, msg.RequestFormDiscardConfirmMsg{})
+		}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
+		}},
+	} {
+		for _, open := range []string{"confirm", "picker"} {
+			t.Run(c.name+" over "+open, func(t *testing.T) {
+				m := newTestModel(140, 40)
+				v := newReplyView()
+				m.pushView(v)
+				if open == "confirm" {
+					m.askQuick("Open?", func(m Model) (Model, tea.Cmd) { return m, nil }, nil)
+				} else {
+					m.pick("Open", []ui.PickerOption{{Label: "a", Value: "a"}}, 0, onPicked(func(m Model, _ string) (Model, tea.Cmd) { return m, nil }))
+				}
+				before := kindsOf(m.overlays)
+				title := m.confirm.View() + m.picker.View()
+
+				m = c.ask(t, m, v)
+				assert.Equal(t, before, kindsOf(m.overlays), "the open prompt stays alone")
+				assert.NotNil(t, v.lastCmd, "the update returned the refusal")
+				assert.Equal(t, title, m.confirm.View()+m.picker.View(), "the open prompt does not change")
+				assert.True(t, m.toasts.HasActive())
+				c.want(t, v)
+			})
+		}
+	}
+}
+
+// A prompt of the app that comes while a prompt is open does not open
+// either. Its handler gets the decline.
+func TestAppPromptIsRefusedWhileAPromptIsOpen(t *testing.T) {
+	m := newTestModel(140, 40)
+	m.askQuick("Open?", func(m Model) (Model, tea.Cmd) { return m, nil }, nil)
+
+	var no, cancelled int
+	cmd := m.askQuick("Second?", func(m Model) (Model, tea.Cmd) { return m, nil },
+		func(m Model) (Model, tea.Cmd) { no++; return m, nil })
+	assert.NotNil(t, cmd, "a toast")
+	cmd = m.pick("Pick", []ui.PickerOption{{Label: "a", Value: "a"}}, 0, func(m Model, r msg.PickerResultMsg) (Model, tea.Cmd) {
+		if !r.Picked() {
+			cancelled++
+		}
+		return m, nil
+	})
+	assert.NotNil(t, cmd)
+	assert.Equal(t, 1, no)
+	assert.Equal(t, 1, cancelled)
+	assert.False(t, m.picker.Visible())
+	assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays))
+
+	m = startTestOp(t, m)
+	cmd = m.askQuit("Quit?")
+	assert.False(t, m.quitAsked(), "the quit confirm does not replace the open one")
+	for _, out := range collectMsgs(cmd) {
+		assert.NotEqual(t, tea.QuitMsg{}, out, "a refused quit confirm is a no")
+	}
+	require.NoError(t, m.ops.Running()[0].Ctx.Err(), "the operation keeps running")
+	m.ops.CancelAll()
+}
+
+// A prompt that a view asks for while it is not on top never shows. The
+// user gets a toast, and the view gets a decline. Before PR 7, a picker or
+// a discard request from below the top was dropped without a word.
+func TestPromptFromBelowTheTopGetsAToastAndADecline(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		req  tea.Msg
+		want func(t *testing.T, v *replyView)
+	}{
+		{"action picker", msg.RequestActionPickerMsg{Options: []string{"Stop"}}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+		}},
+		{"sort picker", msg.RequestSortPickerMsg{Columns: []string{"Name"}}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.PickerResultMsg{{ID: "sort", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
+		}},
+		{"discard confirm", msg.RequestFormDiscardConfirmMsg{}, func(t *testing.T, v *replyView) {
+			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			m := newTestModel(140, 40)
+			below := newReplyView()
+			m.pushView(below)
+			m.pushView(newReplyView())
+
+			m, cmd := update(t, m, nav.Routed{Origin: below, Msg: c.req})
+			assert.False(t, m.confirm.Visible())
+			assert.False(t, m.picker.Visible())
+			assert.True(t, m.toasts.HasActive())
+			assert.NotNil(t, cmd, "the update returned the refusal")
+			c.want(t, below)
+		})
+	}
+}
+
+// A prompt request from a view that is gone gets nothing: no toast about a
+// view that the user left, and no decline.
+func TestPromptFromAGoneViewIsDropped(t *testing.T) {
+	for _, req := range []tea.Msg{
+		msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
+		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
+		msg.RequestFormDiscardConfirmMsg{},
+	} {
+		m := newTestModel(140, 40)
+		gone := newReplyView()
+		m, _ = update(t, m, nav.Routed{Origin: gone, Msg: req})
+		assert.False(t, m.toasts.HasActive(), "%T", req)
+		assert.Empty(t, gone.picks)
+		assert.Empty(t, gone.confirms)
+	}
+}
+
+// A request without an origin follows the same rule while a prompt is
+// open. It has no asker, so only the toast tells about it.
+func TestRequestWithoutOriginIsRefusedWhileAPromptIsOpen(t *testing.T) {
+	for _, req := range []tea.Msg{
+		msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
+		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
+		msg.RequestSortPickerMsg{Columns: []string{"Name"}},
+		msg.RequestFormDiscardConfirmMsg{},
+		msg.RequestFeaturePickerMsg{Service: "EC2", Labels: []string{"A"}, ViewIDs: []string{"a"}},
+	} {
+		m := newTestModel(140, 40)
+		m.askQuit("Quit?")
+		require.True(t, m.quitAsked())
+
+		m, cmd := update(t, m, req)
+		assert.True(t, m.quitAsked(), "%T: the quit confirm stays", req)
+		assert.False(t, m.picker.Visible(), "%T", req)
+		assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays), "%T", req)
+		assert.True(t, m.toasts.HasActive(), "%T", req)
+		assert.NotNil(t, cmd, "%T", req)
+	}
+}
+
+// A show function of the app returns the refusal, so its caller can pass
+// the toast on.
+func TestAppPickerReturnsItsRefusal(t *testing.T) {
+	m := newTestModel(140, 40)
+	m.askQuit("Quit?")
+	for name, show := range map[string]func(*Model) tea.Cmd{
+		"theme": (*Model).showThemePicker, "region": (*Model).showRegionPicker,
+		"mode": (*Model).showModePicker, "service": (*Model).showServicePicker,
+	} {
+		assert.NotNil(t, show(&m), name)
+		assert.False(t, m.picker.Visible(), name)
+	}
 }

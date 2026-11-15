@@ -39,23 +39,20 @@ func TestOverlayStackPush(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// A picker that a view asks for while its confirm is open goes on top and
-// gets the keys, as the old chain chose the picker first. When it closes,
-// the confirm gets the keys again.
-func TestPickerOverConfirmGetsTheKeys(t *testing.T) {
+// A picker that a view asks for while its confirm is open does not open
+// (D3, PR 7). Before PR 7, it opened over the confirm. The view gets a
+// decline, and the confirm keeps the keys.
+func TestPickerRequestWhileAConfirmIsOpenIsRefused(t *testing.T) {
 	m := newTestModel(140, 40)
 	v := newReplyView()
 	m.pushView(v)
 	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
 	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}})
 	require.True(t, m.confirm.Visible())
-	require.True(t, m.picker.Visible())
-	assert.Equal(t, []overlayKind{ovConfirm, ovPicker}, kindsOf(m.overlays))
-
-	m = answer(t, m, keyEnter)
 	assert.False(t, m.picker.Visible())
-	assert.True(t, m.confirm.Visible(), "enter went to the picker")
 	assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays))
+	assert.True(t, m.toasts.HasActive(), "the user learns about the skipped prompt")
+	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Outcome: ui.PickCancelled, Selected: -1}}, v.picks)
 
 	m = answer(t, m, press("y"))
 	assert.False(t, m.confirm.Visible())
