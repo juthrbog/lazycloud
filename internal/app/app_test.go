@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -559,16 +560,48 @@ func TestCommandBarAddsHistory(t *testing.T) {
 	assert.Equal(t, "ec2", msg.Value)
 }
 
-// --- Registry sync ---
+// --- Routes ---
 
-func TestRegistryNavCommandsCoveredByResolveView(t *testing.T) {
+// TestRoutes checks the route table against the registry: every view ID
+// of the registry has a route, each service view is its own root, and
+// every root is a service view.
+func TestRoutes(t *testing.T) {
 	m := newTestModel(140, 40)
-	for _, cmd := range registry.Commands {
-		if cmd.IsNav() {
-			view := m.resolveView(msg.NavigateMsg{ViewID: cmd.ViewID})
-			assert.NotNilf(t, view, "registry command %q has ViewID %q but resolveView returns nil", cmd.Name, cmd.ViewID)
+	service := map[string]bool{}
+	for _, s := range registry.Services {
+		for _, f := range s.Features {
+			service[f.ViewID] = true
+			assert.Equalf(t, f.ViewID, routes[f.ViewID].root, "service view %q must be its own root", f.ViewID)
 		}
 	}
+	for _, cmd := range registry.Commands {
+		if cmd.IsNav() {
+			assert.Containsf(t, routes, cmd.ViewID, "registry command %q has no route", cmd.Name)
+		}
+	}
+	// The views below a service view go back to it after a switch.
+	for id, root := range map[string]string{
+		"s3_objects": "s3_list", "s3_versions": "s3_list", "sqs_messages": "sqs_queues",
+		"eventlog": "", "content": "",
+	} {
+		assert.Equalf(t, root, routes[id].root, "the root of %q", id)
+	}
+	for id, r := range routes {
+		assert.Truef(t, r.root != "" || r.noSession, "route %q needs a session, so it must have a root", id)
+		if r.root != "" {
+			assert.Truef(t, service[r.root], "the root %q of %q is not a service view", r.root, id)
+		}
+		v := m.resolveView(msg.NavigateMsg{ViewID: id})
+		require.NotNilf(t, v, "route %q builds no view", id)
+		// topLevelViewID finds the route by the view ID before the first ":".
+		prefix, _, _ := strings.Cut(v.ID(), ":")
+		assert.Equalf(t, id, prefix, "route %q builds a view with ID %q", id, v.ID())
+	}
+	assert.Nil(t, m.resolveView(msg.NavigateMsg{ViewID: "nope"}))
+	assert.True(t, needsSession("nope"), "an unknown view needs a session")
+	assert.False(t, needsSession("eventlog"))
+	assert.False(t, needsSession("content"))
+	assert.True(t, needsSession("s3_objects"))
 }
 
 // --- Tabbed panel ---

@@ -238,10 +238,10 @@ func TestThemeSwitchRestartsHomeAnimation(t *testing.T) {
 	assert.NotNil(t, next)
 }
 
-// L5: the nearest service view under the top of the stack opens again after
-// a session switch. Subnets stay subnets, and the event log does not send
-// the user back to Home.
-func TestTopLevelViewIDUsesRegistry(t *testing.T) {
+// L5: the root of the nearest view under the top of the stack opens again
+// after a session switch. Subnets stay subnets, the event log does not send
+// the user back to Home, and the objects of a bucket go back to the buckets.
+func TestTopLevelViewIDUsesRouteRoots(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.svc.EC2 = new(awstest.MockEC2Service)
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "subnet_list"})
@@ -249,4 +249,7 @@ func TestTopLevelViewIDUsesRegistry(t *testing.T) {
 
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	assert.Equal(t, "subnet_list", m.topLevelViewID())
+
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "b"}})
+	assert.Equal(t, "s3_list", m.topLevelViewID(), "s3_objects has the root s3_list")
 }

@@ -10,7 +10,7 @@ internal/aws/           Service interfaces (S3Service, EC2Service, SQSService) +
 internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
 internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
 internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
-internal/app/           Root model — message router, layout compositor, view factory, side panel.
+internal/app/           Root model — message router, layout compositor, route table, side panel.
 internal/nav/           Stack-based navigator. It keeps no cache: a popped view is gone.
 internal/msg/           Shared message types for the event loop.
 internal/config/        TOML config with layered precedence (file < env < flags).
@@ -275,7 +275,7 @@ Home
 3. **Mock**: Create `internal/aws/awstest/mock_<service>.go` for testing
 4. **Views**: Create one or more view files in `internal/views/`
 5. **Registry**: Add a `Service` entry (with `Feature` sub-resources) and `Command` entries in `internal/registry/registry.go`. The home view and the command bar then show the service.
-6. **View factory**: Add a case in `app.go`'s `resolveView()` for each new ViewID, with the service from `m.svc` (the sync test will catch any missing entries)
+6. **Route**: Add an entry to `routes` in `internal/app/routes.go` for each new view ID. Its `build` makes the view with the service from `m.svc`, and its `root` names the service view to open again after a region or profile switch. `TestRoutes` fails when a view ID of the registry has no route.
 7. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
 
 ### Adding a List View
@@ -411,6 +411,6 @@ type Command struct {
 - `registry.Services` drives the home view's service grid
 - `registry.Commands` drives the command bar via `registry.CommandBarEntries()`
 - `registry.LookupCommand(input)` resolves names and aliases in `executeCommand()`
-- A sync test (`TestRegistryNavCommandsCoveredByResolveView`) ensures every nav command has a corresponding view factory entry in `app.go`'s `resolveView()`
+- `TestRoutes` makes sure that every view ID of the registry has a route in `internal/app/routes.go`, and that each service view is its own root.
 
-The view factory (`resolveView()`) remains in `app.go` because it needs the services of the current session (`m.svc`), which change on profile and region switches. The registry is the source of truth for *what exists*, and `resolveView()` handles *how to create it*.
+The route table (`routes`) is in the `app` package because `build` needs the services of the current session (`m.svc`), which change on profile and region switches. The registry says what exists, and the route table says how the app opens it. A route also says whether the view needs a session (`noSession`) and which service view the app opens again after a switch (`root`).

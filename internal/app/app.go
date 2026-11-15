@@ -1571,64 +1571,15 @@ func composeOverlay(bg, dialog string, bgWidth, bgHeight int) string {
 // Used to restore navigation after region/profile changes.
 func (m Model) topLevelViewID() string {
 	// The view on top can be a detail view such as s3_objects, or a view
-	// without AWS data such as the event log. The nearest service view of
-	// the registry under it is the one to open again.
-	views := m.nav.Views()
-	for _, view := range slices.Backward(views) {
+	// without AWS data such as the event log. The root of the nearest view
+	// that has one is the service view to open again.
+	for _, view := range slices.Backward(m.nav.Views()) {
 		id, _, _ := strings.Cut(view.ID(), ":")
-		if registry.IsServiceView(id) {
-			return id
+		if root := routes[id].root; root != "" {
+			return root
 		}
 	}
 	return ""
-}
-
-// needsSession reports whether the view needs an AWS session.
-func needsSession(viewID string) bool {
-	switch viewID {
-	case "eventlog", "content":
-		return false
-	}
-	return true
-}
-
-func (m Model) resolveView(n appmsg.NavigateMsg) nav.View {
-	switch n.ViewID {
-	case "ec2_list":
-		return views.NewEC2List(m.svc.EC2, m.svc.Client)
-	case "ami_list":
-		return views.NewAMIList(m.svc.EC2)
-	case "sg_list":
-		return views.NewSGList(m.svc.EC2)
-	case "vpc_list":
-		return views.NewVPCList(m.svc.EC2)
-	case "subnet_list":
-		return views.NewSubnetList(m.svc.EC2, n.Params["vpc_id"])
-	case "s3_list":
-		return views.NewS3List(m.svc.S3, m.activeRegion())
-	case "s3_objects":
-		return views.NewS3Objects(m.svc.S3, n.Params["bucket"], n.Params["prefix"])
-	case "s3_versions":
-		return views.NewS3Versions(m.svc.S3, n.Params["bucket"], n.Params["key"])
-	case "sqs_queues":
-		return views.NewSQSQueues(m.svc.SQS)
-	case "sqs_messages":
-		return views.NewSQSMessages(m.svc.SQS, n.Params["queue_url"], n.Params["queue_name"], n.Params["fifo"] == "true")
-	case "eventlog":
-		return views.NewEventLog()
-	case "content":
-		title := n.Params["title"]
-		content := n.Params["content"]
-		format := ui.ContentFormat(n.Params["format"])
-		if format == "" {
-			format = ui.FormatAuto
-		}
-		// Use a unique ID so content viewers are never cached
-		id := fmt.Sprintf("content:%s:%d", title, time.Now().UnixNano())
-		return views.NewContentViewer(id, title, content, format)
-	default:
-		return nil
-	}
 }
 
 func (m Model) currentKeyHints() []ui.HintBinding {
