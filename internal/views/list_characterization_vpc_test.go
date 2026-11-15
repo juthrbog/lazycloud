@@ -189,7 +189,7 @@ func TestCharVPC_Paging(t *testing.T) {
 
 	page2 := netLoadMsg(next)
 	_, done := v.Update(page2)
-	assert.Nil(t, done)
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}}, collectMsgs(done), "the last page ends the load")
 	// Divergence #14 (fixed in PR 5): the duplicate row is dropped before
 	// the append, so the items stay equal to the table rows.
 	assert.Equal(t, "3/3 VPCs", netFooter(v))

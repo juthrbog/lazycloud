@@ -245,6 +245,13 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", r.Msg, r.Origin.ID())
 		return m, nil
 	}
+	if _, ok := r.Msg.(appmsg.LoadedMsg); ok {
+		// A good load replaces the error of an earlier load of the view.
+		if m.errView == r.Origin {
+			m.err, m.errView = "", nil
+		}
+		return m, nil
+	}
 	if e, ok := r.Msg.(appmsg.ErrorMsg); ok {
 		if errors.Is(e.Err, context.Canceled) {
 			// Only a view that left the stack is cancelled, so this

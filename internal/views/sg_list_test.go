@@ -1,7 +1,9 @@
 package views
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
@@ -170,6 +172,22 @@ func TestBuildRulesContent(t *testing.T) {
 	assert.Contains(t, content, "80")
 	assert.Contains(t, content, "0.0.0.0/0")
 	assert.Contains(t, content, "HTTP")
+}
+
+// L29: a long description is cut by display width, so a multibyte
+// character stays whole.
+func TestBuildRulesContent_CutsLongDescriptions(t *testing.T) {
+	desc := func(d string) string {
+		content := buildRulesContent([]aws.SecurityGroupRule{{Protocol: "tcp", FromPort: 80, ToPort: 80, Description: d}})
+		require.True(t, utf8.ValidString(content), "no character is cut in half")
+		lines := strings.Split(strings.TrimRight(content, "\n"), "\n")
+		return strings.TrimSpace(lines[len(lines)-1][len("TCP      80             -                                        "):])
+	}
+	assert.Equal(t, strings.Repeat("a", 30), desc(strings.Repeat("a", 30)), "30 cells fit")
+	assert.Equal(t, strings.Repeat("a", 27)+"...", desc(strings.Repeat("a", 31)))
+	assert.Equal(t, strings.Repeat("é", 27)+"...", desc(strings.Repeat("é", 40)))
+	assert.Equal(t, strings.Repeat("é", 20), desc(strings.Repeat("é", 20)), "20 characters fit, also in 40 bytes")
+	assert.Equal(t, strings.Repeat("日", 13)+"...", desc(strings.Repeat("日", 20)), "a wide character takes 2 cells")
 }
 
 func TestBuildRulesContent_Empty(t *testing.T) {

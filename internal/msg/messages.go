@@ -27,6 +27,14 @@ type ErrorMsg struct {
 	Context string
 }
 
+// LoadedMsg is sent when a resource list finishes a full load without an
+// error. The app then clears the status bar error that the same list
+// reported.
+type LoadedMsg struct{}
+
+// Loaded is a command that sends LoadedMsg.
+func Loaded() tea.Msg { return LoadedMsg{} }
+
 // ToastMsg displays an auto-dismissing toast notification.
 type ToastMsg struct {
 	Text  string

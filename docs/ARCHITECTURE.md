@@ -41,7 +41,7 @@ The navigator tags each command that a view returns (`nav.Tag`). The result of t
 - `msg.StartOpMsg` starts a background operation, also when its view is gone by now. See [Background Operations](#background-operations).
 - Navigation, overlays, and the side panel (`NavigateMsg`, `RequestConfirmMsg`, `TabbedContentMsg`, and similar) take effect only when the origin view is on top. A late result cannot move the user or open a dialog over another view. A `RequestConfirmMsg` that the app cannot show, because its view is not on top or another prompt is open, becomes a toast, and the view gets a `ConfirmResultMsg` with `Confirmed: false`. It never replaces an open prompt. Give each question that can come late its own action, so an answer runs only what it asked about (see `askOverwrite`).
 - Toasts always show.
-- An `ErrorMsg` goes to the origin view. The status bar shows the error only while that view is on top. The app does not show an error that is `context.Canceled`. For a timeout, it shows "no answer from AWS in time".
+- An `ErrorMsg` goes to the origin view. The status bar shows the error only while that view is on top. When a resource list later finishes a full load without an error, the list core sends `msg.LoadedMsg`, and the app clears the error of that list. Other views keep their error in the status bar until the user leaves them, because they also send `ErrorMsg` for actions that are not loads and show the error in their own body. The app does not show an error that is `context.Canceled`. For a timeout, it shows "no answer from AWS in time".
 
 Bubble Tea runtime messages (batches, exec, clipboard, quit) pass through `nav.Tag` unwrapped, because the runtime must handle them. For a batch, each inner command is tagged.
 
@@ -112,6 +112,7 @@ Rules for view code:
 - When the width tier changes the column set, call `SetColumns`, then `SetRows` with the cells in the new column order. The sort stays on the column with the same title. Give each column a unique title, or keep a shared title, such as an empty icon column, at the same index in every tier.
 - The filter deselects the rows that it hides, so an action never applies to a row that the user cannot see.
 - A selected key whose row is not loaded stays selected, so a reload keeps the selection. After an action removes resources, call `DeselectAll()`.
+- A list keeps its selection and its cursor when the user comes back to it from a view below it, for example from the S3 objects. The app opens each list as a new view, and only the home view gets `Init` again. So a list that the user opens again from the home view starts with no selection. In a resource list, the first esc clears the selection, and the next esc leaves the list.
 - Put plain text in `Cells`. The table shows each cell through `ui.Sanitize` (see the next section). To color a cell, set `Style` on its column, for example `{Title: "State", Width: 16, Style: ui.StateColor}`. The table calls `Style` with the safe text.
 
 ### Terminals Without Color
