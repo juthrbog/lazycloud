@@ -1,0 +1,283 @@
+package app
+
+import (
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/nav"
+	"github.com/juthrbog/lazycloud/internal/ui"
+	"github.com/juthrbog/lazycloud/internal/views"
+)
+
+// These tests pin how the overlays behave before A7 (see
+// docs/design/a7-overlays.md, PR 0). A7 must keep this behavior, except
+// where a test says that a later PR changes it on purpose.
+
+// replyView records the prompt replies that reach it.
+type replyView struct {
+	*views.EventLog
+	picks    []ui.PickerResultMsg
+	confirms []ui.ConfirmResultMsg
+}
+
+func newReplyView() *replyView { return &replyView{EventLog: views.NewEventLog()} }
+
+func (v *replyView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	switch m := m.(type) {
+	case ui.PickerResultMsg:
+		v.picks = append(v.picks, m)
+	case ui.ConfirmResultMsg:
+		v.confirms = append(v.confirms, m)
+	}
+	return v, nil
+}
+
+// answer presses k and delivers the messages that the key produces.
+func answer(t *testing.T, m Model, k tea.KeyPressMsg) Model {
+	t.Helper()
+	m, cmd := update(t, m, k)
+	return pump(t, m, cmd)
+}
+
+// A confirm request that comes while help or the command bar is open
+// shows over it and takes the keys first.
+func TestOverlayPin_ConfirmOverHelpAndCommandBar(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		open  string
+		shown func(Model) bool
+	}{
+		{"help", "?", func(m Model) bool { return m.help.Visible() }},
+		{"command bar", ":", func(m Model) bool { return m.commandBar.Visible() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(140, 40)
+			v := newReplyView()
+			m.pushView(v)
+			m, _ = update(t, m, press(tc.open))
+			require.True(t, tc.shown(m))
+
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
+			require.True(t, m.confirm.Visible(), "the confirm shows over the %s", tc.name)
+
+			m = answer(t, m, press("y"))
+			assert.False(t, m.confirm.Visible())
+			assert.True(t, tc.shown(m), "the %s stays open under the confirm", tc.name)
+			assert.Equal(t, []ui.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
+		})
+	}
+}
+
+// While a picker is open, ctrl+x goes to the picker. It does not cancel a
+// running operation.
+func TestOverlayPin_CtrlXOnAnOpenPickerKeepsTheOperation(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	m = startTestOp(t, m)
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: -1}})
+	require.True(t, m.picker.Visible())
+
+	m = answer(t, m, keyCtrlX)
+	assert.False(t, m.picker.Visible(), "ctrl+x closes the picker")
+	assert.Equal(t, 1, m.ops.Count(), "the operation goes on")
+	assert.False(t, m.picker.Visible(), "no cancel picker opens")
+}
+
+// esc on a sort or an action picker never reaches the view. ctrl+x on them
+// reaches the view as a clear. D2: from PR 3, esc reaches the view.
+func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  tea.Msg
+		id   string
+	}{
+		{"sort", msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: 0}, "sort"},
+		{"action", msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}, "action"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestModel(140, 40)
+			v := newReplyView()
+			m.pushView(v)
+
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
+			m = answer(t, m, press("esc"))
+			assert.False(t, m.picker.Visible())
+			assert.Empty(t, v.picks, "esc does not reach the view")
+
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
+			m = answer(t, m, keyCtrlX)
+			assert.False(t, m.picker.Visible())
+			assert.Equal(t, []ui.PickerResultMsg{{ID: tc.id, Selected: -2, Value: "_clear"}}, v.picks)
+		})
+	}
+}
+
+// Below the home view, a theme switch asks first, because it resets the
+// views. A no keeps the theme, and a yes switches it.
+func TestOverlayPin_ThemeSwitchAsksBelowHome(t *testing.T) {
+	defer func() { ui.ActiveTheme = ui.DefaultTheme; ui.RebuildStyles() }()
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	before := ui.ActiveTheme.Name
+
+	pickNext := func(m Model) Model {
+		m, _ = update(t, m, press("T"))
+		require.True(t, m.picker.Visible())
+		m, _ = update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+		return answer(t, m, keyEnter)
+	}
+
+	m = pickNext(m)
+	require.True(t, m.confirm.Visible(), "the switch asks first")
+	m = answer(t, m, press("n"))
+	assert.Equal(t, before, ui.ActiveTheme.Name)
+	assert.Same(t, v, m.nav.Current())
+
+	m = pickNext(m)
+	require.True(t, m.confirm.Visible())
+	m = answer(t, m, press("y"))
+	assert.NotEqual(t, before, ui.ActiveTheme.Name)
+	assert.Equal(t, 1, m.nav.Depth(), "the switch resets the views")
+	assert.Empty(t, v.confirms, "the theme confirm does not reach the view")
+}
+
+// The discard confirm of a form shows over the form and takes the keys
+// first. A yes closes the form as aborted.
+func TestOverlayPin_FormDiscardConfirm(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestFormMsg{
+		ID: "f", Title: "Form", Fields: []msg.FormField{{Key: "body", Type: "input", Title: "Body"}},
+	}})
+	form := m.nav.Current()
+	require.IsType(t, &ui.FormView{}, form)
+
+	m, _ = update(t, m, nav.Routed{Origin: form, Msg: ui.RequestFormDiscardConfirmMsg{}})
+	require.True(t, m.confirm.Visible())
+	m, cmd := update(t, m, press("n"))
+	assert.False(t, m.confirm.Visible())
+	assert.Same(t, form, m.nav.Current(), "a no keeps the form")
+	m = pump(t, m, cmd)
+	assert.Same(t, form, m.nav.Current())
+
+	m, _ = update(t, m, nav.Routed{Origin: form, Msg: ui.RequestFormDiscardConfirmMsg{}})
+	m = answer(t, m, press("y"))
+	assert.Same(t, v, m.nav.Current(), "a yes closes the form")
+	assert.Empty(t, v.confirms, "the discard confirm does not reach the view")
+}
+
+// Help keeps the size it had when it opened. PR 2 changes this on purpose:
+// help then gets the new size.
+func TestOverlayPin_HelpKeepsItsSizeOnResize(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = update(t, m, press("?"))
+	require.True(t, m.help.Visible())
+	before := lipgloss.Width(m.help.View())
+
+	m, _ = update(t, m, tea.WindowSizeMsg{Width: 60, Height: 20})
+	assert.Equal(t, before, lipgloss.Width(m.help.View()), "help keeps its size (until PR 2)")
+}
+
+// A reply goes to the view on top when the reply comes, not to the view
+// that asked. PR 3 changes this on purpose: the reply then goes to the
+// view that asked.
+func TestOverlayPin_ReplyGoesToTheViewOnTop(t *testing.T) {
+	m := newTestModel(140, 40)
+	asker := newReplyView()
+	m.pushView(asker)
+	m, _ = update(t, m, nav.Routed{Origin: asker, Msg: msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}})
+	require.True(t, m.picker.Visible())
+
+	// A load of the asker ends with a navigation while the picker is open.
+	other := newReplyView()
+	m.pushView(other)
+	m = answer(t, m, keyEnter)
+	assert.Empty(t, asker.picks, "the asker gets no reply (until PR 3)")
+	assert.Equal(t, []ui.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, other.picks)
+}
+
+// appState is the state that a picker of the app can change.
+type appState struct {
+	depth    int
+	top      nav.View
+	theme    string
+	readOnly bool
+	region   string
+	profile  string
+	ops      int
+	confirm  bool
+}
+
+func stateOf(m Model) appState {
+	return appState{
+		depth: m.nav.Depth(), top: m.nav.Current(), theme: ui.ActiveTheme.Name, readOnly: ui.IsReadOnly(),
+		region: m.activeRegion(), profile: m.config.AWS.Profile, ops: m.ops.Count(), confirm: m.confirm.Visible(),
+	}
+}
+
+// esc and ctrl+x close each picker of the app and change nothing. A view
+// below the home view gets no reply.
+func TestOverlayPin_EscAndClearOnAppPickers(t *testing.T) {
+	defer func() { ui.ActiveTheme = ui.DefaultTheme; ui.RebuildStyles() }()
+	defer ui.SetReadOnly(true)
+	for _, tc := range []struct {
+		name string
+		home bool // the service picker opens only on the home view
+		open func(t *testing.T, m Model) Model
+	}{
+		{"theme", false, func(t *testing.T, m Model) Model { m, _ = update(t, m, press("T")); return m }},
+		{"region", false, func(t *testing.T, m Model) Model { m, _ = update(t, m, press("R")); return m }},
+		{"profile", false, func(t *testing.T, m Model) Model {
+			awsConfigEnv(t, "dev", "prod")
+			m, _ = update(t, m, press("P"))
+			return m
+		}},
+		{"mode", false, func(t *testing.T, m Model) Model { m, _ = update(t, m, press("W")); return m }},
+		{"service", true, func(t *testing.T, m Model) Model { m, _ = update(t, m, press("s")); return m }},
+		{"feature", true, func(t *testing.T, m Model) Model {
+			m, _ = update(t, m, press("s"))
+			return answer(t, m, keyEnter) // EC2 has several features
+		}},
+		{"cancel", false, func(t *testing.T, m Model) Model {
+			m = startTestOp(t, m)
+			m, _ = update(t, m, keyCtrlX)
+			return m
+		}},
+	} {
+		for _, k := range []struct {
+			name string
+			key  tea.KeyPressMsg
+		}{{"esc", press("esc")}, {"ctrl+x", keyCtrlX}} {
+			t.Run(tc.name+"/"+k.name, func(t *testing.T) {
+				m := newTestModel(140, 40)
+				var v *replyView
+				if !tc.home {
+					v = newReplyView()
+					m.pushView(v)
+				}
+				m = tc.open(t, m)
+				defer m.ops.CancelAll()
+				require.True(t, m.picker.Visible(), "the %s picker opens", tc.name)
+				before := stateOf(m)
+
+				m = answer(t, m, k.key)
+				assert.False(t, m.picker.Visible(), "%s closes the picker", k.name)
+				assert.Equal(t, before, stateOf(m), "%s changes nothing", k.name)
+				for _, r := range m.ops.Running() {
+					require.NoError(t, r.Ctx.Err(), "the operation goes on")
+				}
+				if v != nil {
+					assert.Empty(t, v.picks, "the view gets no reply")
+				}
+			})
+		}
+	}
+}

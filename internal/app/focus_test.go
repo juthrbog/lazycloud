@@ -18,7 +18,7 @@ func TestFocusLinkToCurrentViewDoesNotPush(t *testing.T) {
 
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "sqs_queues", Params: map[string]string{"focus": "orders-dlq"}})
 	assert.Equal(t, depth, m.nav.Depth(), "the view is not pushed a second time")
-	f := findMsg(collectMsgs(cmd), "msg.FocusResourceMsg")
+	f := findOf[msg.FocusResourceMsg](collectMsgs(cmd))
 	require.NotNil(t, f)
 	assert.Equal(t, "orders-dlq", f.(msg.FocusResourceMsg).ResourceID)
 }
@@ -32,5 +32,5 @@ func TestFocusLinkToOtherViewPushes(t *testing.T) {
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "sg_list", Params: map[string]string{"focus": "sg-1"}})
 	assert.Equal(t, depth+1, m.nav.Depth())
 	assert.Equal(t, "sg_list", m.nav.Current().ID())
-	assert.NotNil(t, findMsg(collectMsgs(cmd), "msg.FocusResourceMsg"))
+	assert.NotNil(t, findOf[msg.FocusResourceMsg](collectMsgs(cmd)))
 }

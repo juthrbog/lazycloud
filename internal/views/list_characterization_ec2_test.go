@@ -527,9 +527,9 @@ func TestCharEC2_SortPicker(t *testing.T) {
 	assert.Equal(t, []string{"i-2", "i-1", "i-3"}, ids())
 
 	// A cancelled picker does nothing; _clear clears.
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
+	v.Update(sortCancelled())
 	assert.Equal(t, []string{"i-2", "i-1", "i-3"}, ids())
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 0, Value: "_clear"})
+	v.Update(sortCleared())
 	assert.Equal(t, []string{"i-1", "i-2", "i-3"}, ids())
 }
 

@@ -123,7 +123,7 @@ func TestCtrlXCancelsThePickedOperation(t *testing.T) {
 	m, cmd := update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	assert.Nil(t, cmd)
 	m, cmd = update(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	res := findMsg(collectMsgs(cmd), "ui.PickerResultMsg")
+	res := findOf[ui.PickerResultMsg](collectMsgs(cmd))
 	require.NotNil(t, res)
 	m, _ = update(t, m, res)
 

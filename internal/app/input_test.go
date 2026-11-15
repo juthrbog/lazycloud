@@ -132,7 +132,7 @@ func TestConfirmedDeleteIsBlockedAfterSwitchToReadOnly(t *testing.T) {
 	m := s3ObjectsModel(t, s3m)
 
 	m, cmd := update(t, m, press("x"))
-	m, _ = update(t, m, findMsg(collectMsgs(cmd), "msg.RequestConfirmMsg"))
+	m, _ = update(t, m, findOf[msg.RequestConfirmMsg](collectMsgs(cmd)))
 	require.True(t, m.confirm.Visible())
 
 	ui.SetReadOnly(true)
@@ -278,13 +278,13 @@ func TestQuickConfirmRequest(t *testing.T) {
 	assert.Contains(t, rendered(m), "Start 1 instance(s)?")
 
 	m, cmd := update(t, m, press("y"))
-	res, ok := findMsg(collectMsgs(cmd), "ui.ConfirmResultMsg").(ui.ConfirmResultMsg)
+	res, ok := valueOf[ui.ConfirmResultMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	assert.Equal(t, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"}, res)
 	assert.False(t, m.confirm.Visible())
 
 	m, _ = update(t, m, msg.RequestConfirmMsg{Message: "Delete?", Action: "delete_objects"})
 	m, cmd = update(t, m, press("y"))
-	assert.Nil(t, findMsg(collectMsgs(cmd), "ui.ConfirmResultMsg"))
+	assert.Nil(t, findOf[ui.ConfirmResultMsg](collectMsgs(cmd)))
 	assert.True(t, m.confirm.Visible(), "the typed prompt stays open")
 }

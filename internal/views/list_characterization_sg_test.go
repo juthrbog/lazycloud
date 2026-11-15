@@ -298,7 +298,7 @@ func TestCharSG_SortPicker(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 1, req.CurrentCol)
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
+	v.Update(sortCancelled())
 	assert.Equal(t, "sg-222", netRows(v)[0][:6], "a cancelled picker keeps the sort")
 
 	// The sort survives a tier change.
@@ -313,7 +313,7 @@ func TestCharSG_SortPicker(t *testing.T) {
 	assert.Equal(t, "sg-111", netRows(v)[0][:6], "S reverses the sort")
 	assert.Equal(t, "Group ID | Name ▼ | VPC | In | Out", netHeader(v))
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Value: "_clear", Selected: 0})
+	v.Update(sortCleared())
 	assert.Equal(t, "sg-111", netRows(v)[0][:6])
 	assert.Equal(t, "Group ID | Name | VPC | In | Out", netHeader(v))
 	_, cmd = v.Update(keyPress('s'))

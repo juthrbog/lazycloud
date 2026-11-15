@@ -245,7 +245,7 @@ func TestEC2List_PickerCancelClearsTargets(t *testing.T) {
 	loadInstances(view, []aws.Instance{testRunningInstance})
 	view.pending.hold([]string{"i-running"})
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
+	_, cmd := view.Update(actionCancelled())
 	assert.Nil(t, cmd)
 	assert.Empty(t, view.pending.keys)
 }
