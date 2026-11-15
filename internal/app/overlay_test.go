@@ -25,6 +25,7 @@ type replyView struct {
 	*views.EventLog
 	picks    []ui.PickerResultMsg
 	confirms []ui.ConfirmResultMsg
+	forms    []msg.FormResultMsg
 }
 
 func newReplyView() *replyView { return &replyView{EventLog: views.NewEventLog()} }
@@ -35,6 +36,8 @@ func (v *replyView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		v.picks = append(v.picks, m)
 	case ui.ConfirmResultMsg:
 		v.confirms = append(v.confirms, m)
+	case msg.FormResultMsg:
+		v.forms = append(v.forms, m)
 	}
 	return v, nil
 }
@@ -180,6 +183,7 @@ func TestOverlayPin_FormDiscardConfirm(t *testing.T) {
 	m = answer(t, m, press("y"))
 	assert.Same(t, v, m.nav.Current(), "a yes closes the form")
 	assert.Empty(t, v.confirms, "the discard confirm does not reach the view")
+	assert.Equal(t, []msg.FormResultMsg{{ID: "f", Aborted: true}}, v.forms, "the view hears that the form closed")
 }
 
 // Help gets the new size when the window changes while it is open. Before
