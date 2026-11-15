@@ -233,7 +233,7 @@ Without this, style rendering produces zero-width output.
 - **Mode-aware behavior** — verify `ModeReadWrite` hints are present with correct mode, verify mutations blocked in ReadOnly
 - **Navigation flows** — push/pop, breadcrumbs, cross-resource
 - **Error handling** — API errors surface as error state or toast, not panic
-- **Registry consistency** — every nav command has a view factory entry (`TestRegistryNavCommandsCoveredByResolveView`)
+- **Registry consistency** — every view ID of the registry has a route, and each route has the right root (`TestRoutes`)
 - **Theme completeness** — every theme defines all required fields (`TestAllThemesHaveRequiredFields`)
 
 ### Skip or Defer

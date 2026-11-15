@@ -187,7 +187,7 @@ LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture
 internal/aws/        Service interfaces + SDK implementations
 internal/views/      Bubble Tea view models (one per resource type)
 internal/ui/         Shared components (table, filter, picker, toast, panel)
-internal/app/        Root model — message router, layout, view factory
+internal/app/        Root model — message router, layout, route table
 internal/nav/        Stack-based navigator
 ```
 
