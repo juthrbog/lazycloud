@@ -557,7 +557,7 @@ const overwriteAction = "s3_overwrite:"
 
 func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
-	case ui.ConfirmResultMsg:
+	case msg.ConfirmResultMsg:
 		if strings.HasPrefix(m.Action, overwriteAction) {
 			t := s.pendingOverwrite
 			if t == nil || t.action != m.Action {
@@ -578,7 +578,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.pendingDeleteEntries = nil
 		return s, nil
 
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		if m.ID == "sort" {
 			applySortPick(&s.table, m)
 		}

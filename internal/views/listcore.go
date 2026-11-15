@@ -443,7 +443,7 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 		}
 		c.table.Filter(m.Text)
 		return nil, true
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		return nil, applySortPick(&c.table, m)
 	case tea.KeyPressMsg:
 		return c.handleKey(m)

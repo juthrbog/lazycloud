@@ -213,7 +213,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		m, toastCmd := m.skippedPrompt(why + inner.Message)
 		// A question that was not asked counts as a no, so the view
 		// forgets the action that waits for the answer.
-		decline := m.nav.UpdateView(r.Origin, ui.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
+		decline := m.nav.UpdateView(r.Origin, appmsg.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
 		return m, tea.Batch(toastCmd, decline)
 
 	case appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg:
@@ -228,7 +228,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		}
 		return m.showSortPicker(inner.(appmsg.RequestSortPickerMsg), r.Origin), nil
 
-	case appmsg.RequestFormMsg, appmsg.FormResultMsg, ui.RequestFormDiscardConfirmMsg:
+	case appmsg.RequestFormMsg, appmsg.FormResultMsg, appmsg.RequestFormDiscardConfirmMsg:
 		// A form acts on what the user sees, like navigation below. The
 		// app records the view that asked, and the result goes to it.
 		if !m.nav.IsCurrent(r.Origin) {
@@ -563,7 +563,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
-	case ui.RequestFormDiscardConfirmMsg:
+	case appmsg.RequestFormDiscardConfirmMsg:
 		// A request without an origin. Its reply goes the old way.
 		return m.askDiscard(nil), nil
 
@@ -586,7 +586,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openOverlay(ovPicker)
 		return m, nil
 
-	case ui.ConfirmResultMsg:
+	case appmsg.ConfirmResultMsg:
 		switch msg.Action {
 		case confirmQuit:
 			if msg.Confirmed {
@@ -614,7 +614,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pendingTheme = ""
 			return m, nil
 		}
-		if msg.Action == ui.FormDiscardAction {
+		if msg.Action == appmsg.FormDiscardAction {
 			// The reply to a discard confirm without an origin (until PR 8).
 			if msg.Confirmed {
 				if fv, ok := m.nav.Current().(*ui.FormView); ok {
@@ -640,7 +640,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, opsTick()
 
-	case ui.PickerResultMsg:
+	case appmsg.PickerResultMsg:
 		if msg.ID == cancelPickerID {
 			return m.cancelOp(msg)
 		}
@@ -686,7 +686,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Sort and action pickers: route to current view
 		if msg.ID == "sort" || msg.ID == "action" {
-			if msg.Outcome == ui.PickCancelled {
+			if msg.Outcome == appmsg.PickCancelled {
 				return m, nil // a reply without a route: esc stays with the app (until PR 8)
 			}
 			cmd := m.nav.UpdateCurrent(msg)

@@ -43,7 +43,7 @@ func TestFeaturePickerResultNavigatesToView(t *testing.T) {
     m := newTestModel(140, 40)
 
     // Simulate picker selection
-    result, cmd := m.Update(ui.PickerResultMsg{ID: "feature", Selected: 1, Value: "ami_list"})
+    result, cmd := m.Update(msg.PickerResultMsg{ID: "feature", Selected: 1, Value: "ami_list"})
     m = result.(Model)
     require.NotNil(t, cmd)
 

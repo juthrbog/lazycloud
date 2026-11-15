@@ -169,13 +169,13 @@ func sqsColumns(tier ui.WidthTier) []ui.Column {
 // identity.
 func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		if m.ID == "action" {
 			return s, s.onActionPicked(m)
 		}
 	case msg.FormResultMsg:
 		return s, s.onForm(m)
-	case ui.ConfirmResultMsg:
+	case msg.ConfirmResultMsg:
 		return s, s.onConfirm(m)
 	case sqsQueuePurgedMsg:
 		return s, s.onPurged(m)
@@ -319,7 +319,7 @@ func (s *SQSQueues) manage() tea.Cmd {
 
 // onActionPicked opens the send form or the confirm prompt of the picked
 // action.
-func (s *SQSQueues) onActionPicked(m ui.PickerResultMsg) tea.Cmd {
+func (s *SQSQueues) onActionPicked(m msg.PickerResultMsg) tea.Cmd {
 	if !m.Picked() {
 		s.pending.clear() // esc: no action waits for an answer
 		return nil
@@ -416,7 +416,7 @@ func (s *SQSQueues) onForm(m msg.FormResultMsg) tea.Cmd {
 }
 
 // onConfirm runs a confirmed purge or delete.
-func (s *SQSQueues) onConfirm(m ui.ConfirmResultMsg) tea.Cmd {
+func (s *SQSQueues) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
 	urls, ok := s.pending.take(m)
 	if !ok {
 		return nil

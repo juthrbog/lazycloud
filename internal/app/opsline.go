@@ -11,6 +11,7 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
+	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/ops"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
@@ -119,7 +120,7 @@ func (m Model) showCancelPicker() (Model, tea.Cmd) {
 
 // cancelOp cancels the operation that the user picked. The operation ends
 // on its own and reports its result.
-func (m Model) cancelOp(r ui.PickerResultMsg) (Model, tea.Cmd) {
+func (m Model) cancelOp(r appmsg.PickerResultMsg) (Model, tea.Cmd) {
 	if !r.Picked() {
 		return m, nil
 	}

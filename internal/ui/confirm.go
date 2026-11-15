@@ -7,13 +7,13 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
-// ConfirmResultMsg is emitted when the user responds to a confirmation dialog.
-type ConfirmResultMsg struct {
-	Confirmed bool
-	Action    string
-}
+// ConfirmResultMsg is msg.ConfirmResultMsg, the reply of the dialog. The
+// alias stays until A7 PR 8.
+type ConfirmResultMsg = msg.ConfirmResultMsg
 
 // defaultPhrase is the text the user types when a request names no phrase.
 const defaultPhrase = "confirm"

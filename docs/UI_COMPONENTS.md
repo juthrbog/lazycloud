@@ -202,7 +202,7 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 - Padding(0, 1) inside border
 - Title in Bold+Primary
 - The picker fits the terminal height. The app passes the terminal size with `SetSize`, which sets the height limit (`SetMaxHeight`). When the options do not fit, the picker shows a window of them, keeps the cursor in it, and shows `↑ N more` and `↓ N more` lines. The width stays the same while the window scrolls.
-- The picker replies with a `PickerResultMsg`. Its `Outcome` says how the picker closed: `Picked` (enter, with `Selected` and `Value`), `PickCancelled` (esc), or `PickCleared`. ctrl+x clears only a picker that the app made clearable with `SetClearable`, such as the sort picker, and only that picker shows "ctrl+x clear" in its hint. On any other picker, ctrl+x cancels. The picker always takes ctrl+x, so the key never cancels a running operation while a picker is open.
+- The picker replies with a `msg.PickerResultMsg`. The reply types of the prompts live in `internal/msg/replies.go`, so a view needs no `ui` import to read a reply. `ui` keeps aliases until A7 PR 8. Its `Outcome` says how the picker closed: `Picked` (enter, with `Selected` and `Value`), `PickCancelled` (esc), or `PickCleared`. ctrl+x clears only a picker that the app made clearable with `SetClearable`, such as the sort picker, and only that picker shows "ctrl+x clear" in its hint. On any other picker, ctrl+x cancels. The picker always takes ctrl+x, so the key never cancels a running operation while a picker is open.
 
 ### Toasts
 - Bottom-right overlay via Compositor

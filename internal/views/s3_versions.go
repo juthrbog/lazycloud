@@ -138,7 +138,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.rebuildRows()
 		return s, nil
 
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		if m.ID == "sort" {
 			applySortPick(&s.table, m)
 		}

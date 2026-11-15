@@ -6,33 +6,23 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
-// PickOutcome says how a picker closed.
-type PickOutcome uint8
+// PickOutcome is msg.PickOutcome. The alias stays until A7 PR 8.
+type PickOutcome = msg.PickOutcome
 
+// The outcomes of a picker. See msg.PickOutcome.
 const (
-	// Picked: the user picked an option. It is the zero value, so a
-	// PickerResultMsg with only Selected and Value set is a pick.
-	Picked PickOutcome = iota
-	// PickCancelled: the user closed the picker with esc, or with ctrl+x
-	// on a picker that cannot be cleared.
-	PickCancelled
-	// PickCleared: the user pressed ctrl+x on a picker that can be
-	// cleared, such as the sort picker. See Picker.SetClearable.
-	PickCleared
+	Picked        = msg.Picked
+	PickCancelled = msg.PickCancelled
+	PickCleared   = msg.PickCleared
 )
 
-// PickerResultMsg is emitted when the user selects an option or cancels.
-type PickerResultMsg struct {
-	ID       string      // picker identifier
-	Outcome  PickOutcome // how the picker closed
-	Selected int         // the index of the picked option; -1 when Outcome is not Picked
-	Value    string      // the value of the picked option; empty when Outcome is not Picked
-}
-
-// Picked reports whether the user picked an option.
-func (r PickerResultMsg) Picked() bool { return r.Outcome == Picked }
+// PickerResultMsg is msg.PickerResultMsg, the reply of the picker. The
+// alias stays until A7 PR 8.
+type PickerResultMsg = msg.PickerResultMsg
 
 // PickerOption is a single selectable item in the picker.
 type PickerOption struct {

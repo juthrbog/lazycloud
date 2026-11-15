@@ -442,7 +442,7 @@ func redriveEnd(queue string, tasks []aws.MessageMoveTask) (sqsRedriveDoneMsg, b
 
 func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
-	case ui.PickerResultMsg:
+	case msg.PickerResultMsg:
 		if applySortPick(&s.table, m) {
 			return s, nil
 		}
@@ -464,7 +464,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return s, nil
 
-	case ui.ConfirmResultMsg:
+	case msg.ConfirmResultMsg:
 		if !m.Confirmed {
 			return s, nil
 		}

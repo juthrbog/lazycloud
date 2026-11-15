@@ -65,7 +65,7 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 // to form, which closes itself on a yes. A nil form means a request
 // without an origin, and its reply goes the old way.
 func (m Model) askDiscard(form nav.View) Model {
-	m.confirm.ShowQuick("Discard unsaved changes?", ui.FormDiscardAction)
+	m.confirm.ShowQuick("Discard unsaved changes?", appmsg.FormDiscardAction)
 	m.openOverlayFor(ovConfirm, form)
 	return m
 }
