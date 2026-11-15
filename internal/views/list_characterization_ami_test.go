@@ -517,10 +517,10 @@ func TestCharAMI_SortPicker(t *testing.T) {
 	req, _ = firstOfType[msg.RequestSortPickerMsg](charRun(cmd))
 	assert.Equal(t, 0, req.CurrentCol)
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1, Value: ""})
+	v.Update(sortCancelled())
 	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "a cancelled picker keeps the sort")
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 6, Value: "_clear"})
+	v.Update(sortCleared())
 	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "load order")
 	assert.NotContains(t, charHeader(v), "▲")
 	assert.NotContains(t, charHeader(v), "▼")

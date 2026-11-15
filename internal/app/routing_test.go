@@ -67,6 +67,8 @@ func unwrapRouted(m tea.Msg) tea.Msg {
 }
 
 // findMsg returns the first message whose (unwrapped) type name matches.
+// Use findOf for an exported type. findMsg is for the unexported messages
+// of the views, such as views.s3PageLoadedMsg.
 // It returns the message as produced, so a nav.Routed is fed back routed.
 func findMsg(msgs []tea.Msg, typeName string) tea.Msg {
 	for _, m := range msgs {
@@ -75,6 +77,29 @@ func findMsg(msgs []tea.Msg, typeName string) tea.Msg {
 		}
 	}
 	return nil
+}
+
+// findOf returns the first message whose (unwrapped) type is T. It
+// returns the message as produced, so a nav.Routed is fed back routed, or
+// nil when no message has the type.
+func findOf[T any](msgs []tea.Msg) tea.Msg {
+	for _, m := range msgs {
+		if _, ok := unwrapRouted(m).(T); ok {
+			return m
+		}
+	}
+	return nil
+}
+
+// valueOf returns the unwrapped value of the first message of type T.
+func valueOf[T any](msgs []tea.Msg) (T, bool) {
+	for _, m := range msgs {
+		if v, ok := unwrapRouted(m).(T); ok {
+			return v, true
+		}
+	}
+	var zero T
+	return zero, false
 }
 
 // findMsgPrefix is findMsg for a type name that starts with prefix and ends
@@ -102,7 +127,7 @@ func update(t *testing.T, m Model, in tea.Msg) (Model, tea.Cmd) {
 // runs the operation.
 func runOp(t *testing.T, m Model, cmd tea.Cmd) (Model, tea.Cmd) {
 	t.Helper()
-	start := findMsg(collectMsgs(cmd), "msg.StartOpMsg")
+	start := findOf[msg.StartOpMsg](collectMsgs(cmd))
 	require.NotNil(t, start, "the command starts a background operation")
 	return update(t, m, start)
 }
@@ -136,7 +161,7 @@ func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "bucket-a"}})
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3PageLoadedMsg"))
 	m, cmd = update(t, m, press("x"))
-	m, _ = update(t, m, findMsg(collectMsgs(cmd), "msg.RequestConfirmMsg"))
+	m, _ = update(t, m, findOf[msg.RequestConfirmMsg](collectMsgs(cmd)))
 	require.True(t, m.confirm.Visible())
 	m.confirm = ui.NewConfirm()
 	m, cmd = update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "delete_objects"})
@@ -145,7 +170,7 @@ func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 
 	// While the delete runs, the user goes back and opens bucket B.
 	m, cmd = update(t, m, press("esc"))
-	m, _ = update(t, m, findMsg(collectMsgs(cmd), "msg.NavigateBackMsg"))
+	m, _ = update(t, m, findOf[msg.NavigateBackMsg](collectMsgs(cmd)))
 	m, cmd = update(t, m, msg.NavigateMsg{ViewID: "s3_objects", Params: map[string]string{"bucket": "bucket-b"}})
 	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3PageLoadedMsg"))
 	require.Equal(t, "s3_objects:bucket-b:", m.nav.Current().ID())
@@ -154,7 +179,7 @@ func TestRouting_S3DeleteStaysInOriginBucket(t *testing.T) {
 	require.IsType(t, nav.Routed{}, done, "results must carry their origin view")
 	assert.Equal(t, 0, m.ops.Count(), "the operation ends with its command")
 	m, toastCmd := update(t, m, done)
-	toast := findMsg(collectMsgs(toastCmd), "msg.ToastMsg")
+	toast := findOf[msg.ToastMsg](collectMsgs(toastCmd))
 	require.NotNil(t, toast, "the result shows although its view is gone")
 	assert.Contains(t, toast.(msg.ToastMsg).Text, "Deleted 2")
 	m, _ = update(t, m, toast)
@@ -175,7 +200,7 @@ func TestRouting_StaleRegionPageDropped(t *testing.T) {
 	m, oldCmd := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 
 	m, rc := m.applyRegion("eu-west-1")
-	m, _ = update(t, m, findMsg(collectMsgs(rc), "msg.NavigateMsg"))
+	m, _ = update(t, m, findOf[msg.NavigateMsg](collectMsgs(rc)))
 	require.Equal(t, "ec2_list", m.nav.Current().ID())
 
 	m, _ = update(t, m, findMsgPrefix(collectMsgs(oldCmd), "views.listPageMsg[", "aws.Instance]"))
@@ -229,10 +254,10 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 	m, c := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 	m, _ = update(t, m, findMsgPrefix(collectMsgs(c), "views.listPageMsg[", "aws.Instance]"))
 	m, c = update(t, m, press("m"))
-	m, _ = update(t, m, findMsg(collectMsgs(c), "msg.RequestActionPickerMsg"))
+	m, _ = update(t, m, findOf[msg.RequestActionPickerMsg](collectMsgs(c)))
 	m.picker = ui.NewPicker()
 	m, c = update(t, m, ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
-	m, _ = update(t, m, findMsg(collectMsgs(c), "msg.RequestConfirmMsg"))
+	m, _ = update(t, m, findOf[msg.RequestConfirmMsg](collectMsgs(c)))
 	m.confirm = ui.NewConfirm()
 	m, stopCmd := update(t, m, ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 
@@ -246,7 +271,7 @@ func TestRouting_MutationResultReachesHiddenView(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, errs, "the failure is logged")
-	toast := findMsg(collectMsgs(toastCmd), "msg.ToastMsg")
+	toast := findOf[msg.ToastMsg](collectMsgs(toastCmd))
 	require.NotNil(t, toast, "the failure toast is produced")
 	m, _ = update(t, m, toast)
 	assert.True(t, m.toasts.HasActive(), "the failure toast is shown on the home view")

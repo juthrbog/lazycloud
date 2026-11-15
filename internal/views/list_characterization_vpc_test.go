@@ -337,14 +337,14 @@ func TestCharVPC_SortPicker(t *testing.T) {
 	assert.Equal(t, "VPC ID | Name ▲ | CIDR Block | State", netHeader(v), "the sort survives a tier change")
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10])
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
+	v.Update(sortCancelled())
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10], "a cancelled picker keeps the sort")
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, "VPC ID | Name ▼ | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10], "S reverses the sort")
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Value: "_clear"})
+	v.Update(sortCleared())
 	assert.Equal(t, "VPC ID | Name | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10])
 	_, cmd = v.Update(keyPress('s'))

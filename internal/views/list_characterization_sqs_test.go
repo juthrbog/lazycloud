@@ -593,10 +593,10 @@ func TestCharSQS_SortPicker(t *testing.T) {
 	v.Update(keyPress('S'))
 	assert.Equal(t, []string{"qb", "qa", "qc"}, charSQSNames(v))
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
+	v.Update(sortCancelled())
 	assert.Equal(t, []string{"qb", "qa", "qc"}, charSQSNames(v), "a cancelled picker keeps the sort")
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: 0, Value: "_clear"})
+	v.Update(sortCleared())
 	assert.Equal(t, []string{"qa", "qb", "qc"}, charSQSNames(v))
 	assert.Equal(t, -1, charSQSSortColCurrent(t, v))
 }
@@ -939,7 +939,7 @@ func TestCharSQS_ManagePicker(t *testing.T) {
 	}, cmd())
 
 	// A cancelled picker does nothing.
-	_, cmd = v.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
+	_, cmd = v.Update(actionCancelled())
 	assert.Nil(t, cmd)
 
 	empty, _ := charSQSLoaded(t, 100)
@@ -1217,7 +1217,7 @@ func TestCharSQS_CancelledPickerIgnoresConfirm(t *testing.T) {
 	v, svc := charSQSThree(t)
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
-	_, cmd = v.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
+	_, cmd = v.Update(actionCancelled())
 	require.Nil(t, cmd)
 
 	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
@@ -1507,7 +1507,7 @@ func TestCharSQS_KeysDuringReload(t *testing.T) {
 	_, cmd = v.Update(keyPress('m'))
 	require.NotNil(t, cmd, "m opens the picker for the cursor row")
 	assert.Equal(t, "Manage Queue", cmd().(msg.RequestActionPickerMsg).Title)
-	v.Update(ui.PickerResultMsg{ID: "action", Selected: -1})
+	v.Update(actionCancelled())
 	charSQSDown(v)
 	assert.Equal(t, charSQSURL("qb"), charSQSCursorURL(t, v), "the down key moves the cursor")
 

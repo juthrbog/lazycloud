@@ -573,11 +573,11 @@ func TestCharS3_SortPicker(t *testing.T) {
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
 
 	// A cancelled picker and another picker change nothing.
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
+	v.Update(sortCancelled())
 	v.Update(ui.PickerResultMsg{ID: "feature", Selected: 1, Value: "x"})
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -2, Value: "_clear"})
+	v.Update(sortCleared())
 	assert.Equal(t, []string{"b-tmp", "a-logs", "c-web"}, rows())
 	assert.Equal(t, []string{"Bucket", "Created"}, charS3Header(v))
 }

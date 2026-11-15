@@ -123,7 +123,7 @@ func TestCrossNavBackPopsToLinkOrigin(t *testing.T) {
 	m.openPanel("web-server-1", "{}", "json")
 
 	m, cmd := update(t, m, ui.ContentLinkActivatedMsg{ViewID: "vpc_list", Params: map[string]string{"focus": "vpc-1"}})
-	m, _ = update(t, m, findMsg(collectMsgs(cmd), "msg.NavigateMsg"))
+	m, _ = update(t, m, findOf[msg.NavigateMsg](collectMsgs(cmd)))
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "subnet_list", Params: map[string]string{"vpc_id": "vpc-1"}})
 	require.Equal(t, 4, m.nav.Depth())
 

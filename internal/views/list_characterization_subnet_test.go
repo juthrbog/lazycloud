@@ -378,14 +378,14 @@ func TestCharSubnet_SortPicker(t *testing.T) {
 	assert.Equal(t, "Subnet ID | Name ▲ | AZ | CIDR Block | State", netHeader(v), "the sort survives a tier change")
 	assert.Equal(t, "subnet-bb", netRows(v)[0][:9])
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Selected: -1})
+	v.Update(sortCancelled())
 	assert.Equal(t, "subnet-bb", netRows(v)[0][:9], "a cancelled picker keeps the sort")
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, "Subnet ID | Name ▼ | AZ | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "subnet-aa", netRows(v)[0][:9], "S reverses the sort")
 
-	v.Update(ui.PickerResultMsg{ID: "sort", Value: "_clear"})
+	v.Update(sortCleared())
 	assert.Equal(t, "Subnet ID | Name | AZ | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "subnet-aa", netRows(v)[0][:9])
 	_, cmd = v.Update(keyPress('s'))
