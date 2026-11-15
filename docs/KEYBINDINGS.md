@@ -99,13 +99,13 @@ Modal UI components that intercept all input when visible and don't expose hints
 
 - `filter.go` -- text input for table filtering
 - `commandbar.go` -- command palette with fuzzy search
-- `picker.go` -- selection popup (theme, profile, region, sort)
-- `confirm.go` -- destructive action confirmation
+- `picker.go` -- selection popup (theme, profile, region, mode, service, sort, action). `esc` cancels it. `ctrl+x` clears the sort picker and cancels the others.
+- `confirm.go` -- y/n or typed-phrase confirmation. `esc` declines it.
 - `tabbedpanel.go` -- numeric tab switching (delegates content keys to ContentView)
 - `help.go` -- the help overlay itself (j/k scroll, filter input, esc/? close)
 - `form.go` -- multi-field forms via `huh/v2` (pushed as nav view, not overlay)
 
-These stay string-based because they're self-contained, don't participate in the hint system, and don't benefit from `key.Binding`.
+These stay string-based because they're self-contained, don't participate in the hint system, and don't benefit from `key.Binding`. Help, the command bar, the confirm dialog and the picker are the overlays of the app. The overlay on top gets every key press before the global keys and the view (see "Overlay Compositing" in [ARCHITECTURE.md](ARCHITECTURE.md)). While a picker is open, `ctrl+x` goes to the picker, so it never cancels a running operation.
 
 ## Input Capture
 

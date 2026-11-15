@@ -13,7 +13,6 @@ import (
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/aws/awstest"
 	"github.com/juthrbog/lazycloud/internal/msg"
-	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // These tests cover the SQS findings M5, M7, M9, M22, and L25 of
@@ -93,7 +92,7 @@ func TestSQSQueues_SendTargetsTheSelectedQueue(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, picker.Options, "Send Message")
 
-	v.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
+	v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
 	svc.On("SendMessage", mock.Anything, "ub", "hi", int32(0), "", "").Return(nil)
 	_, cmd = v.Update(msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "hi"}})
 	collectMsgs(cmd)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/juthrbog/lazycloud/internal/aws/awstest"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/nav"
 )
 
 const (
@@ -74,7 +75,7 @@ func TestLeavingTheViewDropsStashedPanel(t *testing.T) {
 		},
 		"form": {
 			leave: func(t *testing.T, m Model) Model {
-				m, _ = update(t, m, msg.RequestFormMsg{ID: "test", Title: "Test", Fields: []msg.FormField{{Key: "name", Title: "Name"}}})
+				m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.RequestFormMsg{ID: "test", Title: "Test", Fields: []msg.FormField{{Key: "name", Title: "Name"}}}})
 				return m
 			},
 			top: "form:test",

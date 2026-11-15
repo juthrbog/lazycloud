@@ -8,12 +8,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/juthrbog/lazycloud/internal/msg"
+	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 )
-
-// ConfirmResultMsg is msg.ConfirmResultMsg, the reply of the dialog. The
-// alias stays until A7 PR 8.
-type ConfirmResultMsg = msg.ConfirmResultMsg
 
 // defaultPhrase is the text the user types when a request names no phrase.
 const defaultPhrase = "confirm"
@@ -79,11 +75,6 @@ func (c *Confirm) Hide() {
 // that Confirm is an Overlay.
 func (c *Confirm) SetSize(_, _ int) {}
 
-// Action returns the action of the dialog that is shown or was shown last.
-func (c Confirm) Action() string {
-	return c.action
-}
-
 // Visible returns whether the dialog is showing.
 func (c Confirm) Visible() bool {
 	return c.visible
@@ -105,12 +96,12 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 			case "y", "Y":
 				c.visible = false
 				return c, func() tea.Msg {
-					return ConfirmResultMsg{Confirmed: true, Action: action}
+					return appmsg.ConfirmResultMsg{Confirmed: true, Action: action}
 				}
 			case "n", "N", "esc", "enter":
 				c.visible = false
 				return c, func() tea.Msg {
-					return ConfirmResultMsg{Confirmed: false, Action: action}
+					return appmsg.ConfirmResultMsg{Confirmed: false, Action: action}
 				}
 			}
 			return c, nil
@@ -123,7 +114,7 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 				c.input.Blur()
 				action := c.action
 				return c, func() tea.Msg {
-					return ConfirmResultMsg{Confirmed: true, Action: action}
+					return appmsg.ConfirmResultMsg{Confirmed: true, Action: action}
 				}
 			}
 			c.err = fmt.Sprintf("Type '%s' to proceed", Sanitize(c.phrase))
@@ -133,7 +124,7 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 			c.input.Blur()
 			action := c.action
 			return c, func() tea.Msg {
-				return ConfirmResultMsg{Confirmed: false, Action: action}
+				return appmsg.ConfirmResultMsg{Confirmed: false, Action: action}
 			}
 		default:
 			c.err = "" // clear error on new input

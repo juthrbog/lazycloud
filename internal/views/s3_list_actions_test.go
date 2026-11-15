@@ -40,7 +40,7 @@ func TestS3List_ConfirmForOtherActionDoesNotDelete(t *testing.T) {
 	loadBuckets(view)
 	view.Update(keyPress('x'))
 
-	_, cmd := view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
+	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
 	assert.Nil(t, cmd)
 	assert.Empty(t, view.pendingDelete.keys)
 	assert.Empty(t, view.pendingDelete.action)
@@ -54,7 +54,7 @@ func TestS3List_ReadOnlyBetweenPromptAndConfirmDoesNotDelete(t *testing.T) {
 	view.Update(keyPress('x'))
 
 	ui.SetReadOnly(true)
-	_, cmd := view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
 	require.NotNil(t, cmd)
 	assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
 	assert.Empty(t, view.pendingDelete.keys)

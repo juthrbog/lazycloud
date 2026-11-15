@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
-	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // Shared helpers for the view tests.
@@ -17,18 +16,18 @@ import (
 // The replies of a sort or an action picker that picks no option.
 
 // sortCancelled is the reply of a sort picker closed with esc.
-func sortCancelled() ui.PickerResultMsg {
-	return ui.PickerResultMsg{ID: "sort", Outcome: ui.PickCancelled, Selected: -1}
+func sortCancelled() msg.PickerResultMsg {
+	return msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCancelled}
 }
 
 // sortCleared is the reply of a sort picker cleared with ctrl+x.
-func sortCleared() ui.PickerResultMsg {
-	return ui.PickerResultMsg{ID: "sort", Outcome: ui.PickCleared, Selected: -1}
+func sortCleared() msg.PickerResultMsg {
+	return msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCleared}
 }
 
 // actionCancelled is the reply of an action picker closed with esc.
-func actionCancelled() ui.PickerResultMsg {
-	return ui.PickerResultMsg{ID: "action", Outcome: ui.PickCancelled, Selected: -1}
+func actionCancelled() msg.PickerResultMsg {
+	return msg.PickerResultMsg{ID: "action", Outcome: msg.PickCancelled}
 }
 
 func keyPress(char rune) tea.KeyPressMsg {

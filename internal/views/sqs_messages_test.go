@@ -221,7 +221,7 @@ func TestSQSMessages_RedriveAsksFirst(t *testing.T) {
 	loadAttrs(view, nil)
 	m.On("StartMessageMoveTask", mock.Anything, "arn:aws:sqs:us-east-1:123:orders", "").Return("h1", nil)
 
-	_, cmd := view.Update(ui.PickerResultMsg{ID: "action", Selected: 0, Value: "Start Redrive"})
+	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Start Redrive"})
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	assert.Equal(t, "sqs_redrive", req.Action)
@@ -229,7 +229,7 @@ func TestSQSMessages_RedriveAsksFirst(t *testing.T) {
 	assert.Equal(t, "Move all messages of orders back to their source queues?", req.Message)
 	m.AssertNotCalled(t, "StartMessageMoveTask", mock.Anything, mock.Anything, mock.Anything)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "sqs_redrive"})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: false, Action: "sqs_redrive"})
 	assert.Nil(t, cmd)
 	m.AssertNotCalled(t, "StartMessageMoveTask", mock.Anything, mock.Anything, mock.Anything)
 
@@ -241,7 +241,7 @@ func TestSQSMessages_RedriveAsksFirst(t *testing.T) {
 		{Status: "COMPLETED", ApproximateNumberOfMsgsMoved: 4},
 		{Status: "FAILED"}, // an older task does not decide
 	}, nil)
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "sqs_redrive"})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_redrive"})
 	assert.True(t, view.redriving)
 	done, ok := firstOfType[sqsRedriveDoneMsg](collectMsgs(cmd))
 	require.True(t, ok)

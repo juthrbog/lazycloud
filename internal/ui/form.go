@@ -11,13 +11,6 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
-// RequestFormDiscardConfirmMsg is msg.RequestFormDiscardConfirmMsg. The
-// alias stays until A7 PR 8.
-type RequestFormDiscardConfirmMsg = msg.RequestFormDiscardConfirmMsg
-
-// FormDiscardAction is msg.FormDiscardAction.
-const FormDiscardAction = msg.FormDiscardAction
-
 // FormView wraps a huh.Form as a nav.View, providing a reusable multi-field
 // form that integrates with the app's message routing and theme system.
 type FormView struct {
@@ -108,8 +101,8 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m := m.(type) {
-	case ConfirmResultMsg:
-		if m.Action != FormDiscardAction {
+	case msg.ConfirmResultMsg:
+		if m.Action != msg.FormDiscardAction {
 			return f, nil
 		}
 		if !m.Confirmed {
@@ -129,7 +122,7 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.String() == "esc" {
 			if f.isDirty() {
 				return f, func() tea.Msg {
-					return RequestFormDiscardConfirmMsg{}
+					return msg.RequestFormDiscardConfirmMsg{}
 				}
 			}
 			f.done = true
@@ -161,7 +154,7 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case huh.StateAborted:
 		if f.isDirty() {
 			return f, func() tea.Msg {
-				return RequestFormDiscardConfirmMsg{}
+				return msg.RequestFormDiscardConfirmMsg{}
 			}
 		}
 		f.done = true

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/juthrbog/lazycloud/internal/msg"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -10,14 +11,14 @@ import (
 )
 
 // pressConfirm sends one key to the dialog and returns the result message, if any.
-func pressConfirm(t *testing.T, c Confirm, key tea.KeyPressMsg) (Confirm, *ConfirmResultMsg) {
+func pressConfirm(t *testing.T, c Confirm, key tea.KeyPressMsg) (Confirm, *msg.ConfirmResultMsg) {
 	t.Helper()
 	c, cmd := c.Update(key)
 	if cmd == nil {
 		return c, nil
 	}
-	res, ok := cmd().(ConfirmResultMsg)
-	require.True(t, ok, "expected ConfirmResultMsg")
+	res, ok := cmd().(msg.ConfirmResultMsg)
+	require.True(t, ok, "expected msg.ConfirmResultMsg")
 	return c, &res
 }
 

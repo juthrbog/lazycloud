@@ -70,7 +70,7 @@ func TestS3Objects_CopyAsksBeforeOverwrite(t *testing.T) {
 	assert.False(t, req.Quick, "a replace destroys data, so the user types the phrase")
 	assert.Equal(t, "s3://test-bucket/b.txt exists.\nReplace it with a.txt?", req.Message)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: req.Action})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: req.Action})
 	done, ok = firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	require.NoError(t, done.err)
@@ -85,7 +85,7 @@ func TestS3Objects_DeclinedOverwriteCopiesNothing(t *testing.T) {
 
 	done, _ := firstOfType[s3CopyCompleteMsg](startTransfer(view, 'c', "b.txt"))
 	view.Update(done)
-	_, cmd := view.Update(ui.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"})
+	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"})
 
 	assert.Nil(t, cmd)
 	assert.Nil(t, view.pendingOverwrite)
@@ -112,11 +112,11 @@ func TestS3Objects_SecondConflictDoesNotTakeTheOpenQuestion(t *testing.T) {
 	assert.Contains(t, toasts(msgs)[0].Text, "Not copied: s3://test-bucket/c.txt exists")
 
 	// A late answer with another action does nothing.
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite:99"})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite:99"})
 	assert.Nil(t, cmd)
 	require.NotNil(t, view.pendingOverwrite)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: first.Action})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: first.Action})
 	done, ok := firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	assert.Equal(t, "b.txt", done.dstKey, "yes replaces only the object in the question")
@@ -139,7 +139,7 @@ func TestS3Objects_MoveAsksBeforeOverwrite(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "s3_overwrite:1", req.Action)
 
-	_, cmd = view.Update(ui.ConfirmResultMsg{Confirmed: true, Action: req.Action})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: req.Action})
 	_, ok = firstOfType[s3MoveCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	m.AssertExpectations(t)

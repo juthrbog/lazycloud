@@ -75,20 +75,19 @@ func TestFormResultForAViewThatIsGoneIsDropped(t *testing.T) {
 	assert.Empty(t, m.forms)
 }
 
-// A form request without an origin has no view to reply to, so its result
-// goes to the view below the form, as before.
-func TestFormWithoutOriginRepliesTheOldWay(t *testing.T) {
+// A form that the app did not open for a view has no asker. Its result
+// closes it, and the app drops the result. Before PR 8, the result went to
+// the view below the form.
+func TestFormResultWithoutAskerIsDropped(t *testing.T) {
 	m := newTestModel(140, 40)
 	v := newReplyView()
 	m.pushView(v)
-	m, _ = update(t, m, testForm)
-	fv, ok := m.nav.Current().(*ui.FormView)
-	require.True(t, ok)
+	fv := ui.NewFormView(testForm)
+	m.pushView(fv)
 
-	res := msg.FormResultMsg{ID: "f", Aborted: true}
-	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: res})
-	assert.Same(t, v, m.nav.Current())
-	assert.Equal(t, []msg.FormResultMsg{res}, v.forms)
+	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: msg.FormResultMsg{ID: "f", Aborted: true}})
+	assert.Same(t, v, m.nav.Current(), "the form is popped")
+	assert.Empty(t, v.forms)
 }
 
 // A session switch or a theme switch replaces every view, so the app
@@ -117,7 +116,7 @@ func TestDiscardConfirmRepliesToTheForm(t *testing.T) {
 	m.pushView(v)
 	m, fv := openTestForm(t, m, v)
 
-	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: ui.RequestFormDiscardConfirmMsg{}})
+	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: msg.RequestFormDiscardConfirmMsg{}})
 	top, ok := m.overlays.top()
 	require.True(t, ok)
 	assert.Equal(t, ovConfirm, top.kind)
@@ -136,7 +135,7 @@ func TestFormRequestsFromAViewBelowAreDropped(t *testing.T) {
 
 	m, _ = update(t, m, nav.Routed{Origin: below, Msg: testForm})
 	assert.Same(t, top, m.nav.Current(), "no form opens")
-	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: ui.RequestFormDiscardConfirmMsg{}})
+	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: msg.RequestFormDiscardConfirmMsg{}})
 	assert.False(t, m.confirm.Visible(), "no discard confirm opens")
 	assert.Len(t, m.forms, 1)
 }
@@ -157,4 +156,19 @@ func TestFormResultGoesToTheAskerNotTheViewBelow(t *testing.T) {
 	assert.Same(t, below, m.nav.Current())
 	assert.Equal(t, []msg.FormResultMsg{res}, asker.forms)
 	assert.Empty(t, below.forms)
+}
+
+// Only a form sends a FormResultMsg. One from another view closes nothing
+// and goes nowhere. Before PR 8, it popped the view on top.
+func TestFormResultFromAViewThatIsNotAFormIsDropped(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	depth := m.nav.Depth()
+
+	m, cmd := update(t, m, nav.Routed{Origin: v, Msg: msg.FormResultMsg{ID: "f", Aborted: true}})
+	assert.Nil(t, cmd)
+	assert.Same(t, v, m.nav.Current())
+	assert.Equal(t, depth, m.nav.Depth())
+	assert.Empty(t, v.forms)
 }

@@ -242,9 +242,9 @@ func TestListCore_SpinnerTicksWhileVisible(t *testing.T) {
 
 func TestListCore_HandleIgnoresOtherPicker(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil))
-	_, ok := c.handle(ui.PickerResultMsg{ID: "action", Selected: 0})
+	_, ok := c.handle(msg.PickerResultMsg{ID: "action", Selected: 0})
 	assert.False(t, ok)
-	_, ok = c.handle(ui.PickerResultMsg{ID: "sort", Selected: 0})
+	_, ok = c.handle(msg.PickerResultMsg{ID: "sort", Selected: 0})
 	assert.True(t, ok)
 }
 

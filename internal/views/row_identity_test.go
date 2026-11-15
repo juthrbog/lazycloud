@@ -47,7 +47,7 @@ func TestS3List_DeleteSkipsBucketHiddenByFilter(t *testing.T) {
 	assert.Equal(t, "test-1", req.Phrase, "the user types the bucket name")
 
 	svc.On("EmptyAndDeleteBucket", mock.Anything, "test-1").Return(nil)
-	_, cmd = v.Update(ui.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
 	collectMsgs(cmd)
 	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, "alpha-prod")
 	svc.AssertCalled(t, "EmptyAndDeleteBucket", mock.Anything, "test-1")

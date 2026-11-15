@@ -237,7 +237,8 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 				return m.finishForm(fv, inner)
 			}
 		}
-		return m.Update(inner)
+		eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: not a form", inner, r.Origin.ID())
+		return m, nil
 
 	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
 		appmsg.RequestFeaturePickerMsg, ui.ContentLinkActivatedMsg:
@@ -321,7 +322,7 @@ func (m Model) startOp(origin nav.View, s appmsg.StartOpMsg) tea.Cmd {
 }
 
 // askConfirm shows the confirm dialog that req asks for. Its reply goes to
-// asker, or the old way when asker is nil.
+// asker.
 func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
 		cmd := m.refuseOpen(req.Message, replyRoute{replyTo: asker}, appmsg.ConfirmResultMsg{Confirmed: false, Action: req.Action})
@@ -349,11 +350,11 @@ func actionTitle(req appmsg.RequestActionPickerMsg) string {
 
 // pickDecline is the reply of a picker with id that was not shown.
 func pickDecline(id string) appmsg.PickerResultMsg {
-	return appmsg.PickerResultMsg{ID: id, Outcome: appmsg.PickCancelled, Selected: -1}
+	return appmsg.PickerResultMsg{ID: id, Outcome: appmsg.PickCancelled}
 }
 
 // showActionPicker shows the action picker that req asks for. Its reply
-// goes to asker, or the old way when asker is nil.
+// goes to asker.
 func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
 		cmd := m.refuseOpen(actionTitle(req), replyRoute{replyTo: asker}, pickDecline("action"))
@@ -369,7 +370,7 @@ func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.Vie
 }
 
 // showSortPicker shows the sort picker that req asks for. Its reply goes
-// to asker, or the old way when asker is nil.
+// to asker.
 func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
 		cmd := m.refuseOpen(sortTitle, replyRoute{replyTo: asker}, pickDecline("sort"))
@@ -552,43 +553,17 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toasts.Dismiss(msg.ID)
 		return m, nil
 
-	case appmsg.RequestFormMsg:
-		// A request without an origin. Its result goes the old way.
-		return m.openForm(msg, nil)
-
-	case appmsg.FormResultMsg:
-		// A result that no form sent. Pop the top view and send the result
-		// to the view below (until PR 8).
-		if m.nav.Depth() > 1 {
-			m.nav.Pop()
-			m.resizeViews()
-		}
-		cmd := m.nav.UpdateCurrent(msg)
-		return m, cmd
-
-	case appmsg.RequestFormDiscardConfirmMsg:
-		// A request without an origin. Its reply goes the old way.
-		return m.askDiscard(nil)
-
-	case appmsg.RequestConfirmMsg:
-		// A request without an origin. Its reply goes the old way.
-		return m.askConfirm(msg, nil)
-
-	case appmsg.RequestActionPickerMsg:
-		return m.showActionPicker(msg, nil)
-
-	case appmsg.RequestSortPickerMsg:
-		return m.showSortPicker(msg, nil)
+	case appmsg.RequestFormMsg, appmsg.FormResultMsg, appmsg.RequestFormDiscardConfirmMsg,
+		appmsg.RequestConfirmMsg, appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg,
+		appmsg.ConfirmResultMsg, appmsg.PickerResultMsg:
+		// A view sends its requests through the navigator, so they arrive
+		// as nav.Routed with the view that asked. A reply goes out wrapped
+		// with its route. Without a view to answer, the app drops them.
+		eventlog.Debugf(eventlog.CatNav, "Dropped %T: no origin", msg)
+		return m, nil
 
 	case appmsg.RequestFeaturePickerMsg:
 		cmd := m.showFeaturePicker(msg)
-		return m, cmd
-
-	case appmsg.ConfirmResultMsg:
-		// The reply to a confirm request without an origin. The prompts of
-		// the app reply to their handlers, so this goes to the view on top
-		// (until PR 8).
-		cmd := m.nav.UpdateCurrent(msg)
 		return m, cmd
 
 	case opsTickMsg:
@@ -600,18 +575,6 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, opsTick()
-
-	case appmsg.PickerResultMsg:
-		// The reply to a picker request without an origin. The pickers of
-		// the app reply to their handlers (until PR 8).
-		if msg.ID == "sort" || msg.ID == "action" {
-			if msg.Outcome == appmsg.PickCancelled {
-				return m, nil // a reply without a route: esc stays with the app
-			}
-			cmd := m.nav.UpdateCurrent(msg)
-			return m, cmd
-		}
-		return m, nil
 
 	case ui.CommandBarResultMsg:
 		if msg.Cancelled {
