@@ -57,7 +57,7 @@ func TestHelpOverlayFilter(t *testing.T) {
 
 	// Type "quit" to filter
 	h, _ = h.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
-	assert.Equal(t, "q", h.filter)
+	assert.Equal(t, "q", h.filter.String())
 
 	content := h.renderContent()
 	assert.Contains(t, content, "quit")
@@ -69,10 +69,10 @@ func TestHelpOverlayFilterBackspace(t *testing.T) {
 	h.Show(testHints(), 120, 40)
 
 	h, _ = h.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
-	assert.Equal(t, "q", h.filter)
+	assert.Equal(t, "q", h.filter.String())
 
 	h, _ = h.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	assert.Empty(t, h.filter)
+	assert.Empty(t, h.filter.String())
 }
 
 func TestHelpOverlayRenderContentGroupsCategories(t *testing.T) {

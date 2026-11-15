@@ -23,7 +23,7 @@ type Picker struct {
 	options  []PickerOption // all options
 	filtered []int          // indices into options that match the filter
 	cursor   int            // position within filtered list
-	filter   string         // current search text
+	filter   queryInput     // current search text
 	hint     string         // key hint under the options; "" for the default
 	visible  bool
 	// clearable is true when ctrl+x clears the setting that the picker
@@ -63,7 +63,7 @@ func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) 
 	p.id = id
 	p.title = title
 	p.options = options
-	p.filter = ""
+	p.filter = queryInput{}
 	p.hint = ""
 	p.clearable = false
 	p.visible = true
@@ -225,64 +225,28 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 			return p, func() tea.Msg {
 				return appmsg.PickerResultMsg{ID: id, Outcome: outcome}
 			}
-		case "backspace":
-			if len(p.filter) > 0 {
-				p.filter = p.filter[:len(p.filter)-1]
+		default:
+			if p.filter.update(msg) {
 				p.rebuildFiltered()
 			}
 			return p, nil
-		default:
-			// Single printable character → append to filter
-			if len(key) == 1 && key[0] >= 32 && key[0] < 127 {
-				p.filter += key
-				p.rebuildFiltered()
-				return p, nil
-			}
 		}
+	case tea.PasteMsg:
+		if p.filter.update(msg) {
+			p.rebuildFiltered()
+		}
+		return p, nil
 	}
 	return p, nil
 }
 
 func (p *Picker) rebuildFiltered() {
-	p.filtered = p.filtered[:0]
-	query := strings.ToLower(p.filter)
-	if query == "" {
-		for i := range p.options {
-			p.filtered = append(p.filtered, i)
-		}
-	} else {
-		// Rank: prefix > contains > fuzzy-only
-		var prefix, contains, fuzzyOnly []int
-		for i, opt := range p.options {
-			label := strings.ToLower(opt.Label)
-			value := strings.ToLower(opt.Value)
-			switch {
-			case strings.HasPrefix(label, query) || strings.HasPrefix(value, query):
-				prefix = append(prefix, i)
-			case strings.Contains(label, query) || strings.Contains(value, query):
-				contains = append(contains, i)
-			case fuzzyMatch(label, query) || fuzzyMatch(value, query):
-				fuzzyOnly = append(fuzzyOnly, i)
-			}
-		}
-		p.filtered = append(p.filtered, prefix...)
-		p.filtered = append(p.filtered, contains...)
-		p.filtered = append(p.filtered, fuzzyOnly...)
-	}
+	p.filtered = rankMatches(p.filtered, p.filter.String(), len(p.options), func(i int) (lead, rest []string) {
+		return []string{p.options[i].Label, p.options[i].Value}, nil
+	})
 	// Reset cursor to the top match when the filter changes.
 	p.cursor = 0
 	p.offset = 0
-}
-
-// fuzzyMatch returns true if all characters in pattern appear in s in order.
-func fuzzyMatch(s, pattern string) bool {
-	pi := 0
-	for i := 0; i < len(s) && pi < len(pattern); i++ {
-		if s[i] == pattern[pi] {
-			pi++
-		}
-	}
-	return pi == len(pattern)
 }
 
 // View renders the picker as a bordered popup.
@@ -303,8 +267,8 @@ func (p Picker) View() string {
 	b.WriteString(titleStyle.Render(Sanitize(p.title)) + "\n")
 
 	// Search input
-	if p.filter != "" {
-		b.WriteString(filterStyle.Render("/ "+p.filter) + "\n")
+	if p.filter.String() != "" {
+		b.WriteString(filterStyle.Render("/ "+p.filter.view(p.queryWidth())) + "\n")
 	} else {
 		b.WriteString(dimStyle.Render("type to search...") + "\n")
 	}
@@ -367,6 +331,16 @@ func (p Picker) View() string {
 	}
 
 	return s.DialogBorder.Render(strings.TrimSuffix(b.String(), "\n"))
+}
+
+// queryWidth returns the width for the search text. The text does not make
+// the box wider than the title or the widest option.
+func (p Picker) queryWidth() int {
+	w := max(lipgloss.Width(Sanitize(p.title)), 20)
+	for _, opt := range p.options {
+		w = max(w, lipgloss.Width(Sanitize(opt.Label))+2)
+	}
+	return w - 2 // the "/ " in front of the text
 }
 
 // moreLine says how many options are hidden above or below the window.

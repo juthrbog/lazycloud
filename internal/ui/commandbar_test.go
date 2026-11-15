@@ -40,7 +40,7 @@ func TestCommandBarEnterExecutes(t *testing.T) {
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	c, _ = c.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
 
-	assert.Equal(t, "ec2", c.input)
+	assert.Equal(t, "ec2", c.input.String())
 
 	c, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	assert.False(t, c.Visible())
@@ -108,7 +108,7 @@ func TestCommandBarTabCompletes(t *testing.T) {
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
-	assert.Equal(t, "ec2", c.input)
+	assert.Equal(t, "ec2", c.input.String())
 	assert.True(t, c.Visible()) // Tab fills but does NOT execute
 }
 
@@ -122,7 +122,7 @@ func TestCommandBarTabCompletesSelectedSuggestion(t *testing.T) {
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // select ec2/amis (first Down skips implicit ec2)
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
-	assert.Equal(t, "ec2/amis", c.input)
+	assert.Equal(t, "ec2/amis", c.input.String())
 }
 
 func TestCommandBarHistory(t *testing.T) {
@@ -134,19 +134,19 @@ func TestCommandBarHistory(t *testing.T) {
 
 	// Up arrow recalls most recent ("s3")
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	assert.Equal(t, "s3", c.input)
+	assert.Equal(t, "s3", c.input.String())
 
 	// Up again recalls "ec2"
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	assert.Equal(t, "ec2", c.input)
+	assert.Equal(t, "ec2", c.input.String())
 
 	// Down returns to "s3"
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Equal(t, "s3", c.input)
+	assert.Equal(t, "s3", c.input.String())
 
 	// Down again returns to empty draft
 	c, _ = c.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-	assert.Empty(t, c.input)
+	assert.Empty(t, c.input.String())
 }
 
 func TestCommandBarHistoryDeduplicates(t *testing.T) {
@@ -164,10 +164,10 @@ func TestCommandBarCtrlUClearsInput(t *testing.T) {
 
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'c', Text: "c"})
-	assert.Equal(t, "ec", c.input)
+	assert.Equal(t, "ec", c.input.String())
 
 	c, _ = c.Update(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
-	assert.Empty(t, c.input)
+	assert.Empty(t, c.input.String())
 }
 
 func TestCommandBarEnterOnEmptyDismisses(t *testing.T) {
