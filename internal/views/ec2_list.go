@@ -3,6 +3,7 @@ package views
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -48,12 +49,22 @@ func (m ec2InstanceMutatedMsg) Outcome() msg.ToastMsg {
 // reply. It is the same text that the app shows for a blocked key.
 const ec2ReadOnlyText = "ReadOnly mode — press W to switch"
 
+// ec2Op names one Manage action. It indexes ec2Actions.
+type ec2Op int
+
+const (
+	ec2Start ec2Op = iota
+	ec2Stop
+	ec2Reboot
+	ec2Terminate
+)
+
 // ec2Action describes one Manage action.
 type ec2Action struct {
 	label        string // picker label and prompt verb, for example "Stop"
 	busy         string // spinner verb, for example "Stopping"
 	past         string // ec2InstanceMutatedMsg action, for example "stopped"
-	confirmID    string // confirm Action id, for example "ec2_stop"
+	confirmID    string // confirm Action id, for example "ec2_stop". A12 PR 6 removes it.
 	transitional string // optimistic state until the next refresh
 	// quick asks with a y/n prompt. Starting is reversible and destroys
 	// nothing, so y/n is enough. It still costs money, so it asks.
@@ -61,30 +72,33 @@ type ec2Action struct {
 	run   func(aws.EC2Service, context.Context, []string) error
 }
 
-var ec2Actions = []ec2Action{
-	{"Start", "Starting", "started", "ec2_start", "pending", true, aws.EC2Service.StartInstances},
-	{"Stop", "Stopping", "stopped", "ec2_stop", "stopping", false, aws.EC2Service.StopInstances},
-	{"Reboot", "Rebooting", "rebooted", "ec2_reboot", "pending", false, aws.EC2Service.RebootInstances},
-	{"Terminate", "Terminating", "terminated", "ec2_terminate", "shutting-down", false, aws.EC2Service.TerminateInstances},
+// ec2Actions holds the Manage actions, indexed by ec2Op.
+var ec2Actions = [...]ec2Action{
+	ec2Start:     {"Start", "Starting", "started", "ec2_start", "pending", true, aws.EC2Service.StartInstances},
+	ec2Stop:      {"Stop", "Stopping", "stopped", "ec2_stop", "stopping", false, aws.EC2Service.StopInstances},
+	ec2Reboot:    {"Reboot", "Rebooting", "rebooted", "ec2_reboot", "pending", false, aws.EC2Service.RebootInstances},
+	ec2Terminate: {"Terminate", "Terminating", "terminated", "ec2_terminate", "shutting-down", false, aws.EC2Service.TerminateInstances},
 }
 
-func ec2ActionByLabel(label string) (ec2Action, bool) {
-	for _, a := range ec2Actions {
-		if a.label == label {
-			return a, true
-		}
-	}
-	return ec2Action{}, false
+// ec2ManageTag is the tag of the Manage picker. It holds the instances and
+// the actions that the picker offers, frozen at the key press.
+type ec2ManageTag struct {
+	ids []string
+	ops []ec2Op
 }
 
-func ec2ActionByConfirmID(id string) (ec2Action, bool) {
-	for _, a := range ec2Actions {
-		if a.confirmID == id {
-			return a, true
-		}
-	}
-	return ec2Action{}, false
+// PromptTag marks ec2ManageTag as a prompt tag.
+func (*ec2ManageTag) PromptTag() {}
+
+// ec2ConfirmTag is the tag of the confirm of a Manage action. It holds
+// the action and the instances that a yes acts on.
+type ec2ConfirmTag struct {
+	op  ec2Op
+	ids []string
 }
+
+// PromptTag marks ec2ConfirmTag as a prompt tag.
+func (*ec2ConfirmTag) PromptTag() {}
 
 // ec2RefreshDelay gives AWS time to register a state change before the
 // list loads again.
@@ -105,7 +119,6 @@ type EC2List struct {
 	listCore[aws.Instance]
 	ec2       aws.EC2Service
 	awsClient *aws.Client
-	pending   pendingConfirm // instances targeted by a Manage action
 }
 
 // NewEC2List creates the EC2 instance list view.
@@ -147,8 +160,8 @@ func (e *EC2List) KeyMap() []ui.HintBinding {
 func (e *EC2List) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case msg.PickerResultMsg:
-		if m.ID == "action" {
-			return e, e.onActionPicked(m)
+		if t, ok := m.Tag.(*ec2ManageTag); ok && t != nil {
+			return e, e.onActionPicked(t, m)
 		}
 	case msg.ConfirmResultMsg:
 		return e, e.onConfirm(m)
@@ -290,39 +303,42 @@ func (e *EC2List) manage() tea.Cmd {
 	if len(ids) == 0 {
 		return nil
 	}
-	actions := e.commonActionsForSelection(ids)
-	if len(actions) == 0 {
+	ops := e.commonActionsForSelection(ids)
+	if len(ops) == 0 {
 		return func() tea.Msg {
 			return msg.ToastError("No common actions for selected instances")
 		}
 	}
-	e.pending.hold(ids)
 	title := "Manage Instance"
 	if len(ids) > 1 {
 		title = fmt.Sprintf("Manage %d Instances", len(ids))
 	}
-	return func() tea.Msg {
-		return msg.RequestActionPickerMsg{Title: title, Options: actions}
+	labels := make([]string, len(ops))
+	for i, op := range ops {
+		labels[i] = ec2Actions[op].label
 	}
+	req := msg.RequestActionPickerMsg{Title: title, Options: labels, Tag: &ec2ManageTag{ids: slices.Clone(ids), ops: ops}}
+	return func() tea.Msg { return req }
 }
 
-// onActionPicked asks for confirmation of the picked action. A canceled
-// picker forgets the targets.
-func (e *EC2List) onActionPicked(m msg.PickerResultMsg) tea.Cmd {
-	if a, ok := ec2ActionByLabel(m.Value); ok && m.Picked() {
-		return e.pending.ask(e.confirmRequest(a))
+// onActionPicked asks for confirmation of the action that r picked from
+// the picker of t. Any other reply does nothing.
+func (e *EC2List) onActionPicked(t *ec2ManageTag, r msg.PickerResultMsg) tea.Cmd {
+	op, ok := pickedOption(t.ops, r)
+	if !ok {
+		return nil
 	}
-	e.pending.clear()
-	return nil
+	req := e.confirmRequest(op, t.ids)
+	return func() tea.Msg { return req }
 }
 
 // commonActionsForSelection returns the actions available for ALL selected instances.
 // Returns nil if the selection contains instances in mixed states with no common actions.
-func (e *EC2List) commonActionsForSelection(ids []string) []string {
+func (e *EC2List) commonActionsForSelection(ids []string) []ec2Op {
 	if len(ids) == 0 {
 		return nil
 	}
-	var common []string
+	var common []ec2Op
 	for i, id := range ids {
 		inst := e.find(id)
 		if inst == nil {
@@ -337,7 +353,7 @@ func (e *EC2List) commonActionsForSelection(ids []string) []string {
 			continue
 		}
 		// Intersect
-		set := make(map[string]bool, len(actions))
+		set := make(map[ec2Op]bool, len(actions))
 		for _, a := range actions {
 			set[a] = true
 		}
@@ -368,22 +384,22 @@ func actionName(done string) string {
 	return done
 }
 
-func actionsForState(state string) []string {
+func actionsForState(state string) []ec2Op {
 	switch state {
 	case "stopped":
-		return []string{"Start"}
+		return []ec2Op{ec2Start}
 	case "running":
-		return []string{"Stop", "Reboot", "Terminate"}
+		return []ec2Op{ec2Stop, ec2Reboot, ec2Terminate}
 	default:
 		return nil
 	}
 }
 
-// confirmRequest builds the confirm prompt for a on the pending targets.
-// It lists the names from the rows the view holds, so it must run on the
-// Update goroutine.
-func (e *EC2List) confirmRequest(a ec2Action) msg.RequestConfirmMsg {
-	ids := e.pending.keys
+// confirmRequest builds the confirm prompt for op on ids. It lists the
+// names from the rows the view holds, so it must run on the Update
+// goroutine.
+func (e *EC2List) confirmRequest(op ec2Op, ids []string) msg.RequestConfirmMsg {
+	a := ec2Actions[op]
 	names := make([]string, 0, len(ids))
 	for _, id := range ids {
 		name := id
@@ -396,20 +412,18 @@ func (e *EC2List) confirmRequest(a ec2Action) msg.RequestConfirmMsg {
 		Message: confirmMessage(a.label, len(ids), "instance(s)", names, ""),
 		Action:  a.confirmID,
 		Quick:   a.quick,
+		Tag:     &ec2ConfirmTag{op: op, ids: ids},
 	}
 }
 
-// onConfirm runs the pending action when the reply confirms it. Any other
-// reply only clears the targets.
+// onConfirm runs the action of the tag of m when m is a yes. Any other
+// reply does nothing.
 func (e *EC2List) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
-	ids, ok := e.pending.take(m)
-	if !ok {
+	t, ok := m.Tag.(*ec2ConfirmTag)
+	if !ok || t == nil || !m.Confirmed || len(t.ids) == 0 {
 		return nil
 	}
-	a, ok := ec2ActionByConfirmID(m.Action)
-	if !ok {
-		return nil
-	}
+	a, ids := ec2Actions[t.op], t.ids
 	// The mode can change while the prompt is open.
 	if ui.IsReadOnly() {
 		return func() tea.Msg { return msg.ToastError(ec2ReadOnlyText) }
