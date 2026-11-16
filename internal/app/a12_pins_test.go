@@ -145,8 +145,9 @@ func TestA12_RefusalsCarryTheTag(t *testing.T) {
 }
 
 // The decline of closePrompts carries the tag when the view still exists.
-// From PR 4, S3 objects uses this to tell which question a decline answers
-// (H3). Today a theme switch removes the views first, so the decline is
+// From PR 4, S3 objects keeps no question state, so a decline needs no
+// tag there (H3). A view that reads a decline can still tell its prompts
+// apart by this tag. Today a theme switch removes the views first, so the decline is
 // dropped (TestA12Pin_ThemeSwitchWithEachViewPromptOpen).
 func TestA12_ClosePromptsDeclineCarriesTheTag(t *testing.T) {
 	for name, req := range viewRequests {

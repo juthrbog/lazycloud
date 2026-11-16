@@ -158,14 +158,25 @@ func transferOutcome(done, verb, bucket, dstKey string, err error) msg.ToastMsg 
 	return msg.ToastSuccess(done + " → " + dstKey)
 }
 
-// s3Transfer is a copy or move that waits for the user to confirm an
-// overwrite.
-type s3Transfer struct {
+// s3OverwriteTag is the tag of the question whether a copy or move may
+// replace an object that exists. It holds the transfer that a yes runs.
+type s3OverwriteTag struct {
 	mode   string // "copy" or "move"
 	srcKey string
 	dstKey string
-	action string // the confirm action of its question
 }
+
+// PromptTag marks s3OverwriteTag as a prompt tag.
+func (*s3OverwriteTag) PromptTag() {}
+
+// s3DeleteTag is the tag of the delete confirm. It holds the entries to
+// delete, frozen at the key press.
+type s3DeleteTag struct {
+	entries []s3TableEntry
+}
+
+// PromptTag marks s3DeleteTag as a prompt tag.
+func (*s3DeleteTag) PromptTag() {}
 
 // s3TableEntry tracks whether a table row is a folder or object.
 type s3TableEntry struct {
@@ -214,29 +225,26 @@ var defaultS3ObjectsKeyMap = s3ObjectsKeyMap{
 // S3Objects displays objects and folders within an S3 bucket.
 type S3Objects struct {
 	viewCtx
-	keys                 s3ObjectsKeyMap
-	s3                   aws.S3Service
-	bucket               string
-	prefix               string
-	objects              []aws.S3Object
-	prefixes             []string
-	entries              map[string]s3TableEntry // by full path, the table row key
-	table                ui.Table
-	filter               ui.Filter
-	spinner              ui.Spinner
-	copyInput            ui.Filter // reuse Filter as a text input for copy/move dest
-	copyMode             string    // "copy" or "move", empty when inactive
-	copySrcKey           string    // source key for copy/move
-	pendingOverwrite     *s3Transfer
-	overwriteSeq         int // numbers the replace questions; see askOverwrite
-	loading              bool
-	loadGen              int // generation of the current full load; see startLoad
-	pageNum              int
-	pendingDeleteEntries []s3TableEntry
-	err                  error
-	width                int
-	height               int
-	widthTier            ui.WidthTier
+	keys       s3ObjectsKeyMap
+	s3         aws.S3Service
+	bucket     string
+	prefix     string
+	objects    []aws.S3Object
+	prefixes   []string
+	entries    map[string]s3TableEntry // by full path, the table row key
+	table      ui.Table
+	filter     ui.Filter
+	spinner    ui.Spinner
+	copyInput  ui.Filter // reuse Filter as a text input for copy/move dest
+	copyMode   string    // "copy" or "move", empty when inactive
+	copySrcKey string    // source key for copy/move
+	loading    bool
+	loadGen    int // generation of the current full load; see startLoad
+	pageNum    int
+	err        error
+	width      int
+	height     int
+	widthTier  ui.WidthTier
 }
 
 func (s *S3Objects) ID() string {
@@ -531,51 +539,36 @@ func homeRelative(p string) string {
 // askOverwrite asks before a copy or move replaces an object that exists.
 //
 // Copies run in the background, so two can end with "exists" while one
-// question is open. Each question has its own action, and an answer runs
-// only the transfer it asked about. A second conflict while a question is
-// open is not asked: it is reported, and nothing is replaced.
+// question is open. Each question carries its own transfer in its tag, so
+// an answer runs only the transfer it asked about. The app shows one prompt
+// at a time: it refuses a second question with a toast and a decline, and
+// nothing is replaced.
 func (s *S3Objects) askOverwrite(mode, srcKey, dstKey string) tea.Cmd {
-	if s.pendingOverwrite != nil {
-		verb := "copied"
-		if mode == "move" {
-			verb = "moved"
-		}
-		text := fmt.Sprintf("Not %s: s3://%s/%s exists (another replace question is open)", verb, s.bucket, dstKey)
-		return func() tea.Msg { return msg.ToastError(text) }
+	req := msg.RequestConfirmMsg{
+		Message: fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, ui.Sanitize(dstKey), ui.Sanitize(path.Base(srcKey))),
+		Action:  "s3_overwrite",
+		Tag:     &s3OverwriteTag{mode: mode, srcKey: srcKey, dstKey: dstKey},
 	}
-	s.overwriteSeq++
-	action := fmt.Sprintf("%s%d", overwriteAction, s.overwriteSeq)
-	s.pendingOverwrite = &s3Transfer{mode: mode, srcKey: srcKey, dstKey: dstKey, action: action}
-	message := fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, ui.Sanitize(dstKey), ui.Sanitize(path.Base(srcKey)))
-	return func() tea.Msg {
-		return msg.RequestConfirmMsg{Message: message, Action: action}
-	}
+	return func() tea.Msg { return req }
 }
-
-// overwriteAction is the prefix of the confirm action of a replace question.
-const overwriteAction = "s3_overwrite:"
 
 func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case msg.ConfirmResultMsg:
-		if strings.HasPrefix(m.Action, overwriteAction) {
-			t := s.pendingOverwrite
-			if t == nil || t.action != m.Action {
-				return s, nil // the answer to a question that is not open
-			}
-			s.pendingOverwrite = nil
-			if m.Confirmed {
-				return s, s.transfer(t.mode, t.srcKey, t.dstKey, true)
-			}
+		if !m.Confirmed {
 			return s, nil
 		}
-		if m.Confirmed && m.Action == "delete_objects" && len(s.pendingDeleteEntries) > 0 {
-			entries := s.pendingDeleteEntries
-			s.pendingDeleteEntries = nil
-			s.spinner.Show("Deleting...")
-			return s, tea.Batch(s.spinner.Tick(), s.deleteEntries(entries))
+		switch t := m.Tag.(type) {
+		case *s3OverwriteTag:
+			if t != nil {
+				return s, s.transfer(t.mode, t.srcKey, t.dstKey, true)
+			}
+		case *s3DeleteTag:
+			if t != nil && len(t.entries) > 0 {
+				s.spinner.Show("Deleting...")
+				return s, tea.Batch(s.spinner.Tick(), s.deleteEntries(t.entries))
+			}
 		}
-		s.pendingDeleteEntries = nil
 		return s, nil
 
 	case msg.PickerResultMsg:
@@ -900,7 +893,6 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastError("No items to delete (select with space first)")
 				}
 			}
-			s.pendingDeleteEntries = entries
 			// Build a human-readable confirmation message
 			var folders, objects int
 			for _, e := range entries {
@@ -937,6 +929,7 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					Message: message,
 					Action:  "delete_objects",
 					Phrase:  phrase,
+					Tag:     &s3DeleteTag{entries: entries},
 				}
 			}
 		case key.Matches(m, s.keys.Download):
