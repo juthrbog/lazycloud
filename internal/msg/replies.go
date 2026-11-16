@@ -9,7 +9,9 @@ package msg
 // included, so the view reads the reply from the tag and keeps no state
 // while the prompt is open. Implement PromptTag on a pointer receiver, so a
 // tag is always comparable, and never change a tag after the request goes
-// out.
+// out. Go can give all pointers to a struct with no fields the same
+// address, so give a tag a field when the view must tell two of its tags
+// apart.
 type PromptTag interface{ PromptTag() }
 
 // ConfirmResultMsg is the reply of a confirm dialog.
@@ -47,11 +49,3 @@ type PickerResultMsg struct {
 
 // Picked reports whether the user picked an option.
 func (r PickerResultMsg) Picked() bool { return r.Outcome == Picked }
-
-// RequestFormDiscardConfirmMsg asks the app to show a "discard changes?"
-// dialog when the user presses esc on a form with unsaved changes. The
-// reply goes to the form.
-type RequestFormDiscardConfirmMsg struct{}
-
-// FormDiscardAction is the Action of the discard confirm.
-const FormDiscardAction = "form_discard"

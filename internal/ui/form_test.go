@@ -17,7 +17,7 @@ import (
 
 // formOut collects what a form sends to the app.
 type formOut struct {
-	discard bool
+	discard *msg.RequestConfirmMsg // the discard confirm, if the form asked
 	result  *msg.FormResultMsg
 }
 
@@ -49,8 +49,8 @@ func run(t *testing.T, f *FormView, cmd tea.Cmd, out *formOut, depth int) {
 		for _, c := range m {
 			run(t, f, c, out, depth+1)
 		}
-	case msg.RequestFormDiscardConfirmMsg:
-		out.discard = true
+	case msg.RequestConfirmMsg:
+		out.discard = &m
 	case msg.FormResultMsg:
 		out.result = &m
 	default:
@@ -94,7 +94,7 @@ func TestFormUntouchedDefaultsAreClean(t *testing.T) {
 	)
 	var out formOut
 	send(t, f, keyEsc, &out)
-	assert.False(t, out.discard, "no prompt for an untouched form")
+	assert.Nil(t, out.discard, "no prompt for an untouched form")
 	require.NotNil(t, out.result)
 	assert.True(t, out.result.Aborted)
 }
@@ -113,7 +113,7 @@ func TestFormInputAfterShiftTabIsDirty(t *testing.T) {
 	require.Equal(t, "a", f.form.GetFocusedField().GetKey())
 
 	send(t, f, keyEsc, &out)
-	assert.True(t, out.discard, "Esc asks before it drops the text in B")
+	assert.NotNil(t, out.discard, "Esc asks before it drops the text in B")
 	assert.Nil(t, out.result)
 }
 
@@ -154,30 +154,73 @@ func TestFormSubmitUsesFieldValues(t *testing.T) {
 	assert.Equal(t, map[string]string{"a": "one!", "b": "keep"}, out.result.Values)
 }
 
+// The form asks with a quick confirm that carries its own tag.
+func TestFormDiscardRequest(t *testing.T) {
+	f := newTestForm(t, msg.FormField{Key: "name", Title: "Name"})
+	var out formOut
+	formType(t, f, "x", &out)
+	send(t, f, keyEsc, &out)
+	require.NotNil(t, out.discard)
+	req := *out.discard
+	require.NotNil(t, req.Tag)
+	assert.Same(t, f.discard, req.Tag, "the tag of this form")
+	req.Tag = nil
+	assert.Equal(t, msg.RequestConfirmMsg{Message: "Discard unsaved changes?", Quick: true}, req)
+}
+
 // The app sends the reply of the discard confirm to the form. A yes closes
 // the form, a no keeps it open, and a reply to another question does
 // nothing.
 func TestFormDiscardReply(t *testing.T) {
-	newDirty := func() *FormView {
-		f := newTestForm(t, msg.FormField{Key: "name", Title: "Name"})
+	// askDiscard types into f and presses Esc. It returns the discard
+	// confirm of f.
+	askDiscard := func(f *FormView) msg.RequestConfirmMsg {
 		var out formOut
 		formType(t, f, "x", &out)
 		send(t, f, keyEsc, &out)
-		require.True(t, out.discard)
-		return f
+		require.NotNil(t, out.discard)
+		return *out.discard
+	}
+	reply := func(req msg.RequestConfirmMsg, yes bool) msg.ConfirmResultMsg {
+		return msg.ConfirmResultMsg{Confirmed: yes, Tag: req.Tag}
 	}
 
-	f := newDirty()
+	f := newTestForm(t, msg.FormField{Key: "name", Title: "Name"})
+	req := askDiscard(f)
 	var out formOut
-	send(t, f, msg.ConfirmResultMsg{Confirmed: false, Action: msg.FormDiscardAction}, &out)
+	send(t, f, reply(req, false), &out)
 	assert.Nil(t, out.result, "a no keeps the form")
-	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Action: "other"}, &out)
-	assert.Nil(t, out.result, "a reply to another question")
-	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Action: msg.FormDiscardAction}, &out)
+
+	// Each reply below is not for the prompt of this form, so it does
+	// nothing.
+	req = askDiscard(f)
+	send(t, f, msg.ConfirmResultMsg{Confirmed: true}, &out)
+	assert.Nil(t, out.result, "an untagged reply does nothing")
+	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Tag: (*discardTag)(nil)}, &out)
+	assert.Nil(t, out.result, "a typed-nil tag does nothing")
+
+	send(t, f, reply(req, true), &out)
 	require.NotNil(t, out.result, "a yes closes the form")
 	assert.Equal(t, msg.FormResultMsg{ID: "test", Aborted: true}, *out.result)
 
+	// A closed form sends no second result. A real prompt gets one reply
+	// (I10). This checks that a late reply to the closed form is safe.
 	out = formOut{}
-	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Action: msg.FormDiscardAction}, &out)
+	send(t, f, reply(req, true), &out)
 	assert.Nil(t, out.result, "a closed form sends no second result")
+}
+
+// Each form has its own discard tag, so a yes for the confirm of another
+// form does not close this one.
+func TestFormDiscardTagIsPerForm(t *testing.T) {
+	f := newTestForm(t, msg.FormField{Key: "name", Title: "Name"})
+	other := newTestForm(t, msg.FormField{Key: "name", Title: "Name"})
+	assert.NotSame(t, f.discard, other.discard, "two forms share a discard tag")
+
+	var out formOut
+	formType(t, f, "x", &out)
+	send(t, f, keyEsc, &out)
+	require.NotNil(t, out.discard)
+	send(t, f, msg.ConfirmResultMsg{Confirmed: true, Tag: other.discard}, &out)
+	assert.Nil(t, out.result, "the tag of another form does nothing")
 }

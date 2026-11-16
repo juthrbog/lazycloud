@@ -212,17 +212,6 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		}
 		return m.showSortPicker(req, r.Origin)
 
-	case appmsg.RequestFormDiscardConfirmMsg:
-		if !m.nav.Contains(r.Origin) {
-			eventlog.Debugf(eventlog.CatNav, "Dropped %T from %s: view no longer exists", inner, r.Origin.ID())
-			return m, nil
-		}
-		if !m.nav.IsCurrent(r.Origin) {
-			cmd := m.refuseBelowTop(r.Origin, nil, discardText, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
-			return m, cmd
-		}
-		return m.askDiscard(r.Origin)
-
 	case appmsg.RequestFormMsg, appmsg.FormResultMsg:
 		// A form acts on what the user sees, like navigation below. The
 		// app records the view that asked, and the result goes to it.
@@ -556,7 +545,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.toasts.Dismiss(msg.ID)
 		return m, nil
 
-	case appmsg.RequestFormMsg, appmsg.FormResultMsg, appmsg.RequestFormDiscardConfirmMsg,
+	case appmsg.RequestFormMsg, appmsg.FormResultMsg,
 		appmsg.RequestConfirmMsg, appmsg.RequestActionPickerMsg, appmsg.RequestSortPickerMsg,
 		appmsg.ConfirmResultMsg, appmsg.PickerResultMsg:
 		// A view sends its requests through the navigator, so they arrive

@@ -207,7 +207,7 @@ func TestSQSMessages_DeleteKeepsFailedMessages(t *testing.T) {
 	svc.On("DeleteMessageBatch", mock.Anything, testQueueURL, []string{"h1", "h2", "h3"}).
 		Return(&aws.BatchDeleteError{Failed: []aws.DeleteFailure{{ReceiptHandle: "h2", Code: "ReceiptHandleIsInvalid"}}})
 
-	cmd := v.deleteSelectedMessages()
+	cmd := v.deleteMessages(v.selectedMessageIDs())
 	assert.Len(t, v.table.VisibleKeys(), 3, "the rows stay until the result arrives")
 	_, cmd = v.Update(collectMsgs(cmd)[0])
 	assert.Equal(t, []string{"m2"}, v.table.VisibleKeys())
@@ -225,7 +225,7 @@ func TestSQSMessages_FIFODeleteSaysDeleted(t *testing.T) {
 	loadThreeMessages(v)
 	svc.On("DeleteMessageBatch", mock.Anything, testQueueURL, mock.Anything).Return(nil)
 
-	_, cmd := v.Update(collectMsgs(v.deleteSelectedMessages())[0])
+	_, cmd := v.Update(collectMsgs(v.deleteMessages(v.selectedMessageIDs()))[0])
 	assert.Empty(t, v.table.VisibleKeys())
 	got := toasts(collectMsgs(cmd))
 	require.Len(t, got, 1)
@@ -239,7 +239,7 @@ func TestSQSMessages_FailedCallKeepsAllMessages(t *testing.T) {
 	svc.On("DeleteMessageBatch", mock.Anything, testQueueURL, mock.Anything).
 		Return(errors.New("DeleteMessageBatch: blocked in ReadOnly mode"))
 
-	_, cmd := v.Update(collectMsgs(v.deleteSelectedMessages())[0])
+	_, cmd := v.Update(collectMsgs(v.deleteMessages(v.selectedMessageIDs()))[0])
 	assert.Len(t, v.table.VisibleKeys(), 3)
 	got := toasts(collectMsgs(cmd))
 	require.Len(t, got, 1)

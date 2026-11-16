@@ -11,12 +11,25 @@ import (
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
+// discardTag is the tag of the discard confirm of a form. Each form has
+// its own, so a reply to the confirm of another form does nothing. The
+// field gives each tag its own address: Go can give all pointers to a
+// struct with no fields the same address.
+type discardTag struct{ _ byte }
+
+// PromptTag marks discardTag as a prompt tag.
+func (*discardTag) PromptTag() {}
+
+// discardText is the question of the discard confirm.
+const discardText = "Discard unsaved changes?"
+
 // FormView wraps a huh.Form as a nav.View, providing a reusable multi-field
 // form that integrates with the app's message routing and theme system.
 type FormView struct {
 	id            string
 	title         string
-	formID        string // echoed back in FormResultMsg
+	formID        string      // echoed back in FormResultMsg
+	discard       *discardTag // the tag of the discard confirm of this form
 	form          *huh.Form
 	keys          []msg.FormField // field specs, in the order of fields
 	fields        []huh.Field     // the fields of the form, one for each key
@@ -48,6 +61,7 @@ func NewFormView(req msg.RequestFormMsg) *FormView {
 		id:            fmt.Sprintf("form:%s:%d", req.ID, time.Now().UnixNano()),
 		title:         req.Title,
 		formID:        req.ID,
+		discard:       &discardTag{},
 		form:          form,
 		keys:          req.Fields,
 		fields:        fields,
@@ -102,7 +116,7 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch m := m.(type) {
 	case msg.ConfirmResultMsg:
-		if m.Action != msg.FormDiscardAction {
+		if t, ok := m.Tag.(*discardTag); !ok || t == nil || t != f.discard {
 			return f, nil
 		}
 		if !m.Confirmed {
@@ -121,9 +135,7 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		if m.String() == "esc" {
 			if f.isDirty() {
-				return f, func() tea.Msg {
-					return msg.RequestFormDiscardConfirmMsg{}
-				}
+				return f, f.askDiscard()
 			}
 			f.done = true
 			formID := f.formID
@@ -153,9 +165,7 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case huh.StateAborted:
 		if f.isDirty() {
-			return f, func() tea.Msg {
-				return msg.RequestFormDiscardConfirmMsg{}
-			}
+			return f, f.askDiscard()
 		}
 		f.done = true
 		formID := f.formID
@@ -165,6 +175,13 @@ func (f *FormView) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return f, cmd
+}
+
+// askDiscard asks whether to discard the changes. A yes closes the form as
+// aborted. A no, or a refusal of the app, keeps it open.
+func (f *FormView) askDiscard() tea.Cmd {
+	req := msg.RequestConfirmMsg{Message: discardText, Quick: true, Tag: f.discard}
+	return func() tea.Msg { return req }
 }
 
 func (f *FormView) View() tea.View {
