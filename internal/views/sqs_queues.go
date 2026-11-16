@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -92,8 +93,7 @@ var sqsKeys = struct {
 type SQSQueues struct {
 	listCore[aws.Queue]
 	sqs        aws.SQSService
-	pending    pendingConfirm // targets of Purge and Delete
-	sendTarget string         // queue URL of the open Send Message form
+	sendTarget string // queue URL of the open Send Message form
 }
 
 // NewSQSQueues creates the SQS queue list view.
@@ -170,8 +170,8 @@ func sqsColumns(tier ui.WidthTier) []ui.Column {
 func (s *SQSQueues) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case msg.PickerResultMsg:
-		if m.ID == "action" {
-			return s, s.onActionPicked(m)
+		if t, ok := m.Tag.(*sqsManageTag); ok && t != nil {
+			return s, s.onActionPicked(t, m)
 		}
 	case msg.FormResultMsg:
 		return s, s.onForm(m)
@@ -303,30 +303,68 @@ func (s *SQSQueues) manage() tea.Cmd {
 	if len(urls) == 0 {
 		return nil
 	}
-	s.pending.hold(urls)
 	title := "Manage Queue"
-	actions := []string{"Send Message", "Purge Queue", "Delete Queue"}
+	ops := []sqsOp{sqsSend, sqsPurge, sqsDelete}
 	if len(urls) > 1 {
 		title = fmt.Sprintf("Manage %d Queues", len(urls))
-		actions = []string{"Purge Queue", "Delete Queue"}
+		ops = []sqsOp{sqsPurge, sqsDelete}
 	}
-	return func() tea.Msg {
-		return msg.RequestActionPickerMsg{Title: title, Options: actions}
+	labels := make([]string, len(ops))
+	for i, op := range ops {
+		labels[i] = sqsOpLabels[op]
 	}
+	req := msg.RequestActionPickerMsg{Title: title, Options: labels, Tag: &sqsManageTag{urls: slices.Clone(urls), ops: ops}}
+	return func() tea.Msg { return req }
 }
+
+// sqsOp names one Manage action of the queue list. It indexes sqsOpLabels.
+type sqsOp int
+
+const (
+	sqsSend sqsOp = iota
+	sqsPurge
+	sqsDelete
+)
+
+// sqsOpLabels are the picker labels of the Manage actions.
+var sqsOpLabels = [...]string{
+	sqsSend:   "Send Message",
+	sqsPurge:  "Purge Queue",
+	sqsDelete: "Delete Queue",
+}
+
+// sqsManageTag is the tag of the Manage picker. It holds the queues and the
+// actions that the picker offers, frozen at the key press.
+type sqsManageTag struct {
+	urls []string
+	ops  []sqsOp
+}
+
+// PromptTag marks sqsManageTag as a prompt tag.
+func (*sqsManageTag) PromptTag() {}
+
+// sqsConfirmTag is the tag of the confirm of a purge or a delete. It holds
+// the action and the queues that a yes acts on.
+type sqsConfirmTag struct {
+	op   sqsOp
+	urls []string
+}
+
+// PromptTag marks sqsConfirmTag as a prompt tag.
+func (*sqsConfirmTag) PromptTag() {}
 
 // ─── Mutations ──────────────────────────────────────────────────────────────
 
-// onActionPicked opens the send form or the confirm prompt of the picked
-// action.
-func (s *SQSQueues) onActionPicked(m msg.PickerResultMsg) tea.Cmd {
-	if !m.Picked() {
-		s.pending.clear() // esc: no action waits for an answer
+// onActionPicked opens the send form or the confirm prompt of the action
+// that r picked from the picker of t. Any other reply does nothing.
+func (s *SQSQueues) onActionPicked(t *sqsManageTag, r msg.PickerResultMsg) tea.Cmd {
+	op, ok := pickedOption(t.ops, r)
+	if !ok {
 		return nil
 	}
-	urls := s.pending.keys
-	switch m.Value {
-	case "Send Message":
+	urls := t.urls
+	switch op {
+	case sqsSend:
 		// Send acts on the same queue as Purge and Delete: the selection,
 		// or the cursor queue. The menu offers it only for one queue.
 		if len(urls) != 1 {
@@ -340,22 +378,25 @@ func (s *SQSQueues) onActionPicked(m msg.PickerResultMsg) tea.Cmd {
 		}
 		fields := sendFormFields(q)
 		s.sendTarget = q.URL
-		s.pending.clear()
 		return func() tea.Msg {
 			return msg.RequestFormMsg{ID: "sqs_send_message", Title: "Send Message", Fields: fields}
 		}
-	case "Purge Queue":
-		return s.pending.ask(msg.RequestConfirmMsg{
+	case sqsPurge:
+		req := msg.RequestConfirmMsg{
 			Message: confirmMessage("Purge", len(urls), "queue(s)", s.queueNameList(urls),
 				"This removes all messages and cannot be undone."),
 			Action: "sqs_purge",
-		})
-	case "Delete Queue":
-		return s.pending.ask(msg.RequestConfirmMsg{
+			Tag:    &sqsConfirmTag{op: sqsPurge, urls: urls},
+		}
+		return func() tea.Msg { return req }
+	case sqsDelete:
+		req := msg.RequestConfirmMsg{
 			Message: confirmMessage("Delete", len(urls), "queue(s)", s.queueNameList(urls),
 				"All messages will be lost."),
 			Action: "sqs_delete",
-		})
+			Tag:    &sqsConfirmTag{op: sqsDelete, urls: urls},
+		}
+		return func() tea.Msg { return req }
 	}
 	return nil
 }
@@ -415,22 +456,26 @@ func (s *SQSQueues) onForm(m msg.FormResultMsg) tea.Cmd {
 	return nil
 }
 
-// onConfirm runs a confirmed purge or delete.
+// onConfirm runs the purge or delete of the tag of m when m is a yes. Any
+// other reply does nothing.
 func (s *SQSQueues) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
-	urls, ok := s.pending.take(m)
-	if !ok {
+	t, ok := m.Tag.(*sqsConfirmTag)
+	if !ok || t == nil || !m.Confirmed || len(t.urls) == 0 {
 		return nil
 	}
+	urls := t.urls
 	if ui.IsReadOnly() {
 		// The mode changed after the picker opened.
 		return func() tea.Msg { return msg.ToastError(sqsReadOnlyText) }
 	}
 	// The spinner shows until the reply, also across a refresh reply.
-	switch m.Action {
-	case "sqs_purge":
+	switch t.op {
+	case sqsPurge:
 		return tea.Batch(s.startTask(fmt.Sprintf("Purging %d queue(s)...", len(urls))), s.purgeQueues(urls))
-	case "sqs_delete":
+	case sqsDelete:
 		return tea.Batch(s.startTask(fmt.Sprintf("Deleting %d queue(s)...", len(urls))), s.deleteQueues(urls))
+	case sqsSend:
+		// Send opens a form, never a confirm.
 	}
 	return nil
 }

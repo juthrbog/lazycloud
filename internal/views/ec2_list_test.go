@@ -77,7 +77,10 @@ func TestEC2List_ManageRunningInstance(t *testing.T) {
 	picker, ok := result.(msg.RequestActionPickerMsg)
 	require.True(t, ok, "expected RequestActionPickerMsg, got %T", result)
 	assert.Equal(t, []string{"Stop", "Reboot", "Terminate"}, picker.Options)
-	assert.Equal(t, []string{"i-running"}, view.pending.keys)
+	tag, ok := picker.Tag.(*ec2ManageTag)
+	require.True(t, ok)
+	assert.Equal(t, []string{"i-running"}, tag.ids)
+	assert.Equal(t, []ec2Op{ec2Stop, ec2Reboot, ec2Terminate}, tag.ops)
 }
 
 func TestEC2List_ManageStoppedInstance(t *testing.T) {
@@ -94,6 +97,10 @@ func TestEC2List_ManageStoppedInstance(t *testing.T) {
 	picker, ok := result.(msg.RequestActionPickerMsg)
 	require.True(t, ok, "expected RequestActionPickerMsg, got %T", result)
 	assert.Equal(t, []string{"Start"}, picker.Options)
+	tag, ok := picker.Tag.(*ec2ManageTag)
+	require.True(t, ok)
+	assert.Equal(t, []string{"i-stopped"}, tag.ids)
+	assert.Equal(t, []ec2Op{ec2Start}, tag.ops)
 }
 
 func TestEC2List_ManageTerminatedInstance(t *testing.T) {
@@ -200,8 +207,8 @@ func setReadWrite(t *testing.T) {
 	ui.SetReadOnly(false)
 }
 
-// ReadOnly mode turned on while the prompt is open: the confirm clears the
-// targets, shows the app's ReadOnly toast, and makes no API call. This holds
+// ReadOnly mode turned on while the prompt is open: the confirm shows the
+// app's ReadOnly toast and makes no API call. This holds
 // for each Manage action.
 func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 	cases := []struct {
@@ -231,32 +238,24 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 			_, cmd = view.Update(confirmReply(confirm, true))
 			require.NotNil(t, cmd)
 			assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
-			assert.Empty(t, view.pending.keys)
 			assert.Equal(t, tc.inst.State, view.find(tc.inst.ID).State, "no optimistic state")
 			assert.False(t, view.spinner.Visible())
-			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
-
-			// The targets are gone: a second confirm in ReadWrite mode does nothing.
-			ui.SetReadOnly(false)
-			_, cmd = view.Update(confirmReply(confirm, true))
-			assert.Nil(t, cmd)
 			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
 		})
 	}
 }
 
-// A canceled picker clears the targets, so no later reply can use them.
-func TestEC2List_PickerCancelClearsTargets(t *testing.T) {
+// A canceled picker asks nothing and runs nothing.
+func TestEC2List_PickerCancelRunsNothing(t *testing.T) {
 	setReadWrite(t)
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
 	_, cmd := view.Update(keyPress('m'))
 	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
-	require.NotEmpty(t, view.pending.keys, "m holds the targets")
+	require.IsType(t, &ec2ManageTag{}, picker.Tag, "the picker carries the targets")
 
 	_, cmd = view.Update(cancelPick(picker))
 	assert.Nil(t, cmd)
-	assert.Empty(t, view.pending.keys)
 }
 
 // The names in the prompt go through promptNameList: they are made safe and
@@ -313,6 +312,11 @@ func TestEC2List_ConfirmListsNames(t *testing.T) {
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
+	tag, ok := confirm.Tag.(*ec2ConfirmTag)
+	require.True(t, ok, "the confirm carries an ec2ConfirmTag")
+	assert.Equal(t, ec2Reboot, tag.op)
+	assert.Equal(t, []string{"i-running", "i-noname", "i-gone"}, tag.ids)
+	confirm.Tag = nil
 	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Reboot 3 instance(s)?\n  web-1 (i-running)\n  i-noname\n  i-gone\n",
 		Action:  "ec2_reboot",
@@ -420,8 +424,8 @@ func TestEC2List_TierChangeRebuildsRows(t *testing.T) {
 // --- actionsForState ---
 
 func TestEC2List_ActionsForState(t *testing.T) {
-	assert.Equal(t, []string{"Start"}, actionsForState("stopped"))
-	assert.Equal(t, []string{"Stop", "Reboot", "Terminate"}, actionsForState("running"))
+	assert.Equal(t, []ec2Op{ec2Start}, actionsForState("stopped"))
+	assert.Equal(t, []ec2Op{ec2Stop, ec2Reboot, ec2Terminate}, actionsForState("running"))
 	assert.Nil(t, actionsForState("pending"))
 	assert.Nil(t, actionsForState("stopping"))
 	assert.Nil(t, actionsForState("terminated"))

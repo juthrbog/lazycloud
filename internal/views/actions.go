@@ -51,6 +51,17 @@ func (p *pendingConfirm) take(m msg.ConfirmResultMsg) ([]string, bool) {
 	return keys, true
 }
 
+// pickedOption returns the option that r picked from opts, the options
+// that the view froze in its tag. A reply that is not a pick, or an index
+// out of range, returns false.
+func pickedOption[T any](opts []T, r msg.PickerResultMsg) (T, bool) {
+	var zero T
+	if !r.Picked() || r.Selected < 0 || r.Selected >= len(opts) {
+		return zero, false
+	}
+	return opts[r.Selected], true
+}
+
 // confirmMessage builds a confirm prompt, for example:
 //
 //	Stop 2 instance(s)?

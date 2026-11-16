@@ -926,21 +926,26 @@ func TestCharSQS_ManagePicker(t *testing.T) {
 	v, _ := charSQSThree(t)
 
 	_, cmd := v.Update(keyPress('m'))
-	require.NotNil(t, cmd)
+	tag, rest := charSQSManageTag(t, requestOf[msg.RequestActionPickerMsg](t, cmd))
+	assert.Equal(t, []string{charSQSURL("qa")}, tag.urls)
+	assert.Equal(t, []sqsOp{sqsSend, sqsPurge, sqsDelete}, tag.ops)
 	assert.Equal(t, msg.RequestActionPickerMsg{
 		Title:   "Manage Queue",
 		Options: []string{"Send Message", "Purge Queue", "Delete Queue"},
-	}, cmd())
+	}, rest)
 
 	charSQSSpace(v)
 	charSQSDown(v)
 	charSQSSpace(v)
 	_, cmd = v.Update(keyPress('m'))
 	req := requestOf[msg.RequestActionPickerMsg](t, cmd)
+	tag, rest = charSQSManageTag(t, req)
+	assert.Equal(t, []string{charSQSURL("qa"), charSQSURL("qb")}, tag.urls)
+	assert.Equal(t, []sqsOp{sqsPurge, sqsDelete}, tag.ops)
 	assert.Equal(t, msg.RequestActionPickerMsg{
 		Title:   "Manage 2 Queues",
 		Options: []string{"Purge Queue", "Delete Queue"},
-	}, req)
+	}, rest)
 
 	// A cancelled picker does nothing.
 	_, cmd = v.Update(cancelPick(req))
@@ -949,6 +954,26 @@ func TestCharSQS_ManagePicker(t *testing.T) {
 	empty, _ := charSQSLoaded(t, 100)
 	_, cmd = empty.Update(keyPress('m'))
 	assert.Nil(t, cmd, "no queue, no picker")
+}
+
+// charSQSManageTag returns the Manage tag of req, and req without its tag.
+func charSQSManageTag(t *testing.T, req msg.RequestActionPickerMsg) (*sqsManageTag, msg.RequestActionPickerMsg) {
+	t.Helper()
+	tag, ok := req.Tag.(*sqsManageTag)
+	require.True(t, ok, "the picker carries an sqsManageTag")
+	require.NotNil(t, tag)
+	req.Tag = nil
+	return tag, req
+}
+
+// charSQSConfirmTag returns the confirm tag of req, and req without its tag.
+func charSQSConfirmTag(t *testing.T, req msg.RequestConfirmMsg) (*sqsConfirmTag, msg.RequestConfirmMsg) {
+	t.Helper()
+	tag, ok := req.Tag.(*sqsConfirmTag)
+	require.True(t, ok, "the confirm carries an sqsConfirmTag")
+	require.NotNil(t, tag)
+	req.Tag = nil
+	return tag, req
 }
 
 func charSQSSendForm(t *testing.T, v *SQSQueues) msg.RequestFormMsg {
@@ -1083,7 +1108,11 @@ func TestCharSQS_SendNeedsOneQueue(t *testing.T) {
 	charSQSSpace(v)
 	_, cmd := v.Update(keyPress('m'))
 	require.NotNil(t, cmd)
-	_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
+	// The real picker offers no Send for two queues. A tag built by hand
+	// reaches the check in the view.
+	two := []string{charSQSURL("qa"), charSQSURL("qb")}
+	tag := &sqsManageTag{urls: two, ops: []sqsOp{sqsSend}}
+	_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Outcome: msg.Picked, Selected: 0, Value: "Send Message", Tag: tag})
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Select one queue to send a message")}, toasts(collectMsgs(cmd)))
 }
 
@@ -1103,10 +1132,13 @@ func TestCharSQS_PurgeFlow(t *testing.T) {
 
 	// Divergence #24 (fixed in PR 2). The prompt lists the queue names.
 	req := charSQSConfirm(t, v, "Purge Queue")
+	tag, rest := charSQSConfirmTag(t, req)
+	assert.Equal(t, sqsPurge, tag.op)
+	assert.Equal(t, []string{charSQSURL("qa"), charSQSURL("qb")}, tag.urls)
 	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Purge 2 queue(s)?\n  qa\n  qb\nThis removes all messages and cannot be undone.",
 		Action:  "sqs_purge",
-	}, req)
+	}, rest)
 
 	svc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Return(charSQSDenied).Once()
 	svc.On("PurgeQueue", mock.Anything, charSQSURL("qb")).Return(nil).Once()
@@ -1150,10 +1182,13 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 
 	// Divergence #24 (fixed in PR 2). The prompt lists the queue names.
 	req := charSQSConfirm(t, v, "Delete Queue")
+	tag, rest := charSQSConfirmTag(t, req)
+	assert.Equal(t, sqsDelete, tag.op)
+	assert.Equal(t, []string{charSQSURL("qa"), charSQSURL("qb"), charSQSURL("qc")}, tag.urls)
 	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Delete 3 queue(s)?\n  qa\n  qb\n  qc\nAll messages will be lost.",
 		Action:  "sqs_delete",
-	}, req)
+	}, rest)
 
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qb")).Return(charSQSDenied).Once()
@@ -1176,37 +1211,28 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 	assert.Equal(t, "0/0 queues", v.Footer())
 }
 
-func TestCharSQS_ConfirmDeclineClearsTargets(t *testing.T) {
+func TestCharSQS_ConfirmDeclineRunsNothing(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	req := charSQSConfirm(t, v, "Purge Queue")
+	// A no runs nothing. A real prompt gets one reply only (I10).
 	_, cmd := v.Update(confirmReply(req, false))
-	assert.Nil(t, cmd)
-
-	// A late confirm has no targets and calls nothing.
-	_, cmd = v.Update(confirmReply(req, true))
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }
 
-// Divergence #25 (fixed in PR 2). The confirm Action is checked against the
-// pending action: a purge prompt answered as sqs_delete does nothing and
-// clears the targets.
-func TestCharSQS_ConfirmActionChecked(t *testing.T) {
+// Divergence #25 (fixed in PR 2). A yes that is not for the open prompt
+// does nothing. The view reads the tag of the reply, not its Action.
+func TestCharSQS_UntaggedConfirmRunsNothing(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
-	req := charSQSConfirm(t, v, "Purge Queue")
+	charSQSConfirm(t, v, "Purge Queue")
 	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
-	assert.Nil(t, cmd)
-	_, cmd = v.Update(confirmReply(req, true))
-	assert.Nil(t, cmd, "the targets were cleared")
+	assert.Nil(t, cmd, "a reply without the tag runs nothing")
 
-	// An unknown Action clears the targets and does nothing.
-	req = charSQSConfirm(t, v, "Purge Queue")
+	charSQSConfirm(t, v, "Purge Queue")
 	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "other"})
-	assert.Nil(t, cmd)
-	_, cmd = v.Update(confirmReply(req, true))
-	assert.Nil(t, cmd, "the targets were cleared")
+	assert.Nil(t, cmd, "a reply without the tag runs nothing")
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
@@ -1218,19 +1244,18 @@ func TestCharSQS_CancelledPickerIgnoresConfirm(t *testing.T) {
 	v, svc := charSQSThree(t)
 	_, cmd := v.Update(keyPress('m'))
 	pick := requestOf[msg.RequestActionPickerMsg](t, cmd)
-	require.NotEmpty(t, v.pending.keys, "m holds the targets")
+	require.IsType(t, &sqsManageTag{}, pick.Tag, "the picker carries the targets")
 	_, cmd = v.Update(cancelPick(pick))
-	require.Nil(t, cmd)
-	assert.Empty(t, v.pending.keys, "esc forgets the targets (A7 D2)")
+	require.Nil(t, cmd, "esc asks nothing (A7 D2)")
 
 	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
-	assert.Nil(t, cmd)
+	assert.Nil(t, cmd, "a reply without the tag runs nothing")
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }
 
 // The app blocks RW keys in ReadOnly mode, so m and the picker still work at
 // view level. When ReadOnly is on at the confirm reply (the mode changed
-// after the picker), the view clears the targets and calls nothing.
+// after the picker), the view calls nothing.
 func TestCharSQS_ReadOnlyAtConfirmCallsNothing(t *testing.T) {
 	prev := ui.IsReadOnly()
 	t.Cleanup(func() { ui.SetReadOnly(prev) })
@@ -1244,11 +1269,6 @@ func TestCharSQS_ReadOnlyAtConfirmCallsNothing(t *testing.T) {
 	_, cmd = v.Update(confirmReply(req, true))
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("ReadOnly mode — press W to switch")}, toasts(pump(v, cmd, 3)))
 	assert.Equal(t, "3/3 queues", plain(v.Footer()), "no spinner")
-
-	// The targets are gone, also after a switch to ReadWrite.
-	ui.SetReadOnly(false)
-	_, cmd = v.Update(confirmReply(req, true))
-	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
 

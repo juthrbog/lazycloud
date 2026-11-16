@@ -141,6 +141,30 @@ func charEC2Confirm(t *testing.T, v *EC2List, p msg.RequestActionPickerMsg, acti
 	return requestOf[msg.RequestConfirmMsg](t, cmd)
 }
 
+// charEC2CheckPicker checks that p carries an ec2ManageTag with ids and
+// ops. It returns p without its tag.
+func charEC2CheckPicker(t *testing.T, p msg.RequestActionPickerMsg, ids []string, ops []ec2Op) msg.RequestActionPickerMsg {
+	t.Helper()
+	tag, ok := p.Tag.(*ec2ManageTag)
+	require.True(t, ok, "the picker carries an ec2ManageTag")
+	assert.Equal(t, ids, tag.ids)
+	assert.Equal(t, ops, tag.ops)
+	p.Tag = nil
+	return p
+}
+
+// charEC2CheckConfirm checks that c carries an ec2ConfirmTag with op and
+// ids. It returns c without its tag.
+func charEC2CheckConfirm(t *testing.T, c msg.RequestConfirmMsg, op ec2Op, ids []string) msg.RequestConfirmMsg {
+	t.Helper()
+	tag, ok := c.Tag.(*ec2ConfirmTag)
+	require.True(t, ok, "the confirm carries an ec2ConfirmTag")
+	assert.Equal(t, op, tag.op)
+	assert.Equal(t, ids, tag.ids)
+	c.Tag = nil
+	return c
+}
+
 func charEC2FgSGR(c color.Color) string {
 	r, g, b, _ := c.RGBA()
 	return fmt.Sprintf("38;2;%d;%d;%d", r>>8, g>>8, b>>8)
@@ -721,11 +745,13 @@ func TestCharEC2_ManagePicker(t *testing.T) {
 	t.Run("stopped", func(t *testing.T) {
 		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
 		v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
-		assert.Equal(t, msg.RequestActionPickerMsg{Title: "Manage Instance", Options: []string{"Start"}}, charEC2Picker(t, v))
+		got := charEC2CheckPicker(t, charEC2Picker(t, v), []string{"i-2"}, []ec2Op{ec2Start})
+		assert.Equal(t, msg.RequestActionPickerMsg{Title: "Manage Instance", Options: []string{"Start"}}, got)
 	})
 	t.Run("running", func(t *testing.T) {
 		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
-		assert.Equal(t, msg.RequestActionPickerMsg{Title: "Manage Instance", Options: []string{"Stop", "Reboot", "Terminate"}}, charEC2Picker(t, v))
+		got := charEC2CheckPicker(t, charEC2Picker(t, v), []string{"i-1"}, []ec2Op{ec2Stop, ec2Reboot, ec2Terminate})
+		assert.Equal(t, msg.RequestActionPickerMsg{Title: "Manage Instance", Options: []string{"Stop", "Reboot", "Terminate"}}, got)
 	})
 	t.Run("two running selected, cursor elsewhere", func(t *testing.T) {
 		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
@@ -734,7 +760,8 @@ func TestCharEC2_ManagePicker(t *testing.T) {
 		v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 		v.Update(keyPress(' '))
 		v.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-		assert.Equal(t, msg.RequestActionPickerMsg{Title: "Manage 2 Instances", Options: []string{"Stop", "Reboot", "Terminate"}}, charEC2Picker(t, v))
+		got := charEC2CheckPicker(t, charEC2Picker(t, v), []string{"i-1", "i-3"}, []ec2Op{ec2Stop, ec2Reboot, ec2Terminate})
+		assert.Equal(t, msg.RequestActionPickerMsg{Title: "Manage 2 Instances", Options: []string{"Stop", "Reboot", "Terminate"}}, got)
 	})
 	t.Run("mixed", func(t *testing.T) {
 		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
@@ -759,13 +786,14 @@ func TestCharEC2_ManagePicker(t *testing.T) {
 func TestCharEC2_ConfirmRequests(t *testing.T) {
 	cases := []struct {
 		action, selectIDs string
+		op                ec2Op
 		want              msg.RequestConfirmMsg
 	}{
-		{"Start", "i-2", msg.RequestConfirmMsg{Message: "Start 1 instance(s)?\n  db (i-2)\n", Action: "ec2_start", Quick: true}},
-		{"Stop", "i-1", msg.RequestConfirmMsg{Message: "Stop 1 instance(s)?\n  web (i-1)\n", Action: "ec2_stop"}},
+		{"Start", "i-2", ec2Start, msg.RequestConfirmMsg{Message: "Start 1 instance(s)?\n  db (i-2)\n", Action: "ec2_start", Quick: true}},
+		{"Stop", "i-1", ec2Stop, msg.RequestConfirmMsg{Message: "Stop 1 instance(s)?\n  web (i-1)\n", Action: "ec2_stop"}},
 		// i-3 has no name, so the prompt shows its ID.
-		{"Reboot", "i-1,i-3", msg.RequestConfirmMsg{Message: "Reboot 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_reboot"}},
-		{"Terminate", "i-1,i-3", msg.RequestConfirmMsg{Message: "Terminate 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_terminate"}},
+		{"Reboot", "i-1,i-3", ec2Reboot, msg.RequestConfirmMsg{Message: "Reboot 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_reboot"}},
+		{"Terminate", "i-1,i-3", ec2Terminate, msg.RequestConfirmMsg{Message: "Terminate 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_terminate"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.action, func(t *testing.T) {
@@ -776,7 +804,8 @@ func TestCharEC2_ConfirmRequests(t *testing.T) {
 			}
 			p := charEC2Picker(t, v)
 			// Divergence #24 (fixed in PR 2): the message lists the names.
-			assert.Equal(t, tc.want, charEC2Confirm(t, v, p, tc.action))
+			got := charEC2CheckConfirm(t, charEC2Confirm(t, v, p, tc.action), tc.op, strings.Split(tc.selectIDs, ","))
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -798,9 +827,9 @@ func TestCharEC2_TargetsFrozenAtManage(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// A decline clears the targets. A confirm that comes after the decline then
-// does nothing.
-func TestCharEC2_DeclineClearsTargets(t *testing.T) {
+// A decline runs nothing. A real prompt gets exactly one reply (I10), so
+// no yes comes after the no.
+func TestCharEC2_DeclineRunsNothing(t *testing.T) {
 	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 	p := charEC2Picker(t, v)
 	c := charEC2Confirm(t, v, p, "Stop")
@@ -808,24 +837,19 @@ func TestCharEC2_DeclineClearsTargets(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 	assert.Contains(t, charEC2Text(v), "● running", "no optimistic state")
-
-	// Divergence #25 (fixed in PR 2).
-	_, cmd = v.Update(confirmReply(c, true))
-	assert.Nil(t, cmd)
-	assert.Equal(t, "3/3 instances", plain(v.Footer()))
 	svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
 }
 
-// The confirm Action is checked against the pending action. A reply for
-// another action clears the targets and runs nothing.
-func TestCharEC2_ConfirmActionChecked(t *testing.T) {
+// The view acts only on a reply that carries an ec2ConfirmTag. A reply
+// without the tag runs nothing, whatever its Action says.
+func TestCharEC2_UntaggedConfirmRunsNothing(t *testing.T) {
 	t.Run("other ec2 action", func(t *testing.T) {
 		v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
 		p := charEC2Picker(t, v)
 		charEC2Confirm(t, v, p, "Stop")
 		_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
 		// Divergence #25 (fixed in PR 2).
-		assert.Nil(t, cmd)
+		assert.Nil(t, cmd, "a reply without the tag runs nothing")
 		assert.Equal(t, "3/3 instances", plain(v.Footer()))
 		assert.Contains(t, charEC2Lines(v)[2], "● running")
 		svc.AssertNotCalled(t, "TerminateInstances", mock.Anything, mock.Anything)
@@ -836,7 +860,7 @@ func TestCharEC2_ConfirmActionChecked(t *testing.T) {
 		p := charEC2Picker(t, v)
 		charEC2Confirm(t, v, p, "Stop")
 		_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
-		assert.Nil(t, cmd)
+		assert.Nil(t, cmd, "a reply without the tag runs nothing")
 		// Divergence #25 and #26 (fixed in PR 2): no spinner.
 		assert.Equal(t, "3/3 instances", plain(v.Footer()))
 		assert.Contains(t, charEC2Lines(v)[2], "● running")
@@ -1281,7 +1305,6 @@ func TestCharEC2_ErrorScreenBlocksManageAndConnect(t *testing.T) {
 		_, picker := firstOfType[msg.RequestActionPickerMsg](got)
 		assert.False(t, picker, string(r))
 	}
-	assert.Empty(t, v.pending.keys, "no targets are held")
 
 	// A good load brings the keys back.
 	charEC2ExpectPage(svc, charEC2Instances()...)

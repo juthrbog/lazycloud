@@ -17,7 +17,7 @@ import (
 // today. The PR named in each comment changes it, and that PR must flip
 // the test. The other tests pin behavior that A12 must keep.
 
-// ─── H1: a second Manage request clears the targets of the first ─────────
+// ─── H1: a second Manage request no longer clears the first (fixed in PR 3)
 
 // manageTwice presses m twice on v. The app shows the first picker and
 // refuses the second request, and its decline goes to v. It returns the
@@ -33,9 +33,9 @@ func manageTwice(t *testing.T, v tea.Model) msg.RequestActionPickerMsg {
 	return first
 }
 
-// Hazard H1, EC2. PR 3 fixes it: the confirm then names the instance, and
-// a yes stops it.
-func TestA12Hazard_EC2SecondManageClearsTheTargets(t *testing.T) {
+// H1, fixed in PR 3. The decline of the second request carries its own
+// tag, so the first picker keeps its targets, and a yes stops the instance.
+func TestA12_EC2SecondManageKeepsTheTargets(t *testing.T) {
 	setReadWrite(t)
 	v, svc := newTestEC2List()
 	loadInstances(v, []aws.Instance{testRunningInstance})
@@ -43,40 +43,40 @@ func TestA12Hazard_EC2SecondManageClearsTheTargets(t *testing.T) {
 	first := manageTwice(t, v)
 	_, cmd := v.Update(pickLabel(t, first, "Stop"))
 	req := requestOf[msg.RequestConfirmMsg](t, cmd)
-	assert.Equal(t, "Stop 0 instance(s)?\n", req.Message)
+	assert.Equal(t, "Stop 1 instance(s)?\n  web-1 (i-running)\n", req.Message)
 
-	_, cmd = v.Update(confirmReply(req, true))
-	assert.Nil(t, cmd, "the yes has no targets")
-	svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
+	svc.On("StopInstances", mock.Anything, []string{"i-running"}).Return(nil).Once()
+	answerYes(t, v, req)
+	svc.AssertExpectations(t)
 }
 
-// Hazard H1, SQS queues. PR 3 fixes it: the confirm then names the queue,
-// and a yes purges it.
-func TestA12Hazard_SQSSecondManageClearsTheTargets(t *testing.T) {
+// H1, fixed in PR 3, for SQS queues: a yes purges the queue of the first
+// picker.
+func TestA12_SQSSecondManageKeepsTheTargets(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 
 	first := manageTwice(t, v)
 	_, cmd := v.Update(pickLabel(t, first, "Purge Queue"))
 	req := requestOf[msg.RequestConfirmMsg](t, cmd)
-	assert.Contains(t, req.Message, "Purge 0 queue(s)?")
+	assert.Contains(t, req.Message, "Purge 1 queue(s)?\n  qa\n")
 
-	_, cmd = v.Update(confirmReply(req, true))
-	assert.Nil(t, cmd, "the yes has no targets")
-	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
+	svc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
+	answerYes(t, v, req)
+	svc.AssertExpectations(t)
 }
 
-// Hazard H1, the send form of SQS queues. PR 3 fixes it: the pick then
-// opens the form for the queue.
-func TestA12Hazard_SQSSecondManageBlocksSend(t *testing.T) {
+// H1, fixed in PR 3, for the send form of SQS queues: the pick opens the
+// form for the queue.
+func TestA12_SQSSecondManageKeepsSend(t *testing.T) {
 	charSQSReadWrite(t)
 	v, _ := charSQSThree(t)
 
 	first := manageTwice(t, v)
 	_, cmd := v.Update(pickLabel(t, first, "Send Message"))
-	got := toasts(collectMsgs(cmd))
-	require.Len(t, got, 1)
-	assert.Equal(t, "Select one queue to send a message", got[0].Text)
+	form := requestOf[msg.RequestFormMsg](t, cmd)
+	assert.Equal(t, "sqs_send_message", form.ID)
+	assert.Equal(t, charSQSURL("qa"), v.sendTarget)
 }
 
 // ─── H2: the delete of SQS messages acts on the selection at the reply ───

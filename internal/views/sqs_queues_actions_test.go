@@ -104,12 +104,15 @@ func TestSQSQueues_OtherFormClearsSendTarget(t *testing.T) {
 	svc.AssertNotCalled(t, "SendMessage", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-func TestSQSQueues_SendClearsConfirmTargets(t *testing.T) {
+// Send opens a form and never a confirm. A confirm tag for Send, which the
+// view never builds, runs nothing.
+func TestSQSQueues_SendConfirmTagRunsNothing(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSSendForm(t, v)
 
-	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: &sqsConfirmTag{op: sqsSend, urls: []string{charSQSURL("qa")}}})
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
+	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
