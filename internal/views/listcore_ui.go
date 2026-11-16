@@ -119,10 +119,7 @@ func (c *listCore[T]) handleKey(m tea.KeyPressMsg) (tea.Cmd, bool) {
 		c.table.ToggleSelect()
 		return nil, true
 	case key.Matches(m, listKeys.Sort.Binding):
-		columns, current := c.table.SortColumnNames()
-		return func() tea.Msg {
-			return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: current}
-		}, true
+		return askSort(&c.table), true
 	case key.Matches(m, listKeys.SortReverse.Binding):
 		c.table.SortReverse()
 		return nil, true

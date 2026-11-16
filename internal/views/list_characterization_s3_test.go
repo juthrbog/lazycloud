@@ -555,7 +555,7 @@ func TestCharS3_SortPicker(t *testing.T) {
 
 	_, cmd := v.Update(keyPress('s'))
 	got := collectMsgs(cmd)
-	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: -1}}, got)
+	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: -1}}, sortAsked(t, got...))
 	req, ok := firstOfType[msg.RequestSortPickerMsg](got)
 	require.True(t, ok)
 
@@ -564,7 +564,7 @@ func TestCharS3_SortPicker(t *testing.T) {
 	assert.Equal(t, []string{"Bucket", "▲", "Created"}, charS3Header(v))
 	_, cmd = v.Update(keyPress('s'))
 	got = collectMsgs(cmd)
-	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: 0}}, got)
+	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: 0}}, sortAsked(t, got...))
 	req, ok = firstOfType[msg.RequestSortPickerMsg](got)
 	require.True(t, ok)
 

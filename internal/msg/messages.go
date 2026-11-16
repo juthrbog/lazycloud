@@ -70,7 +70,8 @@ type RequestActionPickerMsg struct {
 }
 
 // RequestSortPickerMsg asks the app to show a column sort picker.
-// The PickerResultMsg (ID="sort") goes to the view that asked.
+// The PickerResultMsg goes to the view that asked. The tag of a view holds
+// the column titles, so a pick names its column by title.
 type RequestSortPickerMsg struct {
 	Columns    []string  // column titles
 	CurrentCol int       // currently sorted column index (-1 if unsorted)

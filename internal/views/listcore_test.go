@@ -245,6 +245,8 @@ func TestListCore_HandleIgnoresOtherPicker(t *testing.T) {
 	_, ok := c.handle(msg.PickerResultMsg{ID: "action", Selected: 0})
 	assert.False(t, ok)
 	_, ok = c.handle(msg.PickerResultMsg{ID: "sort", Selected: 0})
+	assert.False(t, ok, "a sort reply needs the sort tag")
+	_, ok = c.handle(pickColumn(t, requestOf[msg.RequestSortPickerMsg](t, askSort(&c.table)), "Name"))
 	assert.True(t, ok)
 }
 

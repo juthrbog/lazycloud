@@ -593,10 +593,7 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
 		case key.Matches(m, s.keys.Sort):
-			columns, currentCol := s.table.SortColumnNames()
-			return s, func() tea.Msg {
-				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
-			}
+			return s, askSort(&s.table)
 		case key.Matches(m, s.keys.SortReverse):
 			s.table.SortReverse()
 			return s, nil

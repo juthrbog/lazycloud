@@ -139,9 +139,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return s, nil
 
 	case msg.PickerResultMsg:
-		if m.ID == "sort" {
-			applySortPick(&s.table, m)
-		}
+		applySortPick(&s.table, m)
 		return s, nil
 
 	case msg.ErrorMsg:
@@ -167,10 +165,7 @@ func (s *S3Versions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, s.keys.Esc):
 			return s, func() tea.Msg { return msg.NavigateBackMsg{} }
 		case key.Matches(m, s.keys.Sort):
-			columns, currentCol := s.table.SortColumnNames()
-			return s, func() tea.Msg {
-				return msg.RequestSortPickerMsg{Columns: columns, CurrentCol: currentCol}
-			}
+			return s, askSort(&s.table)
 		case key.Matches(m, s.keys.SortReverse):
 			s.table.SortReverse()
 			return s, nil

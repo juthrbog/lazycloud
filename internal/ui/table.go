@@ -463,6 +463,18 @@ func (t *Table) Sort(col int) {
 	t.resort()
 }
 
+// SortByTitle sorts the table by the column with title, like Sort. It
+// prefers index hint when two columns have the same title. It reports
+// false and changes nothing when no column has the title.
+func (t *Table) SortByTitle(title string, hint int) bool {
+	col := columnIndex(t.flexColumns, title, hint)
+	if col < 0 {
+		return false
+	}
+	t.Sort(col)
+	return true
+}
+
 // SortColumnNames returns the base column titles and the currently sorted column index.
 func (t Table) SortColumnNames() ([]string, int) {
 	names := make([]string, len(t.flexColumns))
