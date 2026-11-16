@@ -495,10 +495,16 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch t := m.Tag.(type) {
 		case *sqsDeleteMsgsTag:
 			if t != nil {
+				if ui.IsReadOnly() {
+					return s, refuseReadOnly()
+				}
 				return s, s.deleteMessages(t.ids)
 			}
 		case *sqsRedriveTag:
 			if t != nil {
+				if ui.IsReadOnly() {
+					return s, refuseReadOnly()
+				}
 				s.redriving = true
 				s.spinner.Show("Redrive in progress...")
 				return s, tea.Batch(s.spinner.Tick(), s.startRedrive())

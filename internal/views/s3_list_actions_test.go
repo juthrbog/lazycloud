@@ -11,15 +11,8 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-func s3SetReadOnly(t *testing.T, ro bool) {
-	t.Helper()
-	prev := ui.IsReadOnly()
-	t.Cleanup(func() { ui.SetReadOnly(prev) })
-	ui.SetReadOnly(ro)
-}
-
 func TestS3List_DeleteTagHoldsTargets(t *testing.T) {
-	s3SetReadOnly(t, false)
+	setReadOnly(t, false)
 	view, _ := newTestS3List()
 	loadBuckets(view)
 	view.Update(keyPress(' '))
@@ -36,7 +29,7 @@ func TestS3List_DeleteTagHoldsTargets(t *testing.T) {
 }
 
 func TestS3List_UntaggedConfirmDoesNotDelete(t *testing.T) {
-	s3SetReadOnly(t, false)
+	setReadOnly(t, false)
 	view, svc := newTestS3List()
 	loadBuckets(view)
 	view.Update(keyPress('x'))
@@ -47,7 +40,7 @@ func TestS3List_UntaggedConfirmDoesNotDelete(t *testing.T) {
 }
 
 func TestS3List_ReadOnlyBetweenPromptAndConfirmDoesNotDelete(t *testing.T) {
-	s3SetReadOnly(t, false)
+	setReadOnly(t, false)
 	view, svc := newTestS3List()
 	loadBuckets(view)
 	_, cmd := view.Update(keyPress('x'))

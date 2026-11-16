@@ -1,6 +1,6 @@
 # A12: typed tags for the prompts of the views
 
-Status: done, except the optional PR 7. Approved on 2026-11-15, with the proposed answer for each decision. PR 7 is accepted.
+Status: done. Approved on 2026-11-15, with the proposed answer for each decision. PR 7 is accepted.
 
 ## Summary
 
@@ -135,7 +135,7 @@ Each PR keeps every invariant, except where the PR names a change.
 - I4. A nil, typed-nil or foreign tag does nothing in a view, and it never panics.
 - I5. A reply to a view that is gone is dropped.
 - I6. A theme switch declines each open prompt exactly once.
-- I7. EC2, SQS queues and S3 buckets check ReadOnly again at the reply.
+- I7. EC2, SQS queues and S3 buckets check ReadOnly again at the reply. From PR 7, S3 objects and SQS messages do too.
 - I8. A refused prompt gives one toast and one decline. From PR 1, the decline carries the tag.
 - I9. The app never reads a tag. The prompts of the app have a nil tag.
 - I10. Each prompt gets exactly one reply, and that reply carries its tag on every path.
@@ -152,7 +152,7 @@ Each PR keeps every invariant, except where the PR names a change.
 - H6: a sort pick sorts by the title that the user picked (PR 2).
 - H2: SQS messages deletes the messages that the prompt counted (PR 5).
 - A second overwrite conflict shows the info toast of the app, "Not asked, another prompt is open: s3://b/k exists. Replace it with x?", in place of an error toast (PR 4, D3).
-- PR 7, if accepted: S3 objects and SQS messages show a ReadOnly toast in place of a service error, when the mode changes while their prompt is open.
+- S3 objects and SQS messages show the ReadOnly toast in place of a service error, when the mode changes while their prompt is open (PR 7, D7).
 
 ## PR plan
 

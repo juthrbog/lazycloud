@@ -560,10 +560,16 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch t := m.Tag.(type) {
 		case *s3OverwriteTag:
 			if t != nil {
+				if ui.IsReadOnly() {
+					return s, refuseReadOnly()
+				}
 				return s, s.transfer(t.mode, t.srcKey, t.dstKey, true)
 			}
 		case *s3DeleteTag:
 			if t != nil && len(t.entries) > 0 {
+				if ui.IsReadOnly() {
+					return s, refuseReadOnly()
+				}
 				s.spinner.Show("Deleting...")
 				return s, tea.Batch(s.spinner.Tick(), s.deleteEntries(t.entries))
 			}

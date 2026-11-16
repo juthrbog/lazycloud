@@ -45,10 +45,6 @@ func (m ec2InstanceMutatedMsg) Outcome() msg.ToastMsg {
 	return msg.ToastSuccess("Instance " + m.action + ": " + m.instanceID)
 }
 
-// ec2ReadOnlyText is the toast when ReadOnly mode is on at the confirm
-// reply. It is the same text that the app shows for a blocked key.
-const ec2ReadOnlyText = "ReadOnly mode — press W to switch"
-
 // ec2Op names one Manage action. It indexes ec2Actions.
 type ec2Op int
 
@@ -422,9 +418,8 @@ func (e *EC2List) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
 		return nil
 	}
 	a, ids := ec2Actions[t.op], t.ids
-	// The mode can change while the prompt is open.
 	if ui.IsReadOnly() {
-		return func() tea.Msg { return msg.ToastError(ec2ReadOnlyText) }
+		return refuseReadOnly()
 	}
 	e.updateItems(ids, func(i *aws.Instance) { i.State = a.transitional })
 	return tea.Batch(e.busy(fmt.Sprintf("%s %d instance(s)...", a.busy, len(ids))), e.mutate(a, ids))

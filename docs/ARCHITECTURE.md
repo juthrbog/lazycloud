@@ -169,14 +169,16 @@ Transient feedback (copy, download, delete) uses auto-dismissing toasts rendered
 
 LazyCloud starts in **ReadOnly** mode by default. In ReadOnly mode, LazyCloud blocks all mutating operations (create, delete, copy, move), whatever your AWS IAM permissions allow. Press `W` to switch to ReadWrite mode. Then only IAM limits what you can do. The header shows the mode as an `RO` or `RW` badge. `ui.IsReadOnly()` reads the mode, and `ui.SetReadOnly()` changes it.
 
-Two guards enforce ReadOnly mode:
+Three checks enforce ReadOnly mode:
 
 1. When the user presses a key, the app looks for it in the `KeyMap()` of the view on top. If a binding with `ui.ModeReadWrite` has that key, the app shows the toast "ReadOnly mode — press W to switch", and the view does not get the key.
-2. When the action runs, the AWS service refuses it. The app wraps each service with `aws.GuardS3`, `aws.GuardEC2`, or `aws.GuardSQS`. In ReadOnly mode, each mutating method returns `aws.ErrReadOnly` before it sends a request. This guard also covers a prompt, a picker, or a form that the user opened in ReadWrite mode.
+2. When the user answers yes to a confirm that changes AWS resources, the view checks the mode again. The mode can change while the prompt is open. In ReadOnly mode, the view shows the same toast with `refuseReadOnly()` and runs nothing.
+3. When the action runs, the AWS service refuses it. The app wraps each service with `aws.GuardS3`, `aws.GuardEC2`, or `aws.GuardSQS`. In ReadOnly mode, each mutating method returns `aws.ErrReadOnly` before it sends a request. This guard also covers a form or a text input that the user opened in ReadWrite mode, for example the copy destination of S3 objects or the new bucket name of S3 buckets.
 
 Rules for view code:
 
 - Give each key that changes AWS resources `Mode: ui.ModeReadWrite` in `KeyMap()`. Do not test `ui.IsReadOnly()` for these keys in the view.
+- In the reply to a confirm that changes AWS resources, return `refuseReadOnly()` when `ui.IsReadOnly()` is true. Test the mode after the checks of the tag, so that a no or a foreign tag still does nothing.
 - Call AWS only through the services that the app gives the view.
 - When you add a mutating method to a service interface, add a guard for it in `internal/aws/readonly.go`. A test in `readonly_test.go` fails until each interface method is listed as a read or as a mutation.
 

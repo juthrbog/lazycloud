@@ -85,6 +85,7 @@ func TestSQSMessagesIgnoresForeignTags(t *testing.T) {
 // Each yes runs only its own action (I3). With messages selected, a redrive
 // yes deletes nothing, and a delete yes starts no redrive.
 func TestSQSMessagesYesRunsOnlyItsOwnAction(t *testing.T) {
+	setReadOnly(t, false)
 	v, svc := dlqMessages(t)
 	_, cmd := v.Update(keyPress('x'))
 	del := requestOf[msg.RequestConfirmMsg](t, cmd)
@@ -108,6 +109,7 @@ func TestSQSMessagesYesRunsOnlyItsOwnAction(t *testing.T) {
 
 // A delete tag whose messages are all gone deletes nothing (D4).
 func TestSQSMessagesDeleteOfGoneMessagesRunsNothing(t *testing.T) {
+	setReadOnly(t, false)
 	v, svc := dlqMessages(t)
 	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: &sqsDeleteMsgsTag{ids: []string{"gone"}}})
 	assert.Nil(t, cmd)
