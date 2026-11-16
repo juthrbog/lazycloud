@@ -217,7 +217,7 @@ func TestCharSubnet_AvailIPsSortAsNumber(t *testing.T) {
 	many := aws.Subnet{ID: "subnet-many", AvailableIPCount: 1000}
 	few := aws.Subnet{ID: "subnet-few", AvailableIPCount: 999}
 	v, _ := newCharSubnet(t, "", few, many)
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 5, Value: "Avail IPs"})
+	v.Update(pickColumn(t, sortRequest(t, v), "Avail IPs"))
 	// Divergence #46 (fixed in PR 3): 999 sorts before 1000.
 	assert.Equal(t, []string{"subnet-few | 999 | Private | No", "subnet-many | 1000 | Private | No"}, netRows(v))
 }
@@ -359,15 +359,17 @@ func TestCharSubnet_StaleErrorApplied(t *testing.T) {
 func TestCharSubnet_SortPicker(t *testing.T) {
 	v, _ := newCharSubnet(t, "", charSubnetPub, charSubnetPriv)
 	_, cmd := v.Update(keyPress('s'))
+	asked := collectMsgs(cmd)
 	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{
 		Columns:    []string{"Subnet ID", "Name", "VPC ID", "AZ", "CIDR Block", "Avail IPs", "State", "Public", "Default"},
 		CurrentCol: -1,
-	}}, collectMsgs(cmd))
+	}}, asked)
+	first, _ := firstOfType[msg.RequestSortPickerMsg](asked)
 
 	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
 	assert.Equal(t, "subnet-aaa111", netRows(v)[0][:13], "a picker with another ID is ignored")
 
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
+	v.Update(pickColumn(t, first, "Name"))
 	assert.Equal(t, "subnet-bbb222", netRows(v)[0][:13])
 	_, cmd = v.Update(keyPress('s'))
 	req, ok := firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
@@ -378,14 +380,14 @@ func TestCharSubnet_SortPicker(t *testing.T) {
 	assert.Equal(t, "Subnet ID | Name ▲ | AZ | CIDR Block | State", netHeader(v), "the sort survives a tier change")
 	assert.Equal(t, "subnet-bb", netRows(v)[0][:9])
 
-	v.Update(sortCancelled())
+	v.Update(cancelPick(req))
 	assert.Equal(t, "subnet-bb", netRows(v)[0][:9], "a cancelled picker keeps the sort")
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, "Subnet ID | Name ▼ | AZ | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "subnet-aa", netRows(v)[0][:9], "S reverses the sort")
 
-	v.Update(sortCleared())
+	v.Update(clearSort(sortRequest(t, v)))
 	assert.Equal(t, "Subnet ID | Name | AZ | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "subnet-aa", netRows(v)[0][:9])
 	_, cmd = v.Update(keyPress('s'))

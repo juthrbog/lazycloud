@@ -92,7 +92,7 @@ func TestSQSQueues_SendTargetsTheSelectedQueue(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, picker.Options, "Send Message")
 
-	v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Send Message"})
+	v.Update(pickLabel(t, picker, "Send Message"))
 	svc.On("SendMessage", mock.Anything, "ub", "hi", int32(0), "", "").Return(nil)
 	_, cmd = v.Update(msg.FormResultMsg{ID: "sqs_send_message", Values: map[string]string{"body": "hi"}})
 	collectMsgs(cmd)

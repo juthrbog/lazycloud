@@ -51,10 +51,11 @@ func TestS3List_ReadOnlyBetweenPromptAndConfirmDoesNotDelete(t *testing.T) {
 	s3SetReadOnly(t, false)
 	view, svc := newTestS3List()
 	loadBuckets(view)
-	view.Update(keyPress('x'))
+	_, cmd := view.Update(keyPress('x'))
+	req := requestOf[msg.RequestConfirmMsg](t, cmd)
 
 	ui.SetReadOnly(true)
-	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	_, cmd = view.Update(confirmReply(req, true))
 	require.NotNil(t, cmd)
 	assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
 	assert.Empty(t, view.pendingDelete.keys)

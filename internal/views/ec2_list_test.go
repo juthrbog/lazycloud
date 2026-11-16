@@ -115,11 +115,13 @@ func TestEC2List_ManageTerminatedInstance(t *testing.T) {
 // --- Picker result handling ---
 
 func TestEC2List_StopTriggersConfirm(t *testing.T) {
+	setReadWrite(t)
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
-	view.pending.hold([]string{"i-running"})
+	_, cmd := view.Update(keyPress('m'))
+	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
 
-	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	_, cmd = view.Update(pickLabel(t, picker, "Stop"))
 	require.NotNil(t, cmd)
 
 	result := cmd()
@@ -130,11 +132,13 @@ func TestEC2List_StopTriggersConfirm(t *testing.T) {
 }
 
 func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
+	setReadWrite(t)
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
-	view.pending.hold([]string{"i-running"})
+	_, cmd := view.Update(keyPress('m'))
+	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
 
-	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 2, Value: "Terminate"})
+	_, cmd = view.Update(pickLabel(t, picker, "Terminate"))
 	require.NotNil(t, cmd)
 
 	result := cmd()
@@ -148,11 +152,12 @@ func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 	setReadWrite(t)
 	view, mockSvc := newTestEC2List()
 	loadInstances(view, []aws.Instance{testStoppedInstance})
-	view.pending.hold([]string{"i-stopped"})
+	_, cmd := view.Update(keyPress('m'))
+	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
 
 	mockSvc.On("StartInstances", mock.Anything, []string{"i-stopped"}).Return(nil)
 
-	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Start"})
+	_, cmd = view.Update(pickLabel(t, picker, "Start"))
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok, "Start asks first")
@@ -161,7 +166,7 @@ func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 	assert.Equal(t, "stopped", view.find("i-stopped").State, "nothing changes before the answer")
 	mockSvc.AssertNotCalled(t, "StartInstances", mock.Anything, mock.Anything)
 
-	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"})
+	_, cmd = view.Update(confirmReply(confirm, true))
 	require.NotNil(t, cmd)
 
 	// Verify optimistic state update happened immediately
@@ -216,13 +221,14 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 
 			_, cmd := view.Update(keyPress('m'))
 			require.NotNil(t, cmd)
-			_, cmd = view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: tc.action})
+			picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
+			_, cmd = view.Update(pickLabel(t, picker, tc.action))
 			require.NotNil(t, cmd)
 			confirm, ok := cmd().(msg.RequestConfirmMsg)
 			require.True(t, ok)
 
 			ui.SetReadOnly(true)
-			_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
+			_, cmd = view.Update(confirmReply(confirm, true))
 			require.NotNil(t, cmd)
 			assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
 			assert.Empty(t, view.pending.keys)
@@ -232,7 +238,7 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 
 			// The targets are gone: a second confirm in ReadWrite mode does nothing.
 			ui.SetReadOnly(false)
-			_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: confirm.Action})
+			_, cmd = view.Update(confirmReply(confirm, true))
 			assert.Nil(t, cmd)
 			mockSvc.AssertNotCalled(t, tc.method, mock.Anything, mock.Anything)
 		})
@@ -241,11 +247,14 @@ func TestEC2List_ConfirmInReadOnlyRunsNothing(t *testing.T) {
 
 // A canceled picker clears the targets, so no later reply can use them.
 func TestEC2List_PickerCancelClearsTargets(t *testing.T) {
+	setReadWrite(t)
 	view, _ := newTestEC2List()
 	loadInstances(view, []aws.Instance{testRunningInstance})
-	view.pending.hold([]string{"i-running"})
+	_, cmd := view.Update(keyPress('m'))
+	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
+	require.NotEmpty(t, view.pending.keys, "m holds the targets")
 
-	_, cmd := view.Update(actionCancelled())
+	_, cmd = view.Update(cancelPick(picker))
 	assert.Nil(t, cmd)
 	assert.Empty(t, view.pending.keys)
 }
@@ -253,20 +262,25 @@ func TestEC2List_PickerCancelClearsTargets(t *testing.T) {
 // The names in the prompt go through promptNameList: they are made safe and
 // capped, in the order of the targets.
 func TestEC2List_ConfirmNamesSanitizedAndCapped(t *testing.T) {
+	setReadWrite(t)
 	view, _ := newTestEC2List()
 	n := maxPromptNames + 2
 	insts := make([]aws.Instance, 0, n)
-	ids := make([]string, 0, n)
 	for i := range n {
 		id := fmt.Sprintf("i-%02d", i)
 		insts = append(insts, aws.Instance{ID: id, Name: fmt.Sprintf("n%02d", i), State: "running"})
-		ids = append(ids, id)
 	}
 	insts[0].Name = "evil\x1b[31m"
 	loadInstances(view, insts)
-	view.pending.hold(ids)
+	// Select each row, top to bottom.
+	for range n {
+		view.Update(keyPress(' '))
+		view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	_, cmd := view.Update(keyPress('m'))
+	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
 
-	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop"})
+	_, cmd = view.Update(pickLabel(t, picker, "Stop"))
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
@@ -281,11 +295,21 @@ func TestEC2List_ConfirmNamesSanitizedAndCapped(t *testing.T) {
 
 // The prompt names each target: "<Name> (<id>)", or the ID alone.
 func TestEC2List_ConfirmListsNames(t *testing.T) {
+	setReadWrite(t)
 	view, _ := newTestEC2List()
-	loadInstances(view, []aws.Instance{testRunningInstance, {ID: "i-noname", State: "running"}})
-	view.pending.hold([]string{"i-running", "i-noname", "i-gone"})
+	kept := []aws.Instance{testRunningInstance, {ID: "i-noname", State: "running"}}
+	loadInstances(view, append(kept, aws.Instance{ID: "i-gone", Name: "gone", State: "running"}))
+	// Select the three rows and press m.
+	for range 3 {
+		view.Update(keyPress(' '))
+		view.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	_, cmd := view.Update(keyPress('m'))
+	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
+	// A reload drops i-gone. It stays a target, and the prompt shows its ID.
+	loadInstances(view, kept)
 
-	_, cmd := view.Update(msg.PickerResultMsg{ID: "action", Selected: 1, Value: "Reboot"})
+	_, cmd = view.Update(pickLabel(t, picker, "Reboot"))
 	require.NotNil(t, cmd)
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
