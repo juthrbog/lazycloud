@@ -570,7 +570,7 @@ func TestCharSQS_SortPicker(t *testing.T) {
 	assert.Equal(t, msg.RequestSortPickerMsg{
 		Columns:    []string{"Queue Name", "Type", "Messages", "In-Flight", "Delayed"},
 		CurrentCol: -1,
-	}, req)
+	}, sortAsked(t, req)[0])
 
 	// Counts sort as numbers: 3, 8, 10.
 	v.Update(pickColumn(t, req, "Messages"))

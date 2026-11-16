@@ -124,23 +124,51 @@ func TestA12Hazard_S3BareDeclineKeepsTheOverwriteQuestion(t *testing.T) {
 	assert.Contains(t, toasts(msgs)[0].Text, "another replace question is open")
 }
 
-// ─── H6: a sort pick uses the index of a column that moved ───────────────
+// ─── H6: a sort pick names its column by title (fixed in PR 2) ─────────────
 
-// Hazard H6. PR 2 fixes it: the pick of "Modified", a column that is gone
-// after the resize, then keeps the current sort (D5).
-func TestA12Hazard_S3VersionsSortPickAfterAResizeUsesTheIndex(t *testing.T) {
-	v := newTestS3Versions()
-	v.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
-	req := sortRequest(t, v)
-	require.Equal(t, []string{"Version ID", "Size", "Modified", "Latest", "Delete Marker"}, req.Columns)
+// H6, fixed in PR 2. The columns of S3 versions change while the sort
+// picker is open. A pick of a column that moved sorts by that column at its
+// new index. A pick of a column that is gone keeps the current sort (D5).
+func TestA12_S3VersionsSortPickAfterAResizeUsesTheTitle(t *testing.T) {
+	for _, c := range []struct {
+		name, pick, want string
+		sortFirst        string // a column to sort by before the picker opens
+	}{
+		{name: "moved column", pick: "Latest", want: "Latest"},
+		{name: "gone column, no sort", pick: "Modified", want: ""},
+		{name: "gone column keeps the sort", pick: "Modified", want: "Size", sortFirst: "Size"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v := newTestS3Versions()
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 24})
+			v.Update(s3VersionsLoadedMsg{versions: []aws.ObjectVersion{
+				{Key: "file.txt", VersionID: "v1", Size: 300},
+				{Key: "file.txt", VersionID: "v2", Size: 100, IsLatest: true},
+				{Key: "file.txt", VersionID: "v3", Size: 200},
+			}})
+			if c.sortFirst != "" {
+				v.Update(pickColumn(t, sortRequest(t, v), c.sortFirst))
+			}
+			req := sortRequest(t, v)
+			require.Equal(t, []string{"Version ID", "Size", "Modified", "Latest", "Delete Marker"}, req.Columns)
 
-	v.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	cols, _ := v.table.SortColumnNames()
-	require.Equal(t, []string{"Version ID", "Size", "Latest"}, cols)
+			v.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+			cols, _ := v.table.SortColumnNames()
+			require.Equal(t, []string{"Version ID", "Size", "Latest"}, cols)
+			before := v.table.VisibleKeys()
 
-	v.Update(pickColumn(t, req, "Modified"))
-	cols, sorted := v.table.SortColumnNames()
-	assert.Equal(t, "Latest", cols[sorted], "the index of Modified names Latest now")
+			v.Update(pickColumn(t, req, c.pick))
+			if c.want == "" || c.sortFirst != "" {
+				assert.Equal(t, before, v.table.VisibleKeys(), "the rows keep their order")
+			}
+			cols, sorted := v.table.SortColumnNames()
+			got := ""
+			if sorted >= 0 {
+				got = cols[sorted]
+			}
+			assert.Equal(t, c.want, got)
+		})
+	}
 }
 
 // ─── Behavior that A12 keeps ──────────────────────────────────────────────

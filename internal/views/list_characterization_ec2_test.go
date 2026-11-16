@@ -498,7 +498,7 @@ func TestCharEC2_SortPicker(t *testing.T) {
 	assert.Equal(t, msg.RequestSortPickerMsg{
 		Columns:    []string{"Instance ID", "Name", "State", "Type", "Private IP", "Public IP", "AZ", "Launched"},
 		CurrentCol: -1,
-	}, req)
+	}, sortAsked(t, req)[0])
 
 	ids := func() []string {
 		var out []string

@@ -250,3 +250,23 @@ func TestSetColumnsKeepsSortOnMovedColumn(t *testing.T) {
 	assert.Equal(t, "Size ▼", tbl.inner.Columns()[2].Title)
 	assert.Equal(t, []string{"alpha", "bravo", "charlie"}, tbl.VisibleKeys())
 }
+
+// SortByTitle sorts by the column with the title, like Sort, and a second
+// call flips the direction. With two columns of the same title, it takes
+// the one at the hint. A title that is gone changes nothing.
+func TestTableSortByTitle(t *testing.T) {
+	tb := NewTable([]Column{{Title: "", Width: 4}, {Title: "Name", Width: 4}, {Title: "", Width: 4}})
+	col := func() int { _, c := tb.SortColumnNames(); return c }
+
+	require.True(t, tb.SortByTitle("Name", 0))
+	assert.Equal(t, 1, col(), "the title wins over a wrong hint")
+
+	require.True(t, tb.SortByTitle("", 2))
+	assert.Equal(t, 2, col(), "the hint picks between equal titles")
+	require.True(t, tb.SortByTitle("", 2))
+	assert.Equal(t, SortDesc, tb.sortDir, "a second call flips the direction")
+
+	assert.False(t, tb.SortByTitle("Gone", 1))
+	assert.Equal(t, 2, col(), "a title that is gone keeps the sort")
+	assert.Equal(t, SortDesc, tb.sortDir)
+}

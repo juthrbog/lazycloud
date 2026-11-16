@@ -322,11 +322,11 @@ func TestCharVPC_SortPicker(t *testing.T) {
 	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{
 		Columns:    []string{"VPC ID", "Name", "CIDR Block", "State", "Default", "Tenancy"},
 		CurrentCol: -1,
-	}}, asked)
+	}}, sortAsked(t, asked...))
 	first, _ := firstOfType[msg.RequestSortPickerMsg](asked)
 
 	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
-	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10], "a picker with another ID is ignored")
+	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10], "a reply without the sort tag is ignored")
 
 	v.Update(pickColumn(t, first, "Name"))
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10])
