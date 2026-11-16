@@ -32,9 +32,9 @@ func (m *Model) refuseOpen(text string, route replyRoute, decline tea.Msg) tea.C
 
 // refuseBelowTop refuses a prompt of a view that is not on top. A prompt
 // over another view would be confusing, but the user must learn that the
-// view needs an answer.
-func (m *Model) refuseBelowTop(asker nav.View, text string, decline tea.Msg) tea.Cmd {
-	return m.refusePrompt(asker.Title()+" needs an answer, but it is not on top: "+text, replyRoute{replyTo: asker}, decline)
+// view needs an answer. The decline carries tag.
+func (m *Model) refuseBelowTop(asker nav.View, tag appmsg.PromptTag, text string, decline tea.Msg) tea.Cmd {
+	return m.refusePrompt(asker.Title()+" needs an answer, but it is not on top: "+text, replyRoute{replyTo: asker, tag: tag}, decline)
 }
 
 // refusePrompt shows why as a toast and sends decline on route. A question
@@ -43,6 +43,7 @@ func (m *Model) refuseBelowTop(asker nav.View, text string, decline tea.Msg) tea
 func (m *Model) refusePrompt(why string, route replyRoute, decline tea.Msg) tea.Cmd {
 	eventlog.Warnf(eventlog.CatUI, "Prompt skipped: %s", why)
 	_, toast := m.toasts.Add(why, ui.ToastInfo, 0)
+	decline = route.stamp(decline)
 	var reply tea.Cmd
 	switch {
 	case route.onReply != nil:

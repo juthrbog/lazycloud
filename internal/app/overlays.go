@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/juthrbog/lazycloud/internal/eventlog"
+	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
@@ -40,6 +41,24 @@ type replyRoute struct {
 	onReply replyHandler
 	// quit marks the quit confirm: a second ctrl+c quits at once.
 	quit bool
+	// tag is the Tag of the request of a view. stamp puts it on each reply.
+	tag appmsg.PromptTag
+}
+
+// stamp returns reply with the tag of the route, when reply is a confirm
+// or picker reply. The app never reads the tag. Every reply to a view goes
+// through deliverReply or refusePrompt, and both call stamp, so the reply
+// carries the tag on every path.
+func (r replyRoute) stamp(reply tea.Msg) tea.Msg {
+	switch v := reply.(type) {
+	case appmsg.ConfirmResultMsg:
+		v.Tag = r.tag
+		return v
+	case appmsg.PickerResultMsg:
+		v.Tag = r.tag
+		return v
+	}
+	return reply
 }
 
 // routed reports whether the reply has a place to go.
@@ -118,9 +137,9 @@ func (m *Model) openOverlay(k overlayKind) {
 }
 
 // openOverlayFor puts the overlay of kind k on top of the stack, and its
-// reply goes to asker.
-func (m *Model) openOverlayFor(k overlayKind, asker nav.View) {
-	m.overlays = m.overlays.push(k, replyRoute{replyTo: asker})
+// reply goes to asker with tag.
+func (m *Model) openOverlayFor(k overlayKind, asker nav.View, tag appmsg.PromptTag) {
+	m.overlays = m.overlays.push(k, replyRoute{replyTo: asker, tag: tag})
 }
 
 // openOverlayRoute puts the overlay of kind k on top of the stack with
@@ -151,8 +170,9 @@ func (m Model) deliverReply(r overlayReplyMsg) (Model, tea.Cmd) {
 	if r.msg == nil {
 		return m, nil
 	}
+	reply := r.route.stamp(r.msg)
 	if r.route.onReply != nil {
-		return r.route.onReply(m, r.msg)
+		return r.route.onReply(m, reply)
 	}
 	if r.route.replyTo == nil {
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T: no route", r.msg)
@@ -162,7 +182,7 @@ func (m Model) deliverReply(r overlayReplyMsg) (Model, tea.Cmd) {
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T for %s: view no longer exists", r.msg, r.route.replyTo.ID())
 		return m, nil
 	}
-	return m, m.nav.UpdateView(r.route.replyTo, r.msg)
+	return m, m.nav.UpdateView(r.route.replyTo, reply)
 }
 
 // pruneOverlays removes the overlays that closed.
