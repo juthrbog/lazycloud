@@ -186,7 +186,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.nav.IsCurrent(r.Origin) {
-			cmd := m.refuseBelowTop(r.Origin, inner.Message, appmsg.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
+			cmd := m.refuseBelowTop(r.Origin, inner.Tag, inner.Message, appmsg.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
 			return m, cmd
 		}
 		return m.askConfirm(inner, r.Origin)
@@ -200,16 +200,17 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		}
 		if req, ok := inner.(appmsg.RequestActionPickerMsg); ok {
 			if !m.nav.IsCurrent(r.Origin) {
-				cmd := m.refuseBelowTop(r.Origin, actionTitle(req), pickDecline("action"))
+				cmd := m.refuseBelowTop(r.Origin, req.Tag, actionTitle(req), pickDecline("action"))
 				return m, cmd
 			}
 			return m.showActionPicker(req, r.Origin)
 		}
+		req := inner.(appmsg.RequestSortPickerMsg)
 		if !m.nav.IsCurrent(r.Origin) {
-			cmd := m.refuseBelowTop(r.Origin, sortTitle, pickDecline("sort"))
+			cmd := m.refuseBelowTop(r.Origin, req.Tag, sortTitle, pickDecline("sort"))
 			return m, cmd
 		}
-		return m.showSortPicker(inner.(appmsg.RequestSortPickerMsg), r.Origin)
+		return m.showSortPicker(req, r.Origin)
 
 	case appmsg.RequestFormDiscardConfirmMsg:
 		if !m.nav.Contains(r.Origin) {
@@ -217,7 +218,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.nav.IsCurrent(r.Origin) {
-			cmd := m.refuseBelowTop(r.Origin, discardText, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
+			cmd := m.refuseBelowTop(r.Origin, nil, discardText, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
 			return m, cmd
 		}
 		return m.askDiscard(r.Origin)
@@ -325,7 +326,7 @@ func (m Model) startOp(origin nav.View, s appmsg.StartOpMsg) tea.Cmd {
 // asker.
 func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
-		cmd := m.refuseOpen(req.Message, replyRoute{replyTo: asker}, appmsg.ConfirmResultMsg{Confirmed: false, Action: req.Action})
+		cmd := m.refuseOpen(req.Message, replyRoute{replyTo: asker, tag: req.Tag}, appmsg.ConfirmResultMsg{Confirmed: false, Action: req.Action})
 		return m, cmd
 	}
 	if req.Quick {
@@ -333,7 +334,7 @@ func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, 
 	} else {
 		m.confirm.Show(req.Message, req.Action, req.Phrase)
 	}
-	m.openOverlayFor(ovConfirm, asker)
+	m.openOverlayFor(ovConfirm, asker, req.Tag)
 	return m, nil
 }
 
@@ -357,7 +358,7 @@ func pickDecline(id string) appmsg.PickerResultMsg {
 // goes to asker.
 func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
-		cmd := m.refuseOpen(actionTitle(req), replyRoute{replyTo: asker}, pickDecline("action"))
+		cmd := m.refuseOpen(actionTitle(req), replyRoute{replyTo: asker, tag: req.Tag}, pickDecline("action"))
 		return m, cmd
 	}
 	options := make([]ui.PickerOption, 0, len(req.Options))
@@ -365,7 +366,7 @@ func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.Vie
 		options = append(options, ui.PickerOption{Label: opt, Value: opt})
 	}
 	m.picker.Show("action", actionTitle(req), options, 0)
-	m.openOverlayFor(ovPicker, asker)
+	m.openOverlayFor(ovPicker, asker, req.Tag)
 	return m, nil
 }
 
@@ -373,7 +374,7 @@ func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.Vie
 // to asker.
 func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
-		cmd := m.refuseOpen(sortTitle, replyRoute{replyTo: asker}, pickDecline("sort"))
+		cmd := m.refuseOpen(sortTitle, replyRoute{replyTo: asker, tag: req.Tag}, pickDecline("sort"))
 		return m, cmd
 	}
 	options := make([]ui.PickerOption, 0, len(req.Columns))
@@ -382,7 +383,7 @@ func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) (
 	}
 	m.picker.Show("sort", sortTitle, options, max(req.CurrentCol, 0))
 	m.picker.SetClearable(true) // ctrl+x removes the sort
-	m.openOverlayFor(ovPicker, asker)
+	m.openOverlayFor(ovPicker, asker, req.Tag)
 	return m, nil
 }
 

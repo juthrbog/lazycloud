@@ -4,10 +4,20 @@ package msg
 // asked for the prompt. They live here, so a view needs no ui import to
 // read a reply.
 
+// PromptTag is data that a view attaches to a prompt request. The app never
+// reads it. It copies the tag into every reply to that prompt, declines
+// included, so the view reads the reply from the tag and keeps no state
+// while the prompt is open. Implement PromptTag on a pointer receiver, so a
+// tag is always comparable, and never change a tag after the request goes
+// out.
+type PromptTag interface{ PromptTag() }
+
 // ConfirmResultMsg is the reply of a confirm dialog.
 type ConfirmResultMsg struct {
 	Confirmed bool
 	Action    string // the Action of the RequestConfirmMsg
+	// Tag is the Tag of the request. It is nil for the prompts of the app.
+	Tag PromptTag
 }
 
 // PickOutcome says how a picker closed.
@@ -31,6 +41,8 @@ type PickerResultMsg struct {
 	Outcome  PickOutcome // how the picker closed
 	Selected int         // the index of the picked option; only set when Outcome is Picked
 	Value    string      // the value of the picked option; empty when Outcome is not Picked
+	// Tag is the Tag of the request. It is nil for the pickers of the app.
+	Tag PromptTag
 }
 
 // Picked reports whether the user picked an option.

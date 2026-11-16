@@ -12,14 +12,46 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-// These tests pin the replies that reach a view before A12
-// (docs/design/a12-view-tags.md). PR 1 adds a tag to each request here and
-// checks that every reply carries it. Today a reply carries the Action of
-// the confirm or the ID of the picker.
+// These tests pin the replies that reach a view (A12,
+// docs/design/a12-view-tags.md). From PR 1, every reply to a prompt of a
+// view carries the Tag of its request, on every path.
+
+// testTag is a tag of a test request. Each case makes its own, so a reply
+// with the tag of another prompt fails assert.Same.
+type testTag struct{ name string }
+
+func (*testTag) PromptTag() {}
+
+// withTag returns req with tag.
+func withTag(req tea.Msg, tag msg.PromptTag) tea.Msg {
+	switch r := req.(type) {
+	case msg.RequestConfirmMsg:
+		r.Tag = tag
+		return r
+	case msg.RequestActionPickerMsg:
+		r.Tag = tag
+		return r
+	case msg.RequestSortPickerMsg:
+		r.Tag = tag
+		return r
+	}
+	panic("not a prompt request")
+}
+
+// tagOf returns the tag of a confirm or picker reply.
+func tagOf(reply tea.Msg) msg.PromptTag {
+	switch r := reply.(type) {
+	case msg.ConfirmResultMsg:
+		return r.Tag
+	case msg.PickerResultMsg:
+		return r.Tag
+	}
+	return nil
+}
 
 // Every way that a prompt of a view closes sends exactly one reply to the
-// view.
-func TestA12Pin_EveryReplyPathReachesTheView(t *testing.T) {
+// view, and the reply carries the tag of the request.
+func TestA12_EveryReplyPathCarriesTheTag(t *testing.T) {
 	typed := msg.RequestConfirmMsg{Message: "Delete?", Action: "go"}
 	quick := msg.RequestConfirmMsg{Message: "Start?", Action: "go", Quick: true}
 	action := msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}
@@ -31,7 +63,7 @@ func TestA12Pin_EveryReplyPathReachesTheView(t *testing.T) {
 		name string
 		req  tea.Msg
 		keys []tea.KeyPressMsg
-		want tea.Msg
+		want tea.Msg // without the tag
 	}{
 		{"typed enter", typed, typedConfirm(), yes},
 		{"typed esc", typed, []tea.KeyPressMsg{press("esc")}, no},
@@ -56,13 +88,112 @@ func TestA12Pin_EveryReplyPathReachesTheView(t *testing.T) {
 			m := newTestModel(140, 40)
 			v := newReplyView()
 			m.pushView(v)
-			m, _ = update(t, m, nav.Routed{Origin: v, Msg: c.req})
+			tag := &testTag{c.name}
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: withTag(c.req, tag)})
 			require.True(t, m.promptOpen())
 			m, _ = reply(t, m, c.keys...)
 			assert.False(t, m.promptOpen())
-			assert.Equal(t, []tea.Msg{c.want}, repliesOf(v))
+			got := repliesOf(v)
+			require.Len(t, got, 1)
+			assert.Same(t, tag, tagOf(got[0]))
+			assert.Equal(t, c.want, untagged(got[0]))
 		})
 	}
+}
+
+// untagged returns reply without its tag.
+func untagged(reply tea.Msg) tea.Msg {
+	return replyRoute{}.stamp(reply)
+}
+
+// viewRequests are the three prompt requests of a view, without a tag.
+var viewRequests = map[string]tea.Msg{
+	"confirm":       msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
+	"action picker": msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}},
+	"sort picker":   msg.RequestSortPickerMsg{Columns: []string{"Name"}},
+}
+
+// A refused request gets one decline, and the decline carries the tag:
+// both when another prompt is open and when the view is not on top (I8).
+func TestA12_RefusalsCarryTheTag(t *testing.T) {
+	for name, req := range viewRequests {
+		t.Run(name+" while a prompt is open", func(t *testing.T) {
+			m := newTestModel(140, 40)
+			v := newReplyView()
+			m.pushView(v)
+			m.askQuick("Open?", func(m Model) (Model, tea.Cmd) { return m, nil }, nil)
+			tag := &testTag{name}
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: withTag(req, tag)})
+			got := repliesOf(v)
+			require.Len(t, got, 1)
+			assert.Same(t, tag, tagOf(got[0]))
+			assert.True(t, m.toasts.HasActive())
+		})
+		t.Run(name+" from below the top", func(t *testing.T) {
+			m := newTestModel(140, 40)
+			below := newReplyView()
+			m.pushView(below)
+			m.pushView(newReplyView())
+			tag := &testTag{name}
+			m, _ = update(t, m, nav.Routed{Origin: below, Msg: withTag(req, tag)})
+			assert.False(t, m.promptOpen())
+			got := repliesOf(below)
+			require.Len(t, got, 1)
+			assert.Same(t, tag, tagOf(got[0]))
+		})
+	}
+}
+
+// The decline of closePrompts carries the tag when the view still exists.
+// From PR 4, S3 objects uses this to tell which question a decline answers
+// (H3). Today a theme switch removes the views first, so the decline is
+// dropped (TestA12Pin_ThemeSwitchWithEachViewPromptOpen).
+func TestA12_ClosePromptsDeclineCarriesTheTag(t *testing.T) {
+	for name, req := range viewRequests {
+		t.Run(name, func(t *testing.T) {
+			m := newTestModel(140, 40)
+			v := newReplyView()
+			m.pushView(v)
+			tag := &testTag{name}
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: withTag(req, tag)})
+			cmd := m.closePrompts()
+			require.Len(t, declinesOf(cmd), 1)
+			pump(t, m, cmd)
+			got := repliesOf(v)
+			require.Len(t, got, 1)
+			assert.Same(t, tag, tagOf(got[0]))
+		})
+	}
+}
+
+// A prompt of the app after a prompt of a view replies with a nil tag (I9).
+func TestA12_AppPromptAfterAViewPromptHasNoTag(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: withTag(viewRequests["sort picker"], &testTag{"view"})})
+	m = answer(t, m, press("esc"))
+	require.False(t, m.promptOpen())
+
+	var replies []msg.PickerResultMsg
+	m.pick("Pick", []ui.PickerOption{{Label: "a", Value: "a"}}, 0, func(m Model, r msg.PickerResultMsg) (Model, tea.Cmd) {
+		replies = append(replies, r)
+		return m, nil
+	})
+	answer(t, m, press("esc"))
+	require.Len(t, replies, 1)
+	assert.Nil(t, replies[0].Tag)
+}
+
+// A request with no tag gets replies with no tag.
+func TestA12_UntaggedRequestGetsUntaggedReplies(t *testing.T) {
+	m := newTestModel(140, 40)
+	v := newReplyView()
+	m.pushView(v)
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: viewRequests["confirm"]})
+	m, _ = reply(t, m, press("esc"))
+	require.Len(t, v.confirms, 1)
+	assert.Nil(t, v.confirms[0].Tag)
 }
 
 var keyDown = tea.KeyPressMsg{Code: tea.KeyDown}

@@ -318,3 +318,27 @@ func TestA12Keep_ReplyHelpersUseTheIndexOfTheRequest(t *testing.T) {
 	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: true, Action: "go"}, confirmReply(req, true))
 	assert.Equal(t, msg.ConfirmResultMsg{Action: "go"}, confirmReply(req, false))
 }
+
+// helperTag is a tag for the tests of the reply helpers.
+type helperTag struct{}
+
+func (*helperTag) PromptTag() {}
+
+// Each reply helper copies the tag of the request, as the app does.
+func TestA12Keep_ReplyHelpersCopyTheTag(t *testing.T) {
+	tag := &helperTag{}
+	picker := msg.RequestActionPickerMsg{Options: []string{"Stop"}, Tag: tag}
+	sort := msg.RequestSortPickerMsg{Columns: []string{"Name"}, Tag: tag}
+	confirm := msg.RequestConfirmMsg{Tag: tag}
+	for name, got := range map[string]msg.PromptTag{
+		"pickLabel":     pickLabel(t, picker, "Stop").Tag,
+		"cancel action": cancelPick(picker).Tag,
+		"pickColumn":    pickColumn(t, sort, "Name").Tag,
+		"cancel sort":   cancelPick(sort).Tag,
+		"clearSort":     clearSort(sort).Tag,
+		"yes":           confirmReply(confirm, true).Tag,
+		"no":            confirmReply(confirm, false).Tag,
+	} {
+		assert.Same(t, tag, got, name)
+	}
+}

@@ -57,20 +57,24 @@ type RequestConfirmMsg struct {
 	// Quick asks with a y/n prompt instead of a typed phrase. Use it for
 	// an action that does not destroy data, such as starting an instance.
 	Quick bool
+	// Tag goes back in every reply to this prompt. See PromptTag.
+	Tag PromptTag
 }
 
 // RequestActionPickerMsg asks the app to show an action picker.
 // The PickerResultMsg (ID="action") goes to the view that asked.
 type RequestActionPickerMsg struct {
-	Title   string   // picker title
-	Options []string // action labels
+	Title   string    // picker title
+	Options []string  // action labels
+	Tag     PromptTag // goes back in every reply to this picker
 }
 
 // RequestSortPickerMsg asks the app to show a column sort picker.
 // The PickerResultMsg (ID="sort") goes to the view that asked.
 type RequestSortPickerMsg struct {
-	Columns    []string // column titles
-	CurrentCol int      // currently sorted column index (-1 if unsorted)
+	Columns    []string  // column titles
+	CurrentCol int       // currently sorted column index (-1 if unsorted)
+	Tag        PromptTag // goes back in every reply to this picker
 }
 
 // RequestFeaturePickerMsg asks the app to show a service feature picker.
