@@ -438,6 +438,43 @@ func redriveEnd(queue string, tasks []aws.MessageMoveTask) (sqsRedriveDoneMsg, b
 	return sqsRedriveDoneMsg{}, false
 }
 
+// ─── Prompt tags ────────────────────────────────────────────────────────────
+
+// sqsDLQOp names one action of the DLQ picker. It indexes sqsDLQOpLabels.
+type sqsDLQOp int
+
+const sqsStartRedrive sqsDLQOp = 0
+
+// sqsDLQOpLabels are the picker labels of the DLQ actions.
+var sqsDLQOpLabels = [...]string{
+	sqsStartRedrive: "Start Redrive",
+}
+
+// sqsDLQPickTag is the tag of the DLQ picker. It holds the actions that the
+// picker offers.
+type sqsDLQPickTag struct {
+	ops []sqsDLQOp
+}
+
+// PromptTag marks sqsDLQPickTag as a prompt tag.
+func (*sqsDLQPickTag) PromptTag() {}
+
+// sqsRedriveTag is the tag of the redrive confirm. A redrive moves every
+// message of the queue, so the tag holds no targets.
+type sqsRedriveTag struct{}
+
+// PromptTag marks sqsRedriveTag as a prompt tag.
+func (*sqsRedriveTag) PromptTag() {}
+
+// sqsDeleteMsgsTag is the tag of the delete confirm. It holds the IDs of
+// the messages that the prompt counted, frozen at the key press.
+type sqsDeleteMsgsTag struct {
+	ids []string
+}
+
+// PromptTag marks sqsDeleteMsgsTag as a prompt tag.
+func (*sqsDeleteMsgsTag) PromptTag() {}
+
 // ─── Update ─────────────────────────────────────────────────────────────────
 
 func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
@@ -446,21 +483,8 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if applySortPick(&s.table, m) {
 			return s, nil
 		}
-		if m.ID == "action" && m.Picked() {
-			switch m.Value {
-			case "Start Redrive":
-				if s.queueARN == "" {
-					return s, func() tea.Msg {
-						return msg.ToastError("Queue ARN not available")
-					}
-				}
-				// A redrive moves every message of the DLQ, so it asks.
-				// The messages are moved, not lost, so y/n is enough.
-				text := fmt.Sprintf("Move all messages of %s back to their source queues?", s.queueName)
-				return s, func() tea.Msg {
-					return msg.RequestConfirmMsg{Message: text, Action: "sqs_redrive", Quick: true}
-				}
-			}
+		if t, ok := m.Tag.(*sqsDLQPickTag); ok && t != nil {
+			return s, s.onDLQPicked(t, m)
 		}
 		return s, nil
 
@@ -468,13 +492,17 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.Confirmed {
 			return s, nil
 		}
-		switch m.Action {
-		case "sqs_delete_messages":
-			return s, s.deleteSelectedMessages()
-		case "sqs_redrive":
-			s.redriving = true
-			s.spinner.Show("Redrive in progress...")
-			return s, tea.Batch(s.spinner.Tick(), s.startRedrive())
+		switch t := m.Tag.(type) {
+		case *sqsDeleteMsgsTag:
+			if t != nil {
+				return s, s.deleteMessages(t.ids)
+			}
+		case *sqsRedriveTag:
+			if t != nil {
+				s.redriving = true
+				s.spinner.Show("Redrive in progress...")
+				return s, tea.Batch(s.spinner.Tick(), s.startRedrive())
+			}
 		}
 		return s, nil
 
@@ -662,20 +690,21 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			s.table.ToggleSelect()
 			return s, nil
 		case key.Matches(m, s.keys.Delete):
-			handles := s.selectedReceiptHandles()
-			if len(handles) == 0 {
+			// The rows are the loaded messages, so each ID names one.
+			ids := slices.Clone(s.selectedMessageIDs())
+			if len(ids) == 0 {
 				return s, nil
 			}
-			message := fmt.Sprintf("Delete %d message(s)?", len(handles))
+			message := fmt.Sprintf("Delete %d message(s)?", len(ids))
 			if !s.isFIFO {
 				message += "\n" + staleHandleNote
 			}
-			return s, func() tea.Msg {
-				return msg.RequestConfirmMsg{
-					Message: message,
-					Action:  "sqs_delete_messages",
-				}
+			req := msg.RequestConfirmMsg{
+				Message: message,
+				Action:  "sqs_delete_messages",
+				Tag:     &sqsDeleteMsgsTag{ids: ids},
 			}
+			return s, func() tea.Msg { return req }
 		case key.Matches(m, s.keys.Manage):
 			if s.dlqErr != nil {
 				code := aws.ErrorCode(s.dlqErr)
@@ -688,12 +717,13 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 					return msg.ToastError("Redrive needs a DLQ. No queue sends its failed messages to this queue.")
 				}
 			}
-			return s, func() tea.Msg {
-				return msg.RequestActionPickerMsg{
-					Title:   "DLQ Actions",
-					Options: []string{"Start Redrive"},
-				}
+			ops := []sqsDLQOp{sqsStartRedrive}
+			labels := make([]string, len(ops))
+			for i, op := range ops {
+				labels[i] = sqsDLQOpLabels[op]
 			}
+			req := msg.RequestActionPickerMsg{Title: "DLQ Actions", Options: labels, Tag: &sqsDLQPickTag{ops: ops}}
+			return s, func() tea.Msg { return req }
 		}
 	}
 
@@ -739,17 +769,29 @@ func (s *SQSMessages) selectedMessageIDs() []string {
 	return s.table.TargetKeys()
 }
 
-// selectedReceiptHandles returns the receipt handles of the messages that
-// selectedMessageIDs returns.
-func (s *SQSMessages) selectedReceiptHandles() []string {
-	ids := s.selectedMessageIDs()
-	handles := make([]string, 0, len(ids))
-	for _, id := range ids {
-		if m := s.findMessage(id); m != nil {
-			handles = append(handles, m.ReceiptHandle)
-		}
+// onDLQPicked asks to confirm the action that r picked from the DLQ picker
+// of t. Any other reply does nothing.
+func (s *SQSMessages) onDLQPicked(t *sqsDLQPickTag, r msg.PickerResultMsg) tea.Cmd {
+	op, ok := pickedOption(t.ops, r)
+	if !ok {
+		return nil
 	}
-	return handles
+	switch op {
+	case sqsStartRedrive:
+		if s.queueARN == "" {
+			return func() tea.Msg { return msg.ToastError("Queue ARN not available") }
+		}
+		// A redrive moves every message of the DLQ, so it asks. The
+		// messages are moved, not lost, so y/n is enough.
+		req := msg.RequestConfirmMsg{
+			Message: fmt.Sprintf("Move all messages of %s back to their source queues?", s.queueName),
+			Action:  "sqs_redrive",
+			Quick:   true,
+			Tag:     &sqsRedriveTag{},
+		}
+		return func() tea.Msg { return req }
+	}
+	return nil
 }
 
 // staleHandleNote explains a limit of SQS on standard queues: the delete
@@ -758,11 +800,11 @@ func (s *SQSMessages) selectedReceiptHandles() []string {
 const staleHandleNote = "If a consumer received a message after this peek, SQS reports\n" +
 	"success but keeps the message. To be sure, cancel and press r first."
 
-// deleteSelectedMessages deletes the selected messages, or the cursor
-// message. The rows stay until the result arrives. Then only the messages
-// that SQS deleted leave the list.
-func (s *SQSMessages) deleteSelectedMessages() tea.Cmd {
-	ids := s.selectedMessageIDs()
+// deleteMessages deletes the messages with ids, the IDs that the confirm
+// counted. Each message uses its newest receipt handle. A message that the
+// view no longer holds is skipped (D4). The rows stay until the result
+// arrives. Then only the messages that SQS deleted leave the list.
+func (s *SQSMessages) deleteMessages(ids []string) tea.Cmd {
 	idByHandle := make(map[string]string, len(ids))
 	handles := make([]string, 0, len(ids))
 	for _, id := range ids {

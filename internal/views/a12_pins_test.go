@@ -79,11 +79,11 @@ func TestA12_SQSSecondManageKeepsSend(t *testing.T) {
 	assert.Equal(t, charSQSURL("qa"), v.sendTarget)
 }
 
-// ─── H2: the delete of SQS messages acts on the selection at the reply ───
+// ─── H2: the delete of SQS messages acts on what the prompt counted (fixed in PR 5)
 
-// Hazard H2. PR 5 fixes it: a yes then deletes only m1, the message that
-// the prompt counted.
-func TestA12Hazard_SQSMessageDeleteUsesTheSelectionAtTheReply(t *testing.T) {
+// H2, fixed in PR 5. The selection changes while the confirm is open. A
+// yes still deletes only m1, the message that the prompt counted (D4).
+func TestA12_SQSMessageDeleteUsesTheCountedMessages(t *testing.T) {
 	v, svc := newTestSQSMessages()
 	v.Update(sqsMessagesLoadedMsg{queueURL: testQueueURL, messages: []aws.SQSMessage{
 		{MessageID: "m1", ReceiptHandle: "h1", Body: "one"},
@@ -93,11 +93,29 @@ func TestA12Hazard_SQSMessageDeleteUsesTheSelectionAtTheReply(t *testing.T) {
 	req := requestOf[msg.RequestConfirmMsg](t, cmd)
 	require.Contains(t, req.Message, "Delete 1 message(s)?")
 
-	// The selection changes while the confirm is open.
 	v.table.SelectAll()
-	svc.On("DeleteMessageBatch", mock.Anything, testQueueURL, []string{"h1", "h2"}).Return(nil).Once()
-	_, cmd = v.Update(confirmReply(req, true))
-	collectMsgs(cmd)
+	svc.On("DeleteMessageBatch", mock.Anything, testQueueURL, []string{"h1"}).Return(nil).Once()
+	answerYes(t, v, req)
+	svc.AssertExpectations(t)
+}
+
+// D4: while the confirm is open, a new peek gives m1 a new receipt handle,
+// and the result of an earlier delete removes m2. A yes deletes m1 with
+// its newest handle and skips m2.
+func TestA12_SQSMessageDeleteUsesTheNewestHandles(t *testing.T) {
+	v, svc := newTestSQSMessages()
+	loadThreeMessages(v) // m1 h1, m2 h2, m3 h3, all selected
+	_, cmd := v.Update(keyPress('x'))
+	req := requestOf[msg.RequestConfirmMsg](t, cmd)
+	require.Contains(t, req.Message, "Delete 3 message(s)?")
+
+	v.Update(sqsMessagesLoadedMsg{queueURL: testQueueURL, messages: []aws.SQSMessage{
+		{MessageID: "m1", ReceiptHandle: "h1-new", Body: "one"},
+	}})
+	v.Update(sqsMessageDeletedMsg{ids: []string{"m2"}, failed: map[string]string{}})
+	require.Nil(t, v.findMessage("m2"))
+	svc.On("DeleteMessageBatch", mock.Anything, testQueueURL, []string{"h1-new", "h3"}).Return(nil).Once()
+	answerYes(t, v, req)
 	svc.AssertExpectations(t)
 }
 

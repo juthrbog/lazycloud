@@ -24,6 +24,33 @@ func openTestForm(t *testing.T, m Model, asker nav.View) (Model, *ui.FormView) {
 	return m, fv
 }
 
+// discardRequestOf types into fv and presses esc, so the form asks whether
+// to discard the change. It returns the request that the form sends. The
+// test sends it to the app by hand.
+func discardRequestOf(t *testing.T, fv *ui.FormView) msg.RequestConfirmMsg {
+	t.Helper()
+	fv.Update(press("a"))
+	_, cmd := fv.Update(press("esc"))
+	for _, out := range collectMsgs(cmd) {
+		if req, ok := out.(msg.RequestConfirmMsg); ok {
+			require.NotNil(t, req.Tag, "the request carries the tag of the form")
+			return req
+		}
+	}
+	require.Fail(t, "the edited form asks first")
+	return msg.RequestConfirmMsg{}
+}
+
+// newDiscardRequest makes a form that no view asked for and returns its
+// discard request. A test uses it to send that request from another view.
+func newDiscardRequest(t *testing.T) msg.RequestConfirmMsg {
+	t.Helper()
+	fv := ui.NewFormView(testForm)
+	collectMsgs(fv.Init())
+	fv.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	return discardRequestOf(t, fv)
+}
+
 // The result of a form goes to the view that asked for it, and the app
 // forgets the form.
 func TestFormResultGoesToTheViewThatAsked(t *testing.T) {
@@ -116,7 +143,7 @@ func TestDiscardConfirmRepliesToTheForm(t *testing.T) {
 	m.pushView(v)
 	m, fv := openTestForm(t, m, v)
 
-	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: msg.RequestFormDiscardConfirmMsg{}})
+	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: discardRequestOf(t, fv)})
 	top, ok := m.overlays.top()
 	require.True(t, ok)
 	assert.Equal(t, ovConfirm, top.kind)
@@ -124,7 +151,8 @@ func TestDiscardConfirmRepliesToTheForm(t *testing.T) {
 }
 
 // A form request or a discard request from a view that is not on top
-// opens nothing over the view that the user sees.
+// opens nothing over the view that the user sees. The user gets a toast.
+// The form gets the decline and stays open.
 func TestFormRequestsFromAViewBelowAreDropped(t *testing.T) {
 	m := newTestModel(140, 40)
 	below := newReplyView()
@@ -135,9 +163,13 @@ func TestFormRequestsFromAViewBelowAreDropped(t *testing.T) {
 
 	m, _ = update(t, m, nav.Routed{Origin: below, Msg: testForm})
 	assert.Same(t, top, m.nav.Current(), "no form opens")
-	m, _ = update(t, m, nav.Routed{Origin: fv, Msg: msg.RequestFormDiscardConfirmMsg{}})
+	m, cmd := update(t, m, nav.Routed{Origin: fv, Msg: discardRequestOf(t, fv)})
 	assert.False(t, m.confirm.Visible(), "no discard confirm opens")
 	assert.Len(t, m.forms, 1)
+	assert.True(t, m.toasts.HasActive())
+	m = pump(t, m, cmd)
+	assert.Len(t, m.forms, 1, "the decline keeps the form")
+	assert.Empty(t, below.forms, "the form did not close")
 }
 
 // The result goes to the recorded asker, not just to the view below the

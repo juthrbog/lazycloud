@@ -60,19 +60,3 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 	}
 	return m, m.nav.UpdateView(asker, res)
 }
-
-// discardText is the question of the discard confirm.
-const discardText = "Discard unsaved changes?"
-
-// askDiscard asks whether to discard the changes of a form. The reply goes
-// to form, which closes itself on a yes.
-func (m Model) askDiscard(form nav.View) (Model, tea.Cmd) {
-	route := replyRoute{replyTo: form}
-	if m.promptOpen() {
-		cmd := m.refuseOpen(discardText, route, appmsg.ConfirmResultMsg{Confirmed: false, Action: appmsg.FormDiscardAction})
-		return m, cmd
-	}
-	m.confirm.ShowQuick(discardText, appmsg.FormDiscardAction)
-	m.openOverlayRoute(ovConfirm, route)
-	return m, nil
-}

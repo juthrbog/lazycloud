@@ -166,21 +166,16 @@ func TestOverlayPin_FormDiscardConfirm(t *testing.T) {
 	m := newTestModel(140, 40)
 	v := newReplyView()
 	m.pushView(v)
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestFormMsg{
-		ID: "f", Title: "Form", Fields: []msg.FormField{{Key: "body", Type: "input", Title: "Body"}},
-	}})
-	form := m.nav.Current()
-	require.IsType(t, &ui.FormView{}, form)
-
-	m, _ = update(t, m, nav.Routed{Origin: form, Msg: msg.RequestFormDiscardConfirmMsg{}})
-	require.True(t, m.confirm.Visible())
+	m, form := askDiscardOfAnEditedForm(t, m, v)
 	m, cmd := update(t, m, press("n"))
 	assert.False(t, m.confirm.Visible())
 	assert.Same(t, form, m.nav.Current(), "a no keeps the form")
 	m = pump(t, m, cmd)
 	assert.Same(t, form, m.nav.Current())
 
-	m, _ = update(t, m, nav.Routed{Origin: form, Msg: msg.RequestFormDiscardConfirmMsg{}})
+	// esc asks again. This is a new prompt, so it gets its own reply.
+	m = answer(t, m, press("esc"))
+	require.True(t, m.confirm.Visible(), "the form asks again")
 	m = answer(t, m, press("y"))
 	assert.Same(t, v, m.nav.Current(), "a yes closes the form")
 	assert.Empty(t, v.confirms, "the discard confirm does not reach the view")

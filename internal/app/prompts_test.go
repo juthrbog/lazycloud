@@ -220,6 +220,9 @@ func TestEveryPromptRequestIsRefusedWhileAPromptIsOpen(t *testing.T) {
 		v.lastCmd = cmd
 		return m
 	}
+	// The form sends this request. The test sends it from v, so v gets
+	// the decline.
+	discard := newDiscardRequest(t)
 	for _, c := range []tc{
 		{"confirm", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestConfirmMsg{Message: "Go?", Action: "go"})
@@ -237,9 +240,11 @@ func TestEveryPromptRequestIsRefusedWhileAPromptIsOpen(t *testing.T) {
 			assert.Equal(t, []msg.PickerResultMsg{{ID: "sort", Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"discard confirm", func(t *testing.T, m Model, v *replyView) Model {
-			return ask(t, m, v, msg.RequestFormDiscardConfirmMsg{})
+			return ask(t, m, v, discard)
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
+			require.Len(t, v.confirms, 1)
+			assert.False(t, v.confirms[0].Confirmed)
+			assert.Same(t, discard.Tag, v.confirms[0].Tag, "the decline carries the tag of the request")
 		}},
 	} {
 		for _, open := range []string{"confirm", "picker"} {
@@ -302,6 +307,9 @@ func TestAppPromptIsRefusedWhileAPromptIsOpen(t *testing.T) {
 // user gets a toast, and the view gets a decline. Before PR 7, a picker or
 // a discard request from below the top was dropped without a word.
 func TestPromptFromBelowTheTopGetsAToastAndADecline(t *testing.T) {
+	// The form sends this request. The test sends it from a view below
+	// the top, so that view gets the decline.
+	discard := newDiscardRequest(t)
 	for _, c := range []struct {
 		name string
 		req  tea.Msg
@@ -313,8 +321,10 @@ func TestPromptFromBelowTheTopGetsAToastAndADecline(t *testing.T) {
 		{"sort picker", msg.RequestSortPickerMsg{Columns: []string{"Name"}}, func(t *testing.T, v *replyView) {
 			assert.Equal(t, []msg.PickerResultMsg{{ID: "sort", Outcome: msg.PickCancelled}}, v.picks)
 		}},
-		{"discard confirm", msg.RequestFormDiscardConfirmMsg{}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false, Action: msg.FormDiscardAction}}, v.confirms)
+		{"discard confirm", discard, func(t *testing.T, v *replyView) {
+			require.Len(t, v.confirms, 1)
+			assert.False(t, v.confirms[0].Confirmed)
+			assert.Same(t, discard.Tag, v.confirms[0].Tag, "the decline carries the tag of the request")
 		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -339,7 +349,7 @@ func TestPromptFromAGoneViewIsDropped(t *testing.T) {
 	for _, req := range []tea.Msg{
 		msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
 		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
-		msg.RequestFormDiscardConfirmMsg{},
+		newDiscardRequest(t),
 	} {
 		m := newTestModel(140, 40)
 		gone := newReplyView()

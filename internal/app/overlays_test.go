@@ -185,7 +185,7 @@ func TestRequestsWithoutOriginAreDropped(t *testing.T) {
 		msg.RequestConfirmMsg{Message: "Go?", Action: "go", Quick: true},
 		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
 		msg.RequestSortPickerMsg{Columns: []string{"Name"}},
-		msg.RequestFormDiscardConfirmMsg{},
+		newDiscardRequest(t),
 		msg.RequestFormMsg{ID: "f", Title: "Form", Fields: []msg.FormField{{Key: "a", Title: "A"}}},
 		msg.FormResultMsg{ID: "f", Aborted: true},
 		msg.ConfirmResultMsg{Confirmed: true, Action: "go"},
