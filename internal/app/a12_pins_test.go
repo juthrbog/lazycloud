@@ -52,12 +52,12 @@ func tagOf(reply tea.Msg) msg.PromptTag {
 // Every way that a prompt of a view closes sends exactly one reply to the
 // view, and the reply carries the tag of the request.
 func TestA12_EveryReplyPathCarriesTheTag(t *testing.T) {
-	typed := msg.RequestConfirmMsg{Message: "Delete?", Action: "go"}
-	quick := msg.RequestConfirmMsg{Message: "Start?", Action: "go", Quick: true}
+	typed := msg.RequestConfirmMsg{Message: "Delete?"}
+	quick := msg.RequestConfirmMsg{Message: "Start?", Quick: true}
 	action := msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop", "Start"}}
 	sort := msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}, CurrentCol: -1}
-	yes := msg.ConfirmResultMsg{Confirmed: true, Action: "go"}
-	no := msg.ConfirmResultMsg{Confirmed: false, Action: "go"}
+	yes := msg.ConfirmResultMsg{Confirmed: true}
+	no := msg.ConfirmResultMsg{Confirmed: false}
 
 	for _, c := range []struct {
 		name string
@@ -72,17 +72,17 @@ func TestA12_EveryReplyPathCarriesTheTag(t *testing.T) {
 		{"quick enter", quick, []tea.KeyPressMsg{keyEnter}, no},
 		{"quick esc", quick, []tea.KeyPressMsg{press("esc")}, no},
 		{"action pick", action, []tea.KeyPressMsg{keyDown, keyEnter},
-			msg.PickerResultMsg{ID: "action", Selected: 1, Value: "Start"}},
+			msg.PickerResultMsg{Selected: 1, Value: "Start"}},
 		{"action esc", action, []tea.KeyPressMsg{press("esc")},
-			msg.PickerResultMsg{ID: "action", Outcome: msg.PickCancelled}},
+			msg.PickerResultMsg{Outcome: msg.PickCancelled}},
 		{"action ctrl+x", action, []tea.KeyPressMsg{keyCtrlX},
-			msg.PickerResultMsg{ID: "action", Outcome: msg.PickCancelled}},
+			msg.PickerResultMsg{Outcome: msg.PickCancelled}},
 		{"sort pick", sort, []tea.KeyPressMsg{keyDown, keyEnter},
-			msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Size"}},
+			msg.PickerResultMsg{Selected: 1, Value: "Size"}},
 		{"sort esc", sort, []tea.KeyPressMsg{press("esc")},
-			msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCancelled}},
+			msg.PickerResultMsg{Outcome: msg.PickCancelled}},
 		{"sort ctrl+x", sort, []tea.KeyPressMsg{keyCtrlX},
-			msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCleared}},
+			msg.PickerResultMsg{Outcome: msg.PickCleared}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			m := newTestModel(140, 40)
@@ -108,7 +108,7 @@ func untagged(reply tea.Msg) tea.Msg {
 
 // viewRequests are the three prompt requests of a view, without a tag.
 var viewRequests = map[string]tea.Msg{
-	"confirm":       msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
+	"confirm":       msg.RequestConfirmMsg{Message: "Go?"},
 	"action picker": msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}},
 	"sort picker":   msg.RequestSortPickerMsg{Columns: []string{"Name"}},
 }
@@ -222,7 +222,7 @@ func TestA12Pin_ActionPickAfterAFilterHasTheOriginalIndex(t *testing.T) {
 	}})
 	m = typeInto(t, m, "reb")
 	m, _ = reply(t, m, keyEnter)
-	assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Selected: 2, Value: "Reboot"}}, v.picks)
+	assert.Equal(t, []msg.PickerResultMsg{{Selected: 2, Value: "Reboot"}}, v.picks)
 }
 
 // A theme switch resets the views. It declines each kind of view prompt
@@ -230,8 +230,8 @@ func TestA12Pin_ActionPickAfterAFilterHasTheOriginalIndex(t *testing.T) {
 // prompt stays open.
 func TestA12Pin_ThemeSwitchWithEachViewPromptOpen(t *testing.T) {
 	for name, req := range map[string]tea.Msg{
-		"confirm":       msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
-		"quick confirm": msg.RequestConfirmMsg{Message: "Go?", Action: "go", Quick: true},
+		"confirm":       msg.RequestConfirmMsg{Message: "Go?"},
+		"quick confirm": msg.RequestConfirmMsg{Message: "Go?", Quick: true},
 		"action picker": msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}},
 		"sort picker":   msg.RequestSortPickerMsg{Columns: []string{"Name"}},
 	} {

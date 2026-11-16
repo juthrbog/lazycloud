@@ -18,7 +18,6 @@ type PickerOption struct {
 
 // Picker is a popup selection dialog with j/k navigation and fuzzy search.
 type Picker struct {
-	id       string
 	title    string
 	options  []PickerOption // all options
 	filtered []int          // indices into options that match the filter
@@ -59,8 +58,7 @@ func NewPicker() Picker {
 }
 
 // Show displays the picker with the given options. The cursor starts on initialIdx.
-func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) {
-	p.id = id
+func (p *Picker) Show(title string, options []PickerOption, initialIdx int) {
 	p.title = title
 	p.options = options
 	p.filter = queryInput{}
@@ -79,11 +77,6 @@ func (p *Picker) Show(id, title string, options []PickerOption, initialIdx int) 
 	}
 	p.offset = 0
 	p.keepCursorVisible()
-}
-
-// ID returns the ID of the picker that is shown or was shown last.
-func (p Picker) ID() string {
-	return p.id
 }
 
 // SetMaxHeight sets the most rows the dialog may use, border included.
@@ -201,29 +194,26 @@ func (p Picker) Update(msg tea.Msg) (Picker, tea.Cmd) {
 				return p, nil
 			}
 			p.visible = false
-			id := p.id
 			origIdx := p.filtered[p.cursor]
 			value := p.options[origIdx].Value
 			return p, func() tea.Msg {
-				return appmsg.PickerResultMsg{ID: id, Selected: origIdx, Value: value}
+				return appmsg.PickerResultMsg{Selected: origIdx, Value: value}
 			}
 		case "esc":
 			p.visible = false
-			id := p.id
 			return p, func() tea.Msg {
-				return appmsg.PickerResultMsg{ID: id, Outcome: appmsg.PickCancelled}
+				return appmsg.PickerResultMsg{Outcome: appmsg.PickCancelled}
 			}
 		case "ctrl+x":
 			// The picker takes ctrl+x, so it never cancels an operation
 			// while the picker is open. It clears or cancels.
 			p.visible = false
-			id := p.id
 			outcome := appmsg.PickCancelled
 			if p.clearable {
 				outcome = appmsg.PickCleared
 			}
 			return p, func() tea.Msg {
-				return appmsg.PickerResultMsg{ID: id, Outcome: outcome}
+				return appmsg.PickerResultMsg{Outcome: outcome}
 			}
 		default:
 			if p.filter.update(msg) {

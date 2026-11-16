@@ -366,8 +366,8 @@ func TestCharSubnet_SortPicker(t *testing.T) {
 	}}, sortAsked(t, asked...))
 	first, _ := firstOfType[msg.RequestSortPickerMsg](asked)
 
-	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
-	assert.Equal(t, "subnet-aaa111", netRows(v)[0][:13], "a reply without the sort tag is ignored")
+	v.Update(msg.PickerResultMsg{Selected: 1, Value: "Name"})
+	assert.Equal(t, "subnet-aaa111", netRows(v)[0][:13], "a reply without the tag of the prompt runs nothing")
 
 	v.Update(pickColumn(t, first, "Name"))
 	assert.Equal(t, "subnet-bbb222", netRows(v)[0][:13])

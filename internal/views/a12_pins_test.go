@@ -240,7 +240,8 @@ func TestA12Keep_EC2TargetsAreFrozenAtTheKeyPress(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// A confirm with another Action does not run the EC2 action.
+// A reply without the tag of the prompt runs nothing. It does not run the
+// EC2 action.
 func TestA12Keep_EC2ForeignRepliesRunNothing(t *testing.T) {
 	setReadWrite(t)
 	v, svc := newTestEC2List()
@@ -250,8 +251,8 @@ func TestA12Keep_EC2ForeignRepliesRunNothing(t *testing.T) {
 	_, cmd = v.Update(pickLabel(t, picker, "Stop"))
 	requestOf[msg.RequestConfirmMsg](t, cmd)
 
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
-	assert.Nil(t, cmd)
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true})
+	assert.Nil(t, cmd, "an untagged yes runs nothing")
 	svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
 }
 
@@ -353,15 +354,15 @@ func TestA12Keep_SQSMessageDeleteDeclineRunsNothing(t *testing.T) {
 // The views read the index from PR 3 on, so the helpers must get it right.
 func TestA12Keep_ReplyHelpersUseTheIndexOfTheRequest(t *testing.T) {
 	picker := msg.RequestActionPickerMsg{Options: []string{"Stop", "Start", "Reboot"}}
-	assert.Equal(t, msg.PickerResultMsg{ID: "action", Selected: 2, Value: "Reboot"}, pickLabel(t, picker, "Reboot"))
+	assert.Equal(t, msg.PickerResultMsg{Selected: 2, Value: "Reboot"}, pickLabel(t, picker, "Reboot"))
 	sort := msg.RequestSortPickerMsg{Columns: []string{"Name", "Size"}}
-	assert.Equal(t, msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Size"}, pickColumn(t, sort, "Size"))
-	assert.Equal(t, msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCancelled}, cancelPick(sort))
-	assert.Equal(t, msg.PickerResultMsg{ID: "action", Outcome: msg.PickCancelled}, cancelPick(picker))
-	assert.Equal(t, msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCleared}, clearSort(sort))
-	req := msg.RequestConfirmMsg{Action: "go"}
-	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: true, Action: "go"}, confirmReply(req, true))
-	assert.Equal(t, msg.ConfirmResultMsg{Action: "go"}, confirmReply(req, false))
+	assert.Equal(t, msg.PickerResultMsg{Selected: 1, Value: "Size"}, pickColumn(t, sort, "Size"))
+	assert.Equal(t, msg.PickerResultMsg{Outcome: msg.PickCancelled}, cancelPick(sort))
+	assert.Equal(t, msg.PickerResultMsg{Outcome: msg.PickCancelled}, cancelPick(picker))
+	assert.Equal(t, msg.PickerResultMsg{Outcome: msg.PickCleared}, clearSort(sort))
+	req := msg.RequestConfirmMsg{Message: "go"}
+	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: true}, confirmReply(req, true))
+	assert.Equal(t, msg.ConfirmResultMsg{}, confirmReply(req, false))
 }
 
 // helperTag is a tag for the tests of the reply helpers.

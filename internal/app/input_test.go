@@ -272,17 +272,17 @@ func TestReadWriteKeyIgnoresEnabledFlag(t *testing.T) {
 // without Quick wants the typed phrase, so y alone confirms nothing.
 func TestQuickConfirmRequest(t *testing.T) {
 	m := newTestModel(140, 40)
-	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.RequestConfirmMsg{Message: "Start 1 instance(s)?", Action: "ec2_start", Quick: true}})
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.RequestConfirmMsg{Message: "Start 1 instance(s)?", Quick: true}})
 	require.True(t, m.confirm.Visible())
 	assert.Contains(t, rendered(m), "Start 1 instance(s)?")
 
 	m, cmd := update(t, m, press("y"))
 	res, ok := valueOf[msg.ConfirmResultMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_start"}, res)
+	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: true}, res)
 	assert.False(t, m.confirm.Visible())
 
-	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.RequestConfirmMsg{Message: "Delete?", Action: "delete_objects"}})
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.RequestConfirmMsg{Message: "Delete?"}})
 	m, cmd = update(t, m, press("y"))
 	assert.Nil(t, findOf[msg.ConfirmResultMsg](collectMsgs(cmd)))
 	assert.True(t, m.confirm.Visible(), "the typed prompt stays open")

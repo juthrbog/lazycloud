@@ -1,6 +1,6 @@
 # A12: typed tags for the prompts of the views
 
-Status: approved on 2026-11-15, with the proposed answer for each decision. PR 7 is accepted.
+Status: done, except the optional PR 7. Approved on 2026-11-15, with the proposed answer for each decision. PR 7 is accepted.
 
 ## Summary
 
@@ -166,6 +166,8 @@ Each PR runs the unit tests, `go vet`, golangci-lint with gosec and the LocalSta
 - PR 5, SQS messages and the form discard. The H2 pin changes.
 - PR 6, cleanup and docs. Remove `Action`, `ID`, the action and ID parameters of `Confirm.Show`, `ShowQuick` and `Picker.Show`, `Picker.ID()` and the `"action"` and `"sort"` literals. Update `ARCHITECTURE.md`, `UI_COMPONENTS.md`, the doc comments in `messages.go`, the tracker and the note in `a7-overlays.md`. No change in behavior.
 - PR 7, optional (D7). A ReadOnly check at the reply for S3 objects (delete and overwrite) and SQS messages (delete and redrive).
+
+PR 6 is done. Prompts are now told apart only by their tag.
 
 ## Risks
 

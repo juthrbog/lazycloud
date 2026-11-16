@@ -578,9 +578,10 @@ func TestCharS3_SortPicker(t *testing.T) {
 	v.Update(tea.WindowSizeMsg{Width: 100, Height: 12})
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
 
-	// A cancelled picker and another picker change nothing.
+	// A cancelled picker changes nothing. A reply without the tag of the
+	// prompt runs nothing.
 	v.Update(cancelPick(req))
-	v.Update(msg.PickerResultMsg{ID: "feature", Selected: 1, Value: "x"})
+	v.Update(msg.PickerResultMsg{Selected: 1, Value: "x"})
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
 
 	v.Update(clearSort(sortRequest(t, v)))
@@ -786,7 +787,6 @@ func TestCharS3_DeletePromptOneBucket(t *testing.T) {
 		Message: "Delete bucket 'a-logs'?\n" +
 			"Every object version and delete marker is deleted\n" +
 			"permanently, then the bucket. You cannot undo this.",
-		Action: "delete_bucket",
 		Phrase: "a-logs",
 	}, req)
 }
@@ -803,7 +803,6 @@ func TestCharS3_DeletePromptSeveralBuckets(t *testing.T) {
 		Message: "Delete 2 buckets?\n  a-logs\n  b-tmp\n" +
 			"Every object version and delete marker is deleted\n" +
 			"permanently, then the bucket. You cannot undo this.",
-		Action: "delete_bucket",
 		Phrase: "delete 2 buckets",
 	}, req)
 }
@@ -850,15 +849,15 @@ func TestCharS3_DeleteWithNoBucketDoesNothing(t *testing.T) {
 	assert.Nil(t, cmd)
 }
 
-// A no to the delete runs nothing. A reply without the tag runs nothing,
-// whatever its Action says. Each prompt gets one reply (I10), so no second
+// A no to the delete runs nothing. A reply without the tag of the prompt
+// runs nothing. Each prompt gets one reply (I10), so no second
 // yes follows.
 func TestCharS3_NoOrUntaggedReplyDoesNotDelete(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	cases := []func(msg.RequestConfirmMsg) msg.ConfirmResultMsg{
 		func(req msg.RequestConfirmMsg) msg.ConfirmResultMsg { return confirmReply(req, false) },
 		func(msg.RequestConfirmMsg) msg.ConfirmResultMsg {
-			return msg.ConfirmResultMsg{Confirmed: true, Action: "other"}
+			return msg.ConfirmResultMsg{Confirmed: true}
 		},
 	}
 	for _, reply := range cases {
@@ -871,8 +870,8 @@ func TestCharS3_NoOrUntaggedReplyDoesNotDelete(t *testing.T) {
 	}
 
 	v, _ := charS3Loaded(t, "a-logs")
-	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
-	assert.Nil(t, cmd, "a reply without the tag runs nothing")
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true})
+	assert.Nil(t, cmd, "an untagged reply with no prompt open runs nothing")
 }
 
 // The app gates the RW keys, so the view does not check ReadOnly on a key.

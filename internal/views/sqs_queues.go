@@ -385,16 +385,14 @@ func (s *SQSQueues) onActionPicked(t *sqsManageTag, r msg.PickerResultMsg) tea.C
 		req := msg.RequestConfirmMsg{
 			Message: confirmMessage("Purge", len(urls), "queue(s)", s.queueNameList(urls),
 				"This removes all messages and cannot be undone."),
-			Action: "sqs_purge",
-			Tag:    &sqsConfirmTag{op: sqsPurge, urls: urls},
+			Tag: &sqsConfirmTag{op: sqsPurge, urls: urls},
 		}
 		return func() tea.Msg { return req }
 	case sqsDelete:
 		req := msg.RequestConfirmMsg{
 			Message: confirmMessage("Delete", len(urls), "queue(s)", s.queueNameList(urls),
 				"All messages will be lost."),
-			Action: "sqs_delete",
-			Tag:    &sqsConfirmTag{op: sqsDelete, urls: urls},
+			Tag: &sqsConfirmTag{op: sqsDelete, urls: urls},
 		}
 		return func() tea.Msg { return req }
 	}

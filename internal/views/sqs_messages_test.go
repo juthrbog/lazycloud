@@ -229,7 +229,6 @@ func TestSQSMessages_RedriveAsksFirst(t *testing.T) {
 	pick := requestOf[msg.RequestActionPickerMsg](t, cmd)
 	_, cmd = view.Update(pickLabel(t, pick, "Start Redrive"))
 	req := requestOf[msg.RequestConfirmMsg](t, cmd)
-	assert.Equal(t, "sqs_redrive", req.Action)
 	assert.True(t, req.Quick, "the messages are moved, not lost")
 	assert.Equal(t, "Move all messages of orders back to their source queues?", req.Message)
 	m.AssertNotCalled(t, "StartMessageMoveTask", mock.Anything, mock.Anything, mock.Anything)

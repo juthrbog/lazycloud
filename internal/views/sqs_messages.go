@@ -701,7 +701,6 @@ func (s *SQSMessages) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			req := msg.RequestConfirmMsg{
 				Message: message,
-				Action:  "sqs_delete_messages",
 				Tag:     &sqsDeleteMsgsTag{ids: ids},
 			}
 			return s, func() tea.Msg { return req }
@@ -785,7 +784,6 @@ func (s *SQSMessages) onDLQPicked(t *sqsDLQPickTag, r msg.PickerResultMsg) tea.C
 		// messages are moved, not lost, so y/n is enough.
 		req := msg.RequestConfirmMsg{
 			Message: fmt.Sprintf("Move all messages of %s back to their source queues?", s.queueName),
-			Action:  "sqs_redrive",
 			Quick:   true,
 			Tag:     &sqsRedriveTag{},
 		}

@@ -175,7 +175,7 @@ func TestRankMatches(t *testing.T) {
 // L12: the picker takes space, unicode, and paste.
 func TestPickerTakesSpaceUnicodeAndPaste(t *testing.T) {
 	p := NewPicker()
-	p.Show("t", "Access Mode", []PickerOption{
+	p.Show("Access Mode", []PickerOption{
 		{Label: "ReadOnly    Browse only, no mutations", Value: "readonly"},
 		{Label: "ReadWrite   Allow create/delete/copy/move", Value: "readwrite"},
 		{Label: "Größe", Value: "size"},
@@ -205,7 +205,7 @@ func TestPickerTakesSpaceUnicodeAndPaste(t *testing.T) {
 // A long query does not make the picker box wider.
 func TestPickerLongQueryKeepsTheWidth(t *testing.T) {
 	p := NewPicker()
-	p.Show("t", "Select Region", []PickerOption{{Label: "us-east-1", Value: "us-east-1"}}, 0)
+	p.Show("Select Region", []PickerOption{{Label: "us-east-1", Value: "us-east-1"}}, 0)
 	before := lipgloss.Width(p.View())
 	p, _ = p.Update(tea.PasteMsg{Content: strings.Repeat("x", 200)})
 	assert.Empty(t, p.filtered)

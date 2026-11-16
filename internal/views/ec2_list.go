@@ -64,7 +64,6 @@ type ec2Action struct {
 	label        string // picker label and prompt verb, for example "Stop"
 	busy         string // spinner verb, for example "Stopping"
 	past         string // ec2InstanceMutatedMsg action, for example "stopped"
-	confirmID    string // confirm Action id, for example "ec2_stop". A12 PR 6 removes it.
 	transitional string // optimistic state until the next refresh
 	// quick asks with a y/n prompt. Starting is reversible and destroys
 	// nothing, so y/n is enough. It still costs money, so it asks.
@@ -74,10 +73,10 @@ type ec2Action struct {
 
 // ec2Actions holds the Manage actions, indexed by ec2Op.
 var ec2Actions = [...]ec2Action{
-	ec2Start:     {"Start", "Starting", "started", "ec2_start", "pending", true, aws.EC2Service.StartInstances},
-	ec2Stop:      {"Stop", "Stopping", "stopped", "ec2_stop", "stopping", false, aws.EC2Service.StopInstances},
-	ec2Reboot:    {"Reboot", "Rebooting", "rebooted", "ec2_reboot", "pending", false, aws.EC2Service.RebootInstances},
-	ec2Terminate: {"Terminate", "Terminating", "terminated", "ec2_terminate", "shutting-down", false, aws.EC2Service.TerminateInstances},
+	ec2Start:     {"Start", "Starting", "started", "pending", true, aws.EC2Service.StartInstances},
+	ec2Stop:      {"Stop", "Stopping", "stopped", "stopping", false, aws.EC2Service.StopInstances},
+	ec2Reboot:    {"Reboot", "Rebooting", "rebooted", "pending", false, aws.EC2Service.RebootInstances},
+	ec2Terminate: {"Terminate", "Terminating", "terminated", "shutting-down", false, aws.EC2Service.TerminateInstances},
 }
 
 // ec2ManageTag is the tag of the Manage picker. It holds the instances and
@@ -410,7 +409,6 @@ func (e *EC2List) confirmRequest(op ec2Op, ids []string) msg.RequestConfirmMsg {
 	}
 	return msg.RequestConfirmMsg{
 		Message: confirmMessage(a.label, len(ids), "instance(s)", names, ""),
-		Action:  a.confirmID,
 		Quick:   a.quick,
 		Tag:     &ec2ConfirmTag{op: op, ids: ids},
 	}

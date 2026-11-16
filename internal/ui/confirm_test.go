@@ -37,12 +37,11 @@ func TestConfirmQuickKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := NewConfirm()
-			c.ShowQuick("Discard unsaved changes?", "form_discard")
+			c.ShowQuick("Discard unsaved changes?")
 
 			c, res := pressConfirm(t, c, tt.key)
 			require.NotNil(t, res)
 			assert.Equal(t, tt.confirmed, res.Confirmed)
-			assert.Equal(t, "form_discard", res.Action)
 			assert.False(t, c.Visible())
 		})
 	}
@@ -50,7 +49,7 @@ func TestConfirmQuickKeys(t *testing.T) {
 
 func TestConfirmQuickIgnoresOtherKeys(t *testing.T) {
 	c := NewConfirm()
-	c.ShowQuick("Continue?", "x")
+	c.ShowQuick("Continue?")
 
 	c, res := pressConfirm(t, c, tea.KeyPressMsg{Code: 'q', Text: "q"})
 	assert.Nil(t, res)
@@ -59,7 +58,7 @@ func TestConfirmQuickIgnoresOtherKeys(t *testing.T) {
 
 func TestConfirmTypedRequiresWord(t *testing.T) {
 	c := NewConfirm()
-	c.Show("Delete 3 objects?", "delete", "")
+	c.Show("Delete 3 objects?", "")
 
 	// Enter on an empty input must not confirm.
 	c, res := pressConfirm(t, c, tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -78,13 +77,13 @@ func TestConfirmTypedRequiresWord(t *testing.T) {
 // C4: a bucket delete asks for the bucket name, and "confirm" does not work.
 func TestConfirmShowsWholePlaceholder(t *testing.T) {
 	c := NewConfirm()
-	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")
+	c.Show("Delete bucket 'alpha-prod'?", "alpha-prod")
 	assert.Contains(t, ansi.Strip(c.View()), "> type 'alpha-prod' to proceed")
 }
 
 func TestConfirmTypedCustomPhrase(t *testing.T) {
 	c := NewConfirm()
-	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")
+	c.Show("Delete bucket 'alpha-prod'?", "alpha-prod")
 	assert.Contains(t, c.View(), "type 'alpha-prod' + enter")
 
 	for _, r := range "confirm" {
@@ -94,7 +93,7 @@ func TestConfirmTypedCustomPhrase(t *testing.T) {
 	assert.Nil(t, res, "the default word must not confirm")
 	assert.Contains(t, c.View(), "Type 'alpha-prod' to proceed")
 
-	c.Show("Delete bucket 'alpha-prod'?", "delete_bucket", "alpha-prod")
+	c.Show("Delete bucket 'alpha-prod'?", "alpha-prod")
 	for _, r := range "alpha-prod" {
 		c, _ = c.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}

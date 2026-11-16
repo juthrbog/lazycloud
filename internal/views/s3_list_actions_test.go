@@ -30,7 +30,6 @@ func TestS3List_DeleteTagHoldsTargets(t *testing.T) {
 	require.NotNil(t, cmd)
 	req, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
-	assert.Equal(t, "delete_bucket", req.Action)
 	tag, ok := req.Tag.(*s3BucketDeleteTag)
 	require.True(t, ok, "the confirm carries an s3BucketDeleteTag")
 	assert.Equal(t, []string{"test-bucket", "other-bucket"}, tag.names)
@@ -42,8 +41,8 @@ func TestS3List_UntaggedConfirmDoesNotDelete(t *testing.T) {
 	loadBuckets(view)
 	view.Update(keyPress('x'))
 
-	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
-	assert.Nil(t, cmd, "a reply without the tag runs nothing")
+	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: true})
+	assert.Nil(t, cmd, "a reply without the tag of the prompt runs nothing")
 	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 }
 

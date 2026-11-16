@@ -19,7 +19,6 @@ const defaultPhrase = "confirm"
 // mode, a single y/n keypress suffices.
 type Confirm struct {
 	message string
-	action  string
 	phrase  string
 	input   textinput.Model
 	visible bool
@@ -35,14 +34,13 @@ func NewConfirm() Confirm {
 	return Confirm{input: ti}
 }
 
-// Show displays the type-to-confirm dialog with the given message and action
-// ID. The user must type phrase, or "confirm" when phrase is empty.
-func (c *Confirm) Show(message, action, phrase string) {
+// Show displays the type-to-confirm dialog with the given message. The user
+// must type phrase, or "confirm" when phrase is empty.
+func (c *Confirm) Show(message, phrase string) {
 	if phrase == "" {
 		phrase = defaultPhrase
 	}
 	c.message = SanitizeLines(message)
-	c.action = action
 	c.phrase = phrase
 	c.err = ""
 	c.visible = true
@@ -56,9 +54,8 @@ func (c *Confirm) Show(message, action, phrase string) {
 }
 
 // ShowQuick displays a y/n confirmation dialog for non-destructive actions.
-func (c *Confirm) ShowQuick(message, action string) {
+func (c *Confirm) ShowQuick(message string) {
 	c.message = SanitizeLines(message)
-	c.action = action
 	c.err = ""
 	c.visible = true
 	c.quick = true
@@ -89,19 +86,18 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if c.quick {
-			action := c.action
 			// Only an explicit "y" confirms. Enter takes the safe default
 			// (cancel), like a [y/N] shell prompt.
 			switch msg.String() {
 			case "y", "Y":
 				c.visible = false
 				return c, func() tea.Msg {
-					return appmsg.ConfirmResultMsg{Confirmed: true, Action: action}
+					return appmsg.ConfirmResultMsg{Confirmed: true}
 				}
 			case "n", "N", "esc", "enter":
 				c.visible = false
 				return c, func() tea.Msg {
-					return appmsg.ConfirmResultMsg{Confirmed: false, Action: action}
+					return appmsg.ConfirmResultMsg{Confirmed: false}
 				}
 			}
 			return c, nil
@@ -112,9 +108,8 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 			if strings.EqualFold(strings.TrimSpace(c.input.Value()), c.phrase) {
 				c.visible = false
 				c.input.Blur()
-				action := c.action
 				return c, func() tea.Msg {
-					return appmsg.ConfirmResultMsg{Confirmed: true, Action: action}
+					return appmsg.ConfirmResultMsg{Confirmed: true}
 				}
 			}
 			c.err = fmt.Sprintf("Type '%s' to proceed", Sanitize(c.phrase))
@@ -122,9 +117,8 @@ func (c Confirm) Update(msg tea.Msg) (Confirm, tea.Cmd) {
 		case "esc":
 			c.visible = false
 			c.input.Blur()
-			action := c.action
 			return c, func() tea.Msg {
-				return appmsg.ConfirmResultMsg{Confirmed: false, Action: action}
+				return appmsg.ConfirmResultMsg{Confirmed: false}
 			}
 		default:
 			c.err = "" // clear error on new input

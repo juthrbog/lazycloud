@@ -50,7 +50,6 @@ func ToastError(text string) ToastMsg   { return ToastMsg{Text: text, Level: 2} 
 // The ConfirmResultMsg goes to the view that asked.
 type RequestConfirmMsg struct {
 	Message string
-	Action  string
 	// Phrase is the text the user must type to confirm, for example a
 	// bucket name. An empty Phrase means "confirm".
 	Phrase string
@@ -62,7 +61,8 @@ type RequestConfirmMsg struct {
 }
 
 // RequestActionPickerMsg asks the app to show an action picker.
-// The PickerResultMsg (ID="action") goes to the view that asked.
+// The PickerResultMsg goes to the view that asked. Its Selected is the
+// index of the picked option in Options.
 type RequestActionPickerMsg struct {
 	Title   string    // picker title
 	Options []string  // action labels

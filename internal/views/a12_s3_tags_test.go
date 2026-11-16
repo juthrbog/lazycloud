@@ -15,19 +15,19 @@ import (
 // Tests of the confirm tags of S3 buckets and S3 objects (A12 PR 4).
 
 // While a delete confirm is open, a yes with no tag, a typed-nil tag or a
-// foreign tag runs nothing in S3 buckets, also with the Action of the open
-// confirm (I4, R4). A tag with no buckets runs nothing either.
+// foreign tag runs nothing in S3 buckets (I4, R4). A tag with no buckets
+// runs nothing either.
 func TestS3BucketDeleteIgnoresForeignTags(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, _ := charS3Loaded(t, "a-logs", "b-tmp")
-	req := charS3AskDelete(t, v)
+	charS3AskDelete(t, v)
 	for name, tag := range foreignReplies((*s3BucketDeleteTag)(nil)) {
 		require.NotPanics(t, func() {
-			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: req.Action, Tag: tag})
+			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: tag})
 			assert.Nil(t, cmd, name)
 		}, name)
 	}
-	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: req.Action, Tag: &s3BucketDeleteTag{}})
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: &s3BucketDeleteTag{}})
 	assert.Nil(t, cmd, "a tag with no buckets runs nothing")
 }
 
@@ -50,31 +50,31 @@ func TestS3BucketDeleteActsOnItsOwnTag(t *testing.T) {
 }
 
 // While an overwrite question or a delete confirm is open, a yes with no
-// tag, a typed-nil tag or a foreign tag runs nothing in S3 objects, also
-// with the Action of the open prompt (I4, R4).
+// tag, a typed-nil tag or a foreign tag runs nothing in S3 objects (I4,
+// R4).
 func TestS3ObjectsIgnoresForeignTags(t *testing.T) {
 	v, _ := newS3TransferView(t)
 	_, cmd := v.Update(s3CopyCompleteMsg{bucket: "test-bucket", srcKey: "a.txt", dstKey: "b.txt", err: aws.ErrDestinationExists})
-	overwrite := requestOf[msg.RequestConfirmMsg](t, cmd)
+	requestOf[msg.RequestConfirmMsg](t, cmd)        // the overwrite question
 	v.Update(tea.KeyPressMsg{Code: 'j', Text: "j"}) // logs/ → a.txt
 	_, cmd = v.Update(keyPress('x'))
-	del := requestOf[msg.RequestConfirmMsg](t, cmd)
+	requestOf[msg.RequestConfirmMsg](t, cmd) // the delete confirm
 
 	for _, c := range []struct {
-		action   string
+		prompt   string
 		typedNil msg.PromptTag
 	}{
-		{overwrite.Action, (*s3OverwriteTag)(nil)},
-		{del.Action, (*s3DeleteTag)(nil)},
+		{"overwrite", (*s3OverwriteTag)(nil)},
+		{"delete", (*s3DeleteTag)(nil)},
 	} {
 		for name, tag := range foreignReplies(c.typedNil) {
 			require.NotPanics(t, func() {
-				_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: c.action, Tag: tag})
-				assert.Nil(t, cmd, "%s %s", c.action, name)
+				_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: tag})
+				assert.Nil(t, cmd, "%s %s", c.prompt, name)
 			})
 		}
 	}
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: del.Action, Tag: &s3DeleteTag{}})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: &s3DeleteTag{}})
 	assert.Nil(t, cmd, "a tag with no entries runs nothing")
 	assert.False(t, v.spinner.Visible())
 }
@@ -97,13 +97,11 @@ func TestS3ObjectsDeleteActsOnItsOwnTag(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// The overwrite question carries the transfer in its tag, and its Action
-// has no number any more.
+// The overwrite question carries the transfer in its tag.
 func TestS3OverwriteRequestCarriesTheTransfer(t *testing.T) {
 	v, _ := newS3TransferView(t)
 	_, cmd := v.Update(s3MoveCompleteMsg{bucket: "test-bucket", srcKey: "a.txt", dstKey: "b.txt", err: aws.ErrDestinationExists})
 	req := requestOf[msg.RequestConfirmMsg](t, cmd)
-	assert.Equal(t, "s3_overwrite", req.Action)
 	assert.Equal(t, &s3OverwriteTag{mode: "move", srcKey: "a.txt", dstKey: "b.txt"}, req.Tag)
 }
 

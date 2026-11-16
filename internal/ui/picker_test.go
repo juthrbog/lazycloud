@@ -53,7 +53,7 @@ func TestPickerViewFitsMaxHeight(t *testing.T) {
 		t.Run(fmt.Sprint(h), func(t *testing.T) {
 			p := NewPicker()
 			p.SetMaxHeight(h)
-			p.Show("region", "Select Region", pickerOptions(23), 0)
+			p.Show("Select Region", pickerOptions(23), 0)
 			assert.LessOrEqual(t, lipgloss.Height(p.View()), h)
 		})
 	}
@@ -62,7 +62,7 @@ func TestPickerViewFitsMaxHeight(t *testing.T) {
 func TestPickerShowsAllOptionsWhenTheyFit(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(40)
-	p.Show("region", "Select Region", pickerOptions(23), 0)
+	p.Show("Select Region", pickerOptions(23), 0)
 	view := p.View()
 	assert.Contains(t, view, "opt-00")
 	assert.Contains(t, view, "opt-22")
@@ -74,7 +74,7 @@ func TestPickerShowsAllOptionsWhenTheyFit(t *testing.T) {
 func TestPickerFewOptionsDoNotScroll(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(12)
-	p.Show("mode", "Access Mode", pickerOptions(3), 2)
+	p.Show("Access Mode", pickerOptions(3), 2)
 	view := p.View()
 	assert.Equal(t, "opt-02", cursorLine(t, view))
 	assert.NotContains(t, view, "more")
@@ -83,14 +83,14 @@ func TestPickerFewOptionsDoNotScroll(t *testing.T) {
 
 func TestPickerNoLimitShowsAllOptions(t *testing.T) {
 	p := NewPicker()
-	p.Show("region", "Select Region", pickerOptions(23), 0)
+	p.Show("Select Region", pickerOptions(23), 0)
 	assert.Equal(t, 23+pickerFullChrome, lipgloss.Height(p.View()))
 }
 
 func TestPickerShowScrollsToInitialIndex(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(24)
-	p.Show("region", "Select Region", pickerOptions(23), 20)
+	p.Show("Select Region", pickerOptions(23), 20)
 	view := p.View()
 	assert.Equal(t, "opt-20", cursorLine(t, view))
 	assert.Regexp(t, `↑ \d+ more`, view)
@@ -100,7 +100,7 @@ func TestPickerShowScrollsToInitialIndex(t *testing.T) {
 func TestPickerCursorStaysVisibleWhenMoving(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(24)
-	p.Show("region", "Select Region", pickerOptions(23), 0)
+	p.Show("Select Region", pickerOptions(23), 0)
 
 	view := p.View()
 	assert.Contains(t, view, "↓ 8 more") // 24 - 7 chrome - 2 more lines = 15 rows
@@ -128,7 +128,7 @@ func TestPickerCursorStaysVisibleWhenMoving(t *testing.T) {
 func TestPickerFilterResetsWindow(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(24)
-	p.Show("region", "Select Region", pickerOptions(23), 22)
+	p.Show("Select Region", pickerOptions(23), 22)
 	p = typeText(p, "opt-1")
 	view := p.View()
 	assert.Equal(t, "opt-10", cursorLine(t, view))
@@ -144,7 +144,7 @@ func TestPickerFilterResetsWindow(t *testing.T) {
 func TestPickerPageAndEndKeys(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(24)
-	p.Show("region", "Select Region", pickerOptions(23), 0)
+	p.Show("Select Region", pickerOptions(23), 0)
 
 	p = pressKey(p, tea.KeyPgDown)
 	assert.Equal(t, "opt-15", cursorLine(t, p.View()))
@@ -159,7 +159,7 @@ func TestPickerPageAndEndKeys(t *testing.T) {
 func TestPickerShrinkKeepsCursorVisible(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(40)
-	p.Show("region", "Select Region", pickerOptions(23), 22)
+	p.Show("Select Region", pickerOptions(23), 22)
 	p.SetMaxHeight(14)
 	view := p.View()
 	assert.Equal(t, "opt-22", cursorLine(t, view))
@@ -171,7 +171,7 @@ func TestPickerTinyHeight(t *testing.T) {
 		t.Run(fmt.Sprint(h), func(t *testing.T) {
 			p := NewPicker()
 			p.SetMaxHeight(h)
-			p.Show("region", "Select Region", pickerOptions(23), 12)
+			p.Show("Select Region", pickerOptions(23), 12)
 			view := p.View()
 			assert.Equal(t, "opt-12", cursorLine(t, view))
 			// The title, filter line, and one option row always show.
@@ -183,7 +183,7 @@ func TestPickerTinyHeight(t *testing.T) {
 func TestPickerNoMatchesFits(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(10)
-	p.Show("region", "Select Region", pickerOptions(23), 0)
+	p.Show("Select Region", pickerOptions(23), 0)
 	p = typeText(p, "zzz")
 	view := p.View()
 	assert.Contains(t, view, "no matches")
@@ -198,7 +198,7 @@ func TestPickerNoMatchesFits(t *testing.T) {
 func TestPickerSelectAfterScroll(t *testing.T) {
 	p := NewPicker()
 	p.SetMaxHeight(12)
-	p.Show("region", "Select Region", pickerOptions(23), 0)
+	p.Show("Select Region", pickerOptions(23), 0)
 	for range 18 {
 		p = pressKey(p, tea.KeyDown)
 	}
@@ -217,7 +217,7 @@ func TestPickerWidthStableWhileScrolling(t *testing.T) {
 	opts[0].Label = strings.Repeat("x", 70)
 	p := NewPicker()
 	p.SetMaxHeight(15)
-	p.Show("id", "Pick", opts, 0)
+	p.Show("Pick", opts, 0)
 	want := lipgloss.Width(p.View())
 	for range 22 {
 		p = pressKey(p, tea.KeyDown)
@@ -230,7 +230,7 @@ func TestPickerWidthStableWhileScrolling(t *testing.T) {
 func closeWith(t *testing.T, clearable bool, k tea.KeyPressMsg) msg.PickerResultMsg {
 	t.Helper()
 	var p Picker
-	p.Show("id", "Title", pickerOptions(3), 1)
+	p.Show("Title", pickerOptions(3), 1)
 	p.SetClearable(clearable)
 	p, cmd := p.Update(k)
 	require.False(t, p.Visible())
@@ -246,16 +246,16 @@ func TestPickerOutcomes(t *testing.T) {
 	ctrlX := tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}
 
 	picked := closeWith(t, false, enter)
-	assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.Picked, Selected: 1, Value: "opt-01"}, picked)
+	assert.Equal(t, msg.PickerResultMsg{Outcome: msg.Picked, Selected: 1, Value: "opt-01"}, picked)
 	assert.True(t, picked.Picked())
 
 	for _, clearable := range []bool{false, true} {
-		assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.PickCancelled}, closeWith(t, clearable, esc))
+		assert.Equal(t, msg.PickerResultMsg{Outcome: msg.PickCancelled}, closeWith(t, clearable, esc))
 	}
-	assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.PickCancelled}, closeWith(t, false, ctrlX),
+	assert.Equal(t, msg.PickerResultMsg{Outcome: msg.PickCancelled}, closeWith(t, false, ctrlX),
 		"ctrl+x cancels a picker that cannot be cleared")
 	cleared := closeWith(t, true, ctrlX)
-	assert.Equal(t, msg.PickerResultMsg{ID: "id", Outcome: msg.PickCleared}, cleared)
+	assert.Equal(t, msg.PickerResultMsg{Outcome: msg.PickCleared}, cleared)
 	assert.False(t, cleared.Picked())
 }
 
@@ -263,10 +263,10 @@ func TestPickerOutcomes(t *testing.T) {
 // the picker not clearable again.
 func TestPickerClearHint(t *testing.T) {
 	var p Picker
-	p.Show("id", "Title", pickerOptions(3), 0)
+	p.Show("Title", pickerOptions(3), 0)
 	assert.NotContains(t, ansi.Strip(p.View()), "ctrl+x")
 	p.SetClearable(true)
 	assert.Contains(t, ansi.Strip(p.View()), "ctrl+x clear")
-	p.Show("id", "Title", pickerOptions(3), 0)
+	p.Show("Title", pickerOptions(3), 0)
 	assert.NotContains(t, ansi.Strip(p.View()), "ctrl+x", "Show resets the clear flag")
 }

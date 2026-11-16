@@ -134,7 +134,7 @@ func TestEC2List_StopTriggersConfirm(t *testing.T) {
 	result := cmd()
 	confirm, ok := result.(msg.RequestConfirmMsg)
 	require.True(t, ok, "expected RequestConfirmMsg, got %T", result)
-	assert.Equal(t, "ec2_stop", confirm.Action)
+	assert.Equal(t, ec2Stop, confirm.Tag.(*ec2ConfirmTag).op)
 	assert.Contains(t, confirm.Message, "1 instance(s)")
 }
 
@@ -151,7 +151,9 @@ func TestEC2List_TerminateTriggersConfirm(t *testing.T) {
 	result := cmd()
 	confirm, ok := result.(msg.RequestConfirmMsg)
 	require.True(t, ok, "expected RequestConfirmMsg, got %T", result)
-	assert.Equal(t, "ec2_terminate", confirm.Action)
+	tag, ok := confirm.Tag.(*ec2ConfirmTag)
+	require.True(t, ok, "the confirm carries an ec2ConfirmTag")
+	assert.Equal(t, ec2Terminate, tag.op)
 }
 
 // M24: Start ran without a prompt. It now asks with a y/n prompt first.
@@ -169,7 +171,7 @@ func TestEC2List_StartAsksThenExecutesWithOptimisticUpdate(t *testing.T) {
 	confirm, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok, "Start asks first")
 	assert.True(t, confirm.Quick, "a y/n prompt, because a start destroys nothing")
-	assert.Equal(t, "ec2_start", confirm.Action)
+	assert.Equal(t, ec2Start, confirm.Tag.(*ec2ConfirmTag).op)
 	assert.Equal(t, "stopped", view.find("i-stopped").State, "nothing changes before the answer")
 	mockSvc.AssertNotCalled(t, "StartInstances", mock.Anything, mock.Anything)
 
@@ -319,19 +321,15 @@ func TestEC2List_ConfirmListsNames(t *testing.T) {
 	confirm.Tag = nil
 	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Reboot 3 instance(s)?\n  web-1 (i-running)\n  i-noname\n  i-gone\n",
-		Action:  "ec2_reboot",
 	}, confirm)
 }
 
-// Each table entry has a unique label and confirm id, and only Start is
-// Quick.
+// Each table entry has a unique label, and only Start is Quick.
 func TestEC2List_ActionTable(t *testing.T) {
 	labels := map[string]bool{}
-	ids := map[string]bool{}
 	for _, a := range ec2Actions {
 		assert.False(t, labels[a.label], a.label)
-		assert.False(t, ids[a.confirmID], a.confirmID)
-		labels[a.label], ids[a.confirmID] = true, true
+		labels[a.label] = true
 		assert.Equal(t, a.label == "Start", a.quick, a.label)
 		assert.Equal(t, a.label, actionName(a.past), "Outcome text uses the label")
 	}

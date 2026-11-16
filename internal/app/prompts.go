@@ -9,8 +9,8 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-// The prompts of the app itself use handlers, not action strings or picker
-// IDs, so a reply to a prompt of a view can never run code of the app.
+// The prompts of the app itself keep a handler in their route. A reply to a
+// prompt of a view goes to that view, so it can never run code of the app.
 
 // One rule covers every prompt request while a prompt is open: the app
 // does not show the new prompt, the user gets a toast, and the route of the
@@ -61,7 +61,7 @@ func (m *Model) askQuick(message string, onYes, onNo func(Model) (Model, tea.Cmd
 	if m.promptOpen() {
 		return m.refuseOpen(message, route, appmsg.ConfirmResultMsg{})
 	}
-	m.confirm.ShowQuick(message, "")
+	m.confirm.ShowQuick(message)
 	m.openOverlayRoute(ovConfirm, route)
 	return nil
 }
@@ -75,7 +75,7 @@ func (m *Model) askQuit(message string) tea.Cmd {
 	if m.promptOpen() {
 		return m.refuseOpen(message, route, appmsg.ConfirmResultMsg{})
 	}
-	m.confirm.ShowQuick(message, "")
+	m.confirm.ShowQuick(message)
 	m.openOverlayRoute(ovConfirm, route)
 	return nil
 }
@@ -102,9 +102,9 @@ func (m *Model) pick(title string, options []ui.PickerOption, initialIdx int, on
 		return m, nil
 	}}
 	if m.promptOpen() {
-		return m.refuseOpen(title, route, pickDecline(""))
+		return m.refuseOpen(title, route, pickDecline())
 	}
-	m.picker.Show("", title, options, initialIdx)
+	m.picker.Show(title, options, initialIdx)
 	m.openOverlayRoute(ovPicker, route)
 	return nil
 }
@@ -139,10 +139,10 @@ func (m Model) closePrompts() tea.Cmd {
 		switch e.kind {
 		case ovConfirm:
 			// The views are gone after the reset, so only the handlers of
-			// the app read this decline, and they need no Action.
+			// the app read this decline.
 			decline = appmsg.ConfirmResultMsg{Confirmed: false}
 		case ovPicker:
-			decline = pickDecline(m.picker.ID())
+			decline = pickDecline()
 		default:
 			continue
 		}

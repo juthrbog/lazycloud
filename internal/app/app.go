@@ -186,7 +186,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.nav.IsCurrent(r.Origin) {
-			cmd := m.refuseBelowTop(r.Origin, inner.Tag, inner.Message, appmsg.ConfirmResultMsg{Confirmed: false, Action: inner.Action})
+			cmd := m.refuseBelowTop(r.Origin, inner.Tag, inner.Message, appmsg.ConfirmResultMsg{Confirmed: false})
 			return m, cmd
 		}
 		return m.askConfirm(inner, r.Origin)
@@ -200,14 +200,14 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		}
 		if req, ok := inner.(appmsg.RequestActionPickerMsg); ok {
 			if !m.nav.IsCurrent(r.Origin) {
-				cmd := m.refuseBelowTop(r.Origin, req.Tag, actionTitle(req), pickDecline("action"))
+				cmd := m.refuseBelowTop(r.Origin, req.Tag, actionTitle(req), pickDecline())
 				return m, cmd
 			}
 			return m.showActionPicker(req, r.Origin)
 		}
 		req := inner.(appmsg.RequestSortPickerMsg)
 		if !m.nav.IsCurrent(r.Origin) {
-			cmd := m.refuseBelowTop(r.Origin, req.Tag, sortTitle, pickDecline("sort"))
+			cmd := m.refuseBelowTop(r.Origin, req.Tag, sortTitle, pickDecline())
 			return m, cmd
 		}
 		return m.showSortPicker(req, r.Origin)
@@ -315,13 +315,13 @@ func (m Model) startOp(origin nav.View, s appmsg.StartOpMsg) tea.Cmd {
 // asker.
 func (m Model) askConfirm(req appmsg.RequestConfirmMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
-		cmd := m.refuseOpen(req.Message, replyRoute{replyTo: asker, tag: req.Tag}, appmsg.ConfirmResultMsg{Confirmed: false, Action: req.Action})
+		cmd := m.refuseOpen(req.Message, replyRoute{replyTo: asker, tag: req.Tag}, appmsg.ConfirmResultMsg{Confirmed: false})
 		return m, cmd
 	}
 	if req.Quick {
-		m.confirm.ShowQuick(req.Message, req.Action)
+		m.confirm.ShowQuick(req.Message)
 	} else {
-		m.confirm.Show(req.Message, req.Action, req.Phrase)
+		m.confirm.Show(req.Message, req.Phrase)
 	}
 	m.openOverlayFor(ovConfirm, asker, req.Tag)
 	return m, nil
@@ -338,23 +338,23 @@ func actionTitle(req appmsg.RequestActionPickerMsg) string {
 	return req.Title
 }
 
-// pickDecline is the reply of a picker with id that was not shown.
-func pickDecline(id string) appmsg.PickerResultMsg {
-	return appmsg.PickerResultMsg{ID: id, Outcome: appmsg.PickCancelled}
+// pickDecline is the reply of a picker that was not shown.
+func pickDecline() appmsg.PickerResultMsg {
+	return appmsg.PickerResultMsg{Outcome: appmsg.PickCancelled}
 }
 
 // showActionPicker shows the action picker that req asks for. Its reply
 // goes to asker.
 func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
-		cmd := m.refuseOpen(actionTitle(req), replyRoute{replyTo: asker, tag: req.Tag}, pickDecline("action"))
+		cmd := m.refuseOpen(actionTitle(req), replyRoute{replyTo: asker, tag: req.Tag}, pickDecline())
 		return m, cmd
 	}
 	options := make([]ui.PickerOption, 0, len(req.Options))
 	for _, opt := range req.Options {
 		options = append(options, ui.PickerOption{Label: opt, Value: opt})
 	}
-	m.picker.Show("action", actionTitle(req), options, 0)
+	m.picker.Show(actionTitle(req), options, 0)
 	m.openOverlayFor(ovPicker, asker, req.Tag)
 	return m, nil
 }
@@ -363,14 +363,14 @@ func (m Model) showActionPicker(req appmsg.RequestActionPickerMsg, asker nav.Vie
 // to asker.
 func (m Model) showSortPicker(req appmsg.RequestSortPickerMsg, asker nav.View) (Model, tea.Cmd) {
 	if m.promptOpen() {
-		cmd := m.refuseOpen(sortTitle, replyRoute{replyTo: asker, tag: req.Tag}, pickDecline("sort"))
+		cmd := m.refuseOpen(sortTitle, replyRoute{replyTo: asker, tag: req.Tag}, pickDecline())
 		return m, cmd
 	}
 	options := make([]ui.PickerOption, 0, len(req.Columns))
 	for _, col := range req.Columns {
 		options = append(options, ui.PickerOption{Label: col, Value: col})
 	}
-	m.picker.Show("sort", sortTitle, options, max(req.CurrentCol, 0))
+	m.picker.Show(sortTitle, options, max(req.CurrentCol, 0))
 	m.picker.SetClearable(true) // ctrl+x removes the sort
 	m.openOverlayFor(ovPicker, asker, req.Tag)
 	return m, nil

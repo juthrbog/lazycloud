@@ -546,7 +546,6 @@ func homeRelative(p string) string {
 func (s *S3Objects) askOverwrite(mode, srcKey, dstKey string) tea.Cmd {
 	req := msg.RequestConfirmMsg{
 		Message: fmt.Sprintf("s3://%s/%s exists.\nReplace it with %s?", s.bucket, ui.Sanitize(dstKey), ui.Sanitize(path.Base(srcKey))),
-		Action:  "s3_overwrite",
 		Tag:     &s3OverwriteTag{mode: mode, srcKey: srcKey, dstKey: dstKey},
 	}
 	return func() tea.Msg { return req }
@@ -927,7 +926,6 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return s, func() tea.Msg {
 				return msg.RequestConfirmMsg{
 					Message: message,
-					Action:  "delete_objects",
 					Phrase:  phrase,
 					Tag:     &s3DeleteTag{entries: entries},
 				}

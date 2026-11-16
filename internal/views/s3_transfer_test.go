@@ -66,7 +66,6 @@ func TestS3Objects_CopyAsksBeforeOverwrite(t *testing.T) {
 	_, cmd := view.Update(done)
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok, "the user decides")
-	assert.Equal(t, "s3_overwrite", req.Action)
 	assert.False(t, req.Quick, "a replace destroys data, so the user types the phrase")
 	assert.Equal(t, "s3://test-bucket/b.txt exists.\nReplace it with a.txt?", req.Message)
 	tag, ok := req.Tag.(*s3OverwriteTag)
@@ -114,7 +113,7 @@ func TestS3Objects_SecondConflictDoesNotTakeTheOpenQuestion(t *testing.T) {
 	assert.Equal(t, s3OverwriteTag{mode: "copy", srcKey: "big", dstKey: "c.txt"}, *tag)
 
 	// A yes with a tag of another prompt does nothing.
-	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite", Tag: &s3BucketDeleteTag{names: []string{"c.txt"}}})
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: &s3BucketDeleteTag{names: []string{"c.txt"}}})
 	assert.Nil(t, cmd)
 
 	_, cmd = view.Update(confirmReply(first, true))
@@ -138,7 +137,7 @@ func TestS3Objects_MoveAsksBeforeOverwrite(t *testing.T) {
 	_, cmd := view.Update(done)
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.Equal(t, "s3_overwrite", req.Action)
+	assert.IsType(t, &s3OverwriteTag{}, req.Tag)
 
 	_, cmd = view.Update(confirmReply(req, true))
 	_, ok = firstOfType[s3MoveCompleteMsg](collectMsgs(cmd))
@@ -190,7 +189,6 @@ func TestS3Objects_DeleteAllAsksForTheCount(t *testing.T) {
 
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.Equal(t, "delete_objects", req.Action)
 	assert.Equal(t, "delete 3 items", req.Phrase)
 	assert.Equal(t, "Delete all 3 item(s) in s3://test-bucket/?\n  logs/\n  a.txt\n  b.txt\nA folder is deleted with every object in it.", req.Message)
 	assert.Len(t, s3DeleteEntriesOf(t, req), 3)

@@ -501,8 +501,8 @@ func TestCharAMI_SortPicker(t *testing.T) {
 	assert.Equal(t, []string{"AMI ID", "Name", "Owner", "Architecture", "State", "Created"}, req.Columns)
 	assert.Equal(t, -1, req.CurrentCol)
 
-	v.Update(msg.PickerResultMsg{ID: "other", Selected: 0})
-	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "a reply without the sort tag is ignored")
+	v.Update(msg.PickerResultMsg{Selected: 0})
+	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "a reply without the tag of the prompt runs nothing")
 
 	_, cmd = v.Update(pickColumn(t, req, "AMI ID"))
 	assert.Nil(t, cmd)

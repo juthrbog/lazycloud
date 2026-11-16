@@ -44,36 +44,35 @@ func TestSQSMessagesRequestsAreTagged(t *testing.T) {
 }
 
 // While the delete confirm and the redrive confirm are open, a yes with no
-// tag, a typed-nil tag or a foreign tag runs nothing, also with the Action
-// of the open confirm. A pick with no tag, a typed-nil tag or a foreign tag
-// asks nothing (I4, R4).
+// tag, a typed-nil tag or a foreign tag runs nothing. A pick with no tag, a
+// typed-nil tag or a foreign tag asks nothing (I4, R4).
 func TestSQSMessagesIgnoresForeignTags(t *testing.T) {
 	v, svc := dlqMessages(t)
 	_, cmd := v.Update(keyPress('x'))
-	del := requestOf[msg.RequestConfirmMsg](t, cmd)
+	requestOf[msg.RequestConfirmMsg](t, cmd) // the delete confirm
 	_, cmd = v.Update(keyPress('m'))
 	picker := requestOf[msg.RequestActionPickerMsg](t, cmd)
 	_, cmd = v.Update(pickLabel(t, picker, "Start Redrive"))
-	redrive := requestOf[msg.RequestConfirmMsg](t, cmd)
+	requestOf[msg.RequestConfirmMsg](t, cmd) // the redrive confirm
 
 	for _, c := range []struct {
-		action   string
+		prompt   string
 		typedNil msg.PromptTag
 	}{
-		{del.Action, (*sqsDeleteMsgsTag)(nil)},
-		{redrive.Action, (*sqsRedriveTag)(nil)},
+		{"delete", (*sqsDeleteMsgsTag)(nil)},
+		{"redrive", (*sqsRedriveTag)(nil)},
 	} {
 		for name, tag := range foreignReplies(c.typedNil) {
 			require.NotPanics(t, func() {
-				_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: c.action, Tag: tag})
-				assert.Nil(t, cmd, "%s %s", c.action, name)
+				_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: tag})
+				assert.Nil(t, cmd, "%s %s", c.prompt, name)
 			})
 		}
 	}
 	for name, tag := range foreignReplies((*sqsDLQPickTag)(nil)) {
 		var cmd tea.Cmd
 		require.NotPanics(t, func() {
-			_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Start Redrive", Tag: tag})
+			_, cmd = v.Update(msg.PickerResultMsg{Selected: 0, Value: "Start Redrive", Tag: tag})
 		}, name)
 		_, asked := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 		assert.False(t, asked, "pick with %s", name)
