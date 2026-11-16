@@ -327,10 +327,8 @@ func (s *S3List) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
 	if !ok || t == nil || !m.Confirmed || len(t.names) == 0 {
 		return nil
 	}
-	// The mode can change while the prompt is open. The text is the app's
-	// refusal for a ReadWrite key in ReadOnly mode.
 	if ui.IsReadOnly() {
-		return func() tea.Msg { return msg.ToastError("ReadOnly mode — press W to switch") }
+		return refuseReadOnly()
 	}
 	return s.deleteBuckets(t.names)
 }

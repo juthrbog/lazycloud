@@ -123,8 +123,9 @@ func TestCopyInputTakesModeKeyAndGuardBlocksCopy(t *testing.T) {
 	s3m.AssertNotCalled(t, "CopyObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 }
 
-// T3: a confirmed prompt runs its action through the guarded service. If the
-// mode is ReadOnly when the action runs, nothing is deleted.
+// T3: the view checks the mode at the reply of a confirm (A12 PR 7). If the
+// mode is ReadOnly then, the view shows the ReadOnly toast and nothing is
+// deleted. The guarded service stays as a second check.
 func TestConfirmedDeleteIsBlockedAfterSwitchToReadOnly(t *testing.T) {
 	ui.SetReadOnly(false)
 	defer ui.SetReadOnly(true)
@@ -137,9 +138,14 @@ func TestConfirmedDeleteIsBlockedAfterSwitchToReadOnly(t *testing.T) {
 
 	ui.SetReadOnly(true)
 	m, cmd = reply(t, m, typedConfirm()...)
-	m, cmd = runOp(t, m, cmd)
-	m, _ = update(t, m, findMsg(collectMsgs(cmd), "views.s3DeleteCompleteMsg"))
-	assert.Contains(t, screen(m), aws.ErrReadOnly.Error())
+	msgs := collectMsgs(cmd)
+	assert.Nil(t, findOf[msg.StartOpMsg](msgs), "no background operation starts")
+	toast := findOf[msg.ToastMsg](msgs)
+	require.NotNil(t, toast, "the view shows a toast")
+	assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), unwrapRouted(toast))
+	m, _ = update(t, m, toast)
+	assert.True(t, m.toasts.HasActive())
+	assert.NotContains(t, screen(m), aws.ErrReadOnly.Error())
 	s3m.AssertNotCalled(t, "DeleteObjects", mock.Anything, mock.Anything, mock.Anything)
 	s3m.AssertNotCalled(t, "DeleteObject", mock.Anything, mock.Anything, mock.Anything)
 }

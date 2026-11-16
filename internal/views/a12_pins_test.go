@@ -84,6 +84,7 @@ func TestA12_SQSSecondManageKeepsSend(t *testing.T) {
 // H2, fixed in PR 5. The selection changes while the confirm is open. A
 // yes still deletes only m1, the message that the prompt counted (D4).
 func TestA12_SQSMessageDeleteUsesTheCountedMessages(t *testing.T) {
+	setReadOnly(t, false)
 	v, svc := newTestSQSMessages()
 	v.Update(sqsMessagesLoadedMsg{queueURL: testQueueURL, messages: []aws.SQSMessage{
 		{MessageID: "m1", ReceiptHandle: "h1", Body: "one"},
@@ -103,6 +104,7 @@ func TestA12_SQSMessageDeleteUsesTheCountedMessages(t *testing.T) {
 // and the result of an earlier delete removes m2. A yes deletes m1 with
 // its newest handle and skips m2.
 func TestA12_SQSMessageDeleteUsesTheNewestHandles(t *testing.T) {
+	setReadOnly(t, false)
 	v, svc := newTestSQSMessages()
 	loadThreeMessages(v) // m1 h1, m2 h2, m3 h3, all selected
 	_, cmd := v.Update(keyPress('x'))

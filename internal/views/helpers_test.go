@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // Shared helpers for the view tests.
@@ -38,6 +39,15 @@ func requestOf[T any](t testing.TB, cmd tea.Cmd) T {
 	var zero T
 	require.Len(t, found, 1, "want one %T in %#v", zero, msgs)
 	return found[0]
+}
+
+// setReadOnly sets the mode to ReadOnly when ro is true, and to ReadWrite
+// otherwise. The test puts the earlier mode back at its end.
+func setReadOnly(t testing.TB, ro bool) {
+	t.Helper()
+	prev := ui.IsReadOnly()
+	t.Cleanup(func() { ui.SetReadOnly(prev) })
+	ui.SetReadOnly(ro)
 }
 
 // answerYes sends the yes to req to v and runs the command that the yes

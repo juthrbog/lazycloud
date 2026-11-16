@@ -463,8 +463,7 @@ func (s *SQSQueues) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
 	}
 	urls := t.urls
 	if ui.IsReadOnly() {
-		// The mode changed after the picker opened.
-		return func() tea.Msg { return msg.ToastError(sqsReadOnlyText) }
+		return refuseReadOnly()
 	}
 	// The spinner shows until the reply, also across a refresh reply.
 	switch t.op {
@@ -550,11 +549,6 @@ func (s *SQSQueues) queueNameList(urls []string) []string {
 	}
 	return list
 }
-
-// sqsReadOnlyText is the toast when ReadOnly mode is turned on between the
-// action picker and the confirm reply. The app uses the same text when it
-// blocks an RW key.
-const sqsReadOnlyText = "ReadOnly mode — press W to switch"
 
 func (s *SQSQueues) purgeQueues(urls []string) tea.Cmd {
 	svc := s.sqs

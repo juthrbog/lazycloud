@@ -4,10 +4,22 @@ import (
 	"context"
 	"fmt"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
 // Helpers for actions on list rows that ask for a confirm first.
+
+// readOnlyText is the toast when ReadOnly mode is on at the reply of a
+// prompt. The mode can change while the prompt is open. The app shows the
+// same text when it blocks a ReadWrite key.
+const readOnlyText = "ReadOnly mode — press W to switch"
+
+// refuseReadOnly shows the ReadOnly toast in place of the action of a yes.
+func refuseReadOnly() tea.Cmd {
+	return func() tea.Msg { return msg.ToastError(readOnlyText) }
+}
 
 // pickedOption returns the option that r picked from opts, the options
 // that the view froze in its tag. A reply that is not a pick, or an index
