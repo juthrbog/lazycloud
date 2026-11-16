@@ -4,52 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
 // Helpers for actions on list rows that ask for a confirm first.
-
-// pendingConfirm holds the targets of an action from the key press, through
-// the picker, to the confirm reply.
-type pendingConfirm struct {
-	// action is the Action id of the confirm request, for example
-	// "ec2_stop". It is empty until the view asks.
-	action string
-	// keys are the row keys of the targets, frozen at the key press.
-	keys []string
-}
-
-// hold stores the targets when the user presses the action key.
-func (p *pendingConfirm) hold(keys []string) {
-	p.keys = keys
-	p.action = ""
-}
-
-// ask records the Action of req and returns a command that sends req.
-func (p *pendingConfirm) ask(req msg.RequestConfirmMsg) tea.Cmd {
-	p.action = req.Action
-	return func() tea.Msg { return req }
-}
-
-// clear forgets the targets.
-func (p *pendingConfirm) clear() {
-	p.keys = nil
-	p.action = ""
-}
-
-// take returns the targets only for a confirmed reply to the recorded
-// action. Every other reply clears them: a decline, the decline that the
-// app sends for a skipped prompt, and a reply for another action.
-func (p *pendingConfirm) take(m msg.ConfirmResultMsg) ([]string, bool) {
-	keys, action := p.keys, p.action
-	p.clear()
-	if !m.Confirmed || action == "" || m.Action != action || len(keys) == 0 {
-		return nil, false
-	}
-	return keys, true
-}
 
 // pickedOption returns the option that r picked from opts, the options
 // that the view froze in its tag. A reply that is not a pick, or an index

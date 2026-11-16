@@ -18,7 +18,7 @@ func s3SetReadOnly(t *testing.T, ro bool) {
 	ui.SetReadOnly(ro)
 }
 
-func TestS3List_DeleteHoldsTargetsAndAction(t *testing.T) {
+func TestS3List_DeleteTagHoldsTargets(t *testing.T) {
 	s3SetReadOnly(t, false)
 	view, _ := newTestS3List()
 	loadBuckets(view)
@@ -28,22 +28,22 @@ func TestS3List_DeleteHoldsTargetsAndAction(t *testing.T) {
 
 	_, cmd := view.Update(keyPress('x'))
 	require.NotNil(t, cmd)
-	_, ok := cmd().(msg.RequestConfirmMsg)
+	req, ok := cmd().(msg.RequestConfirmMsg)
 	require.True(t, ok)
-	assert.Equal(t, "delete_bucket", view.pendingDelete.action)
-	assert.Equal(t, []string{"test-bucket", "other-bucket"}, view.pendingDelete.keys)
+	assert.Equal(t, "delete_bucket", req.Action)
+	tag, ok := req.Tag.(*s3BucketDeleteTag)
+	require.True(t, ok, "the confirm carries an s3BucketDeleteTag")
+	assert.Equal(t, []string{"test-bucket", "other-bucket"}, tag.names)
 }
 
-func TestS3List_ConfirmForOtherActionDoesNotDelete(t *testing.T) {
+func TestS3List_UntaggedConfirmDoesNotDelete(t *testing.T) {
 	s3SetReadOnly(t, false)
 	view, svc := newTestS3List()
 	loadBuckets(view)
 	view.Update(keyPress('x'))
 
 	_, cmd := view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop"})
-	assert.Nil(t, cmd)
-	assert.Empty(t, view.pendingDelete.keys)
-	assert.Empty(t, view.pendingDelete.action)
+	assert.Nil(t, cmd, "a reply without the tag runs nothing")
 	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 }
 
@@ -58,6 +58,5 @@ func TestS3List_ReadOnlyBetweenPromptAndConfirmDoesNotDelete(t *testing.T) {
 	_, cmd = view.Update(confirmReply(req, true))
 	require.NotNil(t, cmd)
 	assert.Equal(t, msg.ToastError("ReadOnly mode — press W to switch"), cmd())
-	assert.Empty(t, view.pendingDelete.keys)
 	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 }

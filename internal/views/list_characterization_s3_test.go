@@ -781,13 +781,14 @@ func TestCharS3_DeletePromptOneBucket(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, _ := charS3Loaded(t, "a-logs", "b-tmp")
 	_, cmd := v.Update(keyPress('x'))
-	assert.Equal(t, []tea.Msg{msg.RequestConfirmMsg{
+	req := charS3CheckDelete(t, charS3OnlyConfirm(t, cmd), "a-logs")
+	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Delete bucket 'a-logs'?\n" +
 			"Every object version and delete marker is deleted\n" +
 			"permanently, then the bucket. You cannot undo this.",
 		Action: "delete_bucket",
 		Phrase: "a-logs",
-	}}, collectMsgs(cmd))
+	}, req)
 }
 
 func TestCharS3_DeletePromptSeveralBuckets(t *testing.T) {
@@ -797,13 +798,36 @@ func TestCharS3_DeletePromptSeveralBuckets(t *testing.T) {
 	v.Update(charS3Down)
 	v.Update(charS3Space)
 	_, cmd := v.Update(keyPress('x'))
-	assert.Equal(t, []tea.Msg{msg.RequestConfirmMsg{
+	req := charS3CheckDelete(t, charS3OnlyConfirm(t, cmd), "a-logs", "b-tmp")
+	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Delete 2 buckets?\n  a-logs\n  b-tmp\n" +
 			"Every object version and delete marker is deleted\n" +
 			"permanently, then the bucket. You cannot undo this.",
 		Action: "delete_bucket",
 		Phrase: "delete 2 buckets",
-	}}, collectMsgs(cmd))
+	}, req)
+}
+
+// charS3OnlyConfirm runs cmd and returns its message. It fails the test
+// when cmd sends anything but one RequestConfirmMsg.
+func charS3OnlyConfirm(t *testing.T, cmd tea.Cmd) msg.RequestConfirmMsg {
+	t.Helper()
+	msgs := collectMsgs(cmd)
+	require.Len(t, msgs, 1)
+	req, ok := msgs[0].(msg.RequestConfirmMsg)
+	require.True(t, ok, "want a RequestConfirmMsg, got %#v", msgs[0])
+	return req
+}
+
+// charS3CheckDelete checks that req carries an s3BucketDeleteTag with
+// names. It returns req without its tag.
+func charS3CheckDelete(t *testing.T, req msg.RequestConfirmMsg, names ...string) msg.RequestConfirmMsg {
+	t.Helper()
+	tag, ok := req.Tag.(*s3BucketDeleteTag)
+	require.True(t, ok, "the confirm carries an s3BucketDeleteTag")
+	assert.Equal(t, names, tag.names)
+	req.Tag = nil
+	return req
 }
 
 // Divergence #42 (fixed in PR 3): the name in the message is sanitized.
@@ -826,10 +850,11 @@ func TestCharS3_DeleteWithNoBucketDoesNothing(t *testing.T) {
 	assert.Nil(t, cmd)
 }
 
-func TestCharS3_OtherConfirmResultClearsPending(t *testing.T) {
+// A no to the delete runs nothing. A reply without the tag runs nothing,
+// whatever its Action says. Each prompt gets one reply (I10), so no second
+// yes follows.
+func TestCharS3_NoOrUntaggedReplyDoesNotDelete(t *testing.T) {
 	charS3SetReadOnly(t, false)
-	// A no answers the real request. A yes for another action is a foreign
-	// reply on purpose.
 	cases := []func(msg.RequestConfirmMsg) msg.ConfirmResultMsg{
 		func(req msg.RequestConfirmMsg) msg.ConfirmResultMsg { return confirmReply(req, false) },
 		func(msg.RequestConfirmMsg) msg.ConfirmResultMsg {
@@ -842,20 +867,18 @@ func TestCharS3_OtherConfirmResultClearsPending(t *testing.T) {
 		other := reply(req)
 		_, cmd := v.Update(other)
 		assert.Nil(t, cmd, "%+v", other)
-		_, cmd = v.Update(confirmReply(req, true))
-		assert.Nil(t, cmd, "pending was cleared by %+v", other)
 		svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 	}
 
 	v, _ := charS3Loaded(t, "a-logs")
 	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
-	assert.Nil(t, cmd, "no pending delete")
+	assert.Nil(t, cmd, "a reply without the tag runs nothing")
 }
 
 // The app gates the RW keys, so the view does not check ReadOnly on a key.
 // A confirm that arrives in ReadOnly mode does not delete: the view shows
-// the app's ReadOnly toast and clears the targets (deliberate change in
-// PR 2, with no divergence row).
+// the app's ReadOnly toast (deliberate change in PR 2, with no divergence
+// row).
 func TestCharS3_ViewChecksReadOnlyOnConfirm(t *testing.T) {
 	charS3SetReadOnly(t, true)
 	v, svc := charS3Loaded(t, "a-logs")
@@ -870,11 +893,6 @@ func TestCharS3_ViewChecksReadOnlyOnConfirm(t *testing.T) {
 	_, cmd = v.Update(confirmReply(req, true))
 	require.NotNil(t, cmd)
 	assert.Equal(t, []tea.Msg{msg.ToastError("ReadOnly mode — press W to switch")}, collectMsgs(cmd))
-
-	// The targets are gone: a second confirm in ReadWrite mode does nothing.
-	ui.SetReadOnly(false)
-	_, cmd = v.Update(confirmReply(req, true))
-	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 }
 

@@ -66,15 +66,17 @@ func TestS3Objects_CopyAsksBeforeOverwrite(t *testing.T) {
 	_, cmd := view.Update(done)
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok, "the user decides")
-	assert.Equal(t, "s3_overwrite:1", req.Action)
+	assert.Equal(t, "s3_overwrite", req.Action)
 	assert.False(t, req.Quick, "a replace destroys data, so the user types the phrase")
 	assert.Equal(t, "s3://test-bucket/b.txt exists.\nReplace it with a.txt?", req.Message)
+	tag, ok := req.Tag.(*s3OverwriteTag)
+	require.True(t, ok, "the question carries an s3OverwriteTag")
+	assert.Equal(t, s3OverwriteTag{mode: "copy", srcKey: "a.txt", dstKey: "b.txt"}, *tag)
 
 	_, cmd = view.Update(confirmReply(req, true))
 	done, ok = firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	require.NoError(t, done.err)
-	assert.Nil(t, view.pendingOverwrite)
 	m.AssertExpectations(t)
 }
 
@@ -89,14 +91,14 @@ func TestS3Objects_DeclinedOverwriteCopiesNothing(t *testing.T) {
 	_, cmd = view.Update(confirmReply(req, false))
 
 	assert.Nil(t, cmd)
-	assert.Nil(t, view.pendingOverwrite)
 	require.NoError(t, view.err, "a declined prompt is not an error")
 	m.AssertNumberOfCalls(t, "CopyObject", 1)
 }
 
 // Copies run in the background, so a second copy can end with "exists"
-// while the first question is open. The answer must apply only to the
-// question on screen.
+// while the first question is open. The view asks again, and the app
+// refuses the second question while a prompt is open (D3). Each question
+// carries its own transfer, so a yes applies only to its own question.
 func TestS3Objects_SecondConflictDoesNotTakeTheOpenQuestion(t *testing.T) {
 	view, m := newS3TransferView(t)
 	m.On("CopyObject", mock.Anything, "test-bucket", "a.txt", "test-bucket", "b.txt", true).Return(nil).Once()
@@ -106,16 +108,14 @@ func TestS3Objects_SecondConflictDoesNotTakeTheOpenQuestion(t *testing.T) {
 	require.True(t, ok)
 
 	_, cmd = view.Update(s3CopyCompleteMsg{bucket: "test-bucket", srcKey: "big", dstKey: "c.txt", err: aws.ErrDestinationExists})
-	msgs := collectMsgs(cmd)
-	_, asked := firstOfType[msg.RequestConfirmMsg](msgs)
-	assert.False(t, asked, "the second conflict is not asked while a question is open")
-	require.Len(t, toasts(msgs), 1)
-	assert.Contains(t, toasts(msgs)[0].Text, "Not copied: s3://test-bucket/c.txt exists")
+	second := requestOf[msg.RequestConfirmMsg](t, cmd)
+	tag, ok := second.Tag.(*s3OverwriteTag)
+	require.True(t, ok, "the second question carries its own s3OverwriteTag")
+	assert.Equal(t, s3OverwriteTag{mode: "copy", srcKey: "big", dstKey: "c.txt"}, *tag)
 
-	// A late answer with another action does nothing.
-	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite:99"})
+	// A yes with a tag of another prompt does nothing.
+	_, cmd = view.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "s3_overwrite", Tag: &s3BucketDeleteTag{names: []string{"c.txt"}}})
 	assert.Nil(t, cmd)
-	require.NotNil(t, view.pendingOverwrite)
 
 	_, cmd = view.Update(confirmReply(first, true))
 	done, ok := firstOfType[s3CopyCompleteMsg](collectMsgs(cmd))
@@ -138,7 +138,7 @@ func TestS3Objects_MoveAsksBeforeOverwrite(t *testing.T) {
 	_, cmd := view.Update(done)
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
-	assert.Equal(t, "s3_overwrite:1", req.Action)
+	assert.Equal(t, "s3_overwrite", req.Action)
 
 	_, cmd = view.Update(confirmReply(req, true))
 	_, ok = firstOfType[s3MoveCompleteMsg](collectMsgs(cmd))
@@ -193,7 +193,7 @@ func TestS3Objects_DeleteAllAsksForTheCount(t *testing.T) {
 	assert.Equal(t, "delete_objects", req.Action)
 	assert.Equal(t, "delete 3 items", req.Phrase)
 	assert.Equal(t, "Delete all 3 item(s) in s3://test-bucket/?\n  logs/\n  a.txt\n  b.txt\nA folder is deleted with every object in it.", req.Message)
-	assert.Len(t, view.pendingDeleteEntries, 3)
+	assert.Len(t, s3DeleteEntriesOf(t, req), 3)
 }
 
 func TestS3Objects_DeleteAllSkipsFilteredRows(t *testing.T) {
@@ -205,8 +205,9 @@ func TestS3Objects_DeleteAllSkipsFilteredRows(t *testing.T) {
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	assert.Equal(t, "delete 1 items", req.Phrase)
-	require.Len(t, view.pendingDeleteEntries, 1)
-	assert.Equal(t, "a.txt", view.pendingDeleteEntries[0].fullPath)
+	entries := s3DeleteEntriesOf(t, req)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "a.txt", entries[0].fullPath)
 }
 
 // x keeps its behavior: the cursor item, with the plain "confirm" phrase.
@@ -219,7 +220,16 @@ func TestS3Objects_DeleteCursorItemKeepsThePlainPhrase(t *testing.T) {
 	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok)
 	assert.Empty(t, req.Phrase)
-	assert.Len(t, view.pendingDeleteEntries, 1)
+	assert.Len(t, s3DeleteEntriesOf(t, req), 1)
+}
+
+// s3DeleteEntriesOf returns the entries in the s3DeleteTag of req. It fails
+// the test when req has no such tag.
+func s3DeleteEntriesOf(t *testing.T, req msg.RequestConfirmMsg) []s3TableEntry {
+	t.Helper()
+	tag, ok := req.Tag.(*s3DeleteTag)
+	require.True(t, ok, "the delete confirm carries an s3DeleteTag")
+	return tag.entries
 }
 
 // M1: a delete with failed keys said "Deleted N object(s)". S3 deleted the

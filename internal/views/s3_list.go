@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
@@ -82,9 +83,16 @@ type S3List struct {
 	s3            aws.S3Service
 	defaultRegion string
 	createInput   ui.Filter // the name of a new bucket; shown below every screen
-	// pendingDelete holds the bucket names of the delete_bucket confirm.
-	pendingDelete pendingConfirm
 }
+
+// s3BucketDeleteTag is the tag of the delete confirm. It holds the bucket
+// names, frozen at the key press.
+type s3BucketDeleteTag struct {
+	names []string
+}
+
+// PromptTag marks s3BucketDeleteTag as a prompt tag.
+func (*s3BucketDeleteTag) PromptTag() {}
 
 // NewS3List creates the S3 bucket list view.
 func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
@@ -303,28 +311,29 @@ func (s *S3List) askDelete() tea.Cmd {
 	if len(names) == 0 {
 		return nil
 	}
-	s.pendingDelete.hold(names)
 	message, phrase := deleteBucketsPrompt(names)
-	return s.pendingDelete.ask(msg.RequestConfirmMsg{
+	req := msg.RequestConfirmMsg{
 		Message: message,
 		Action:  "delete_bucket",
 		Phrase:  phrase,
-	})
+		Tag:     &s3BucketDeleteTag{names: slices.Clone(names)},
+	}
+	return func() tea.Msg { return req }
 }
 
-// onConfirm starts a confirmed delete.
+// onConfirm deletes the buckets of the tag of m when m is a yes. Any other
+// reply does nothing.
 func (s *S3List) onConfirm(m msg.ConfirmResultMsg) tea.Cmd {
-	buckets, ok := s.pendingDelete.take(m)
-	if !ok {
+	t, ok := m.Tag.(*s3BucketDeleteTag)
+	if !ok || t == nil || !m.Confirmed || len(t.names) == 0 {
 		return nil
 	}
-	// The mode can change while the prompt is open. take has cleared the
-	// targets, so nothing runs. The text is the app's refusal for a
-	// ReadWrite key in ReadOnly mode.
+	// The mode can change while the prompt is open. The text is the app's
+	// refusal for a ReadWrite key in ReadOnly mode.
 	if ui.IsReadOnly() {
 		return func() tea.Msg { return msg.ToastError("ReadOnly mode — press W to switch") }
 	}
-	return s.deleteBuckets(buckets)
+	return s.deleteBuckets(t.names)
 }
 
 // onDeleted deselects, shows the result and reloads. It reloads also after

@@ -10,64 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/juthrbog/lazycloud/internal/msg"
 )
-
-func TestPendingConfirm_TakeConfirmedReply(t *testing.T) {
-	var p pendingConfirm
-	p.hold([]string{"a", "b"})
-	cmd := p.ask(msg.RequestConfirmMsg{Action: "x_stop", Message: "Stop?"})
-	assert.Equal(t, msg.RequestConfirmMsg{Action: "x_stop", Message: "Stop?"}, cmd())
-
-	keys, ok := p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
-	require.True(t, ok)
-	assert.Equal(t, []string{"a", "b"}, keys)
-
-	// A second reply finds nothing.
-	_, ok = p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
-	assert.False(t, ok)
-}
-
-func TestPendingConfirm_OtherRepliesClear(t *testing.T) {
-	replies := map[string]msg.ConfirmResultMsg{
-		"decline":        {Confirmed: false, Action: "x_stop"},
-		"skipped prompt": {},
-		"other action":   {Confirmed: true, Action: "x_delete"},
-	}
-	for name, reply := range replies {
-		t.Run(name, func(t *testing.T) {
-			var p pendingConfirm
-			p.hold([]string{"a"})
-			p.ask(msg.RequestConfirmMsg{Action: "x_stop"})
-			_, ok := p.take(reply)
-			assert.False(t, ok)
-			_, ok = p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
-			assert.False(t, ok, "the targets are gone")
-		})
-	}
-}
-
-func TestPendingConfirm_NoAskNoTake(t *testing.T) {
-	var p pendingConfirm
-	p.hold([]string{"a"})
-	_, ok := p.take(msg.ConfirmResultMsg{Confirmed: true, Action: ""})
-	assert.False(t, ok, "a held target with no request is not taken")
-
-	p.hold(nil)
-	p.ask(msg.RequestConfirmMsg{Action: "x_stop"})
-	_, ok = p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
-	assert.False(t, ok, "no targets")
-}
-
-func TestPendingConfirm_HoldResetsAction(t *testing.T) {
-	var p pendingConfirm
-	p.hold([]string{"a"})
-	p.ask(msg.RequestConfirmMsg{Action: "x_stop"})
-	p.hold([]string{"b"})
-	_, ok := p.take(msg.ConfirmResultMsg{Confirmed: true, Action: "x_stop"})
-	assert.False(t, ok, "a new key press drops the old request")
-}
 
 func TestConfirmMessage(t *testing.T) {
 	assert.Equal(t, "Stop 2 instance(s)?\n  web (i-1)\n  db (i-2)\n",

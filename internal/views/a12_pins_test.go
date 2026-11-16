@@ -101,14 +101,13 @@ func TestA12Hazard_SQSMessageDeleteUsesTheSelectionAtTheReply(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// ─── H3: a bare decline leaves the overwrite question open in S3 objects ─
+// ─── H3: a decline no longer keeps the overwrite question open (fixed in PR 4)
 
-// Hazard H3. Today closePrompts sends a decline with no Action, and S3
-// objects keeps the question as open. PR 4 removes the guard of the view
-// (D3), so the second conflict is then asked, and the app refuses it while
-// a prompt is open. The table test of PR 1 checks that the decline of
-// closePrompts carries the tag.
-func TestA12Hazard_S3BareDeclineKeepsTheOverwriteQuestion(t *testing.T) {
+// H3, fixed in PR 4. S3 objects keeps no question state, so after a
+// decline (also the bare decline that closePrompts sent before PR 1) the
+// next conflict is asked. While a prompt is open, the app refuses the new
+// question with a toast (D3).
+func TestA12_S3NextConflictIsAskedAfterADecline(t *testing.T) {
 	v, _ := newS3TransferView(t)
 	_, cmd := v.Update(s3CopyCompleteMsg{bucket: "test-bucket", srcKey: "a.txt", dstKey: "b.txt", err: aws.ErrDestinationExists})
 	requestOf[msg.RequestConfirmMsg](t, cmd)
@@ -118,10 +117,10 @@ func TestA12Hazard_S3BareDeclineKeepsTheOverwriteQuestion(t *testing.T) {
 
 	_, cmd = v.Update(s3CopyCompleteMsg{bucket: "test-bucket", srcKey: "a.txt", dstKey: "c.txt", err: aws.ErrDestinationExists})
 	msgs := collectMsgs(cmd)
-	_, asked := firstOfType[msg.RequestConfirmMsg](msgs)
-	assert.False(t, asked, "the second conflict is not asked")
-	require.Len(t, toasts(msgs), 1)
-	assert.Contains(t, toasts(msgs)[0].Text, "another replace question is open")
+	require.Len(t, msgs, 1, "only the question, no toast of the view")
+	req, ok := msgs[0].(msg.RequestConfirmMsg)
+	require.True(t, ok)
+	assert.Equal(t, &s3OverwriteTag{mode: "copy", srcKey: "a.txt", dstKey: "c.txt"}, req.Tag)
 }
 
 // ─── H6: a sort pick names its column by title (fixed in PR 2) ─────────────
