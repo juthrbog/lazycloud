@@ -280,15 +280,17 @@ func TestCharSG_SortPicker(t *testing.T) {
 	v, _ := newCharSG(t, charSGWeb, charSGDB)
 
 	_, cmd := v.Update(keyPress('s'))
+	asked := collectMsgs(cmd)
 	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{
 		Columns:    []string{"Group ID", "Name", "VPC", "Description", "In", "Out"},
 		CurrentCol: -1,
-	}}, collectMsgs(cmd))
+	}}, asked)
+	first, _ := firstOfType[msg.RequestSortPickerMsg](asked)
 
 	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
 	assert.Equal(t, "sg-111", netRows(v)[0][:6], "a picker with another ID is ignored")
 
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
+	v.Update(pickColumn(t, first, "Name"))
 	assert.Equal(t, []string{
 		"sg-222 | db-sg | vpc-aaa | Database | 1 | 0",
 		"sg-111 | web-sg | vpc-aaa | Web servers | 2 | 1",
@@ -298,7 +300,7 @@ func TestCharSG_SortPicker(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 1, req.CurrentCol)
 
-	v.Update(sortCancelled())
+	v.Update(cancelPick(req))
 	assert.Equal(t, "sg-222", netRows(v)[0][:6], "a cancelled picker keeps the sort")
 
 	// The sort survives a tier change.
@@ -313,7 +315,7 @@ func TestCharSG_SortPicker(t *testing.T) {
 	assert.Equal(t, "sg-111", netRows(v)[0][:6], "S reverses the sort")
 	assert.Equal(t, "Group ID | Name ▼ | VPC | In | Out", netHeader(v))
 
-	v.Update(sortCleared())
+	v.Update(clearSort(req))
 	assert.Equal(t, "sg-111", netRows(v)[0][:6])
 	assert.Equal(t, "Group ID | Name | VPC | In | Out", netHeader(v))
 	_, cmd = v.Update(keyPress('s'))
@@ -325,7 +327,7 @@ func TestCharSG_InCountSortsAsNumber(t *testing.T) {
 	many := aws.SecurityGroup{ID: "sg-many", Name: "many", InboundRules: make([]aws.SecurityGroupRule, 10)}
 	few := aws.SecurityGroup{ID: "sg-few", Name: "few", InboundRules: make([]aws.SecurityGroupRule, 9)}
 	v, _ := newCharSG(t, few, many)
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 4, Value: "In"})
+	v.Update(pickColumn(t, sortRequest(t, v), "In"))
 	rows := netRows(v)
 	require.Len(t, rows, 2)
 	// Divergence #46 (fixed in PR 3): 9 sorts before 10.
@@ -340,7 +342,7 @@ func TestCharSG_CursorAndSortKeptAcrossReload(t *testing.T) {
 	v := NewSGList(svc)
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 12})
 	pump(v, v.Init(), 5)
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "Group ID"})
+	v.Update(pickColumn(t, sortRequest(t, v), "Group ID"))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	require.Equal(t, []string{"Copied: sg-222"}, netCopied(v))
 

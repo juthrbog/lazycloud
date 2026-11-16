@@ -14,10 +14,10 @@ import (
 
 // confirmSQS presses m, picks action and answers the confirm with yes. It
 // returns the command of the confirm reply, not run.
-func confirmSQS(t *testing.T, v *SQSQueues, action, actionID string) tea.Cmd {
+func confirmSQS(t *testing.T, v *SQSQueues, action string) tea.Cmd {
 	t.Helper()
-	charSQSConfirm(t, v, action)
-	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: actionID})
+	req := charSQSConfirm(t, v, action)
+	_, cmd := v.Update(confirmReply(req, true))
 	require.NotNil(t, cmd)
 	return cmd
 }
@@ -27,7 +27,7 @@ func TestSQSQueues_PurgeSpinnerHidesWhenAllFail(t *testing.T) {
 	v, svc := charSQSThree(t)
 	svc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Return(charSQSDenied).Once()
 
-	cmd := confirmSQS(t, v, "Purge Queue", "sqs_purge")
+	cmd := confirmSQS(t, v, "Purge Queue")
 	require.True(t, v.spinner.Visible())
 	seen := pump(v, cmd, 3)
 
@@ -40,7 +40,7 @@ func TestSQSQueues_ActionSpinnerTicks(t *testing.T) {
 	charSQSReadWrite(t)
 	v, _ := charSQSThree(t)
 
-	cmd := confirmSQS(t, v, "Delete Queue", "sqs_delete")
+	cmd := confirmSQS(t, v, "Delete Queue")
 	batch, ok := cmd().(tea.BatchMsg)
 	require.True(t, ok)
 	tick, ok := batch[0]().(spinner.TickMsg)
@@ -55,7 +55,7 @@ func TestSQSQueues_ActionReplyKeepsLoadSpinner(t *testing.T) {
 	v, svc := charSQSThree(t)
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
 
-	cmd := confirmSQS(t, v, "Delete Queue", "sqs_delete")
+	cmd := confirmSQS(t, v, "Delete Queue")
 	replies := charSQSRun(cmd)
 	require.Len(t, replies, 1)
 
@@ -71,9 +71,9 @@ func TestSQSQueues_TwoActionsHideSpinnerAfterBoth(t *testing.T) {
 	v, svc := charSQSThree(t)
 	svc.On("DeleteQueue", mock.Anything, mock.Anything).Return(nil)
 
-	first := charSQSRun(confirmSQS(t, v, "Delete Queue", "sqs_delete"))
+	first := charSQSRun(confirmSQS(t, v, "Delete Queue"))
 	charSQSDown(v)
-	second := charSQSRun(confirmSQS(t, v, "Delete Queue", "sqs_delete"))
+	second := charSQSRun(confirmSQS(t, v, "Delete Queue"))
 
 	charSQSDeliver(v, first...)
 	assert.True(t, v.spinner.Visible(), "one delete still runs")

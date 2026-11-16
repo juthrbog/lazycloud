@@ -426,7 +426,7 @@ func TestCharAMI_GoodLoadClearsError(t *testing.T) {
 // The table keeps cursor, selection and sort by key across SetRows (C3).
 func TestCharAMI_TableKeepsStateAcrossSetRows(t *testing.T) {
 	v, svc := newCharAMILoaded(t, charAMIB, charAMIA)
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "AMI ID"})
+	v.Update(pickColumn(t, sortRequest(t, v), "AMI ID"))
 	require.Equal(t, []string{"ami-aaa", "ami-bbb"}, charRows(v))
 	v.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // cursor on ami-bbb
 	v.Update(keyPress(' '))
@@ -504,7 +504,7 @@ func TestCharAMI_SortPicker(t *testing.T) {
 	v.Update(msg.PickerResultMsg{ID: "other", Selected: 0})
 	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "a non-sort picker is ignored")
 
-	_, cmd = v.Update(msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "AMI ID"})
+	_, cmd = v.Update(pickColumn(t, req, "AMI ID"))
 	assert.Nil(t, cmd)
 	assert.Equal(t, []string{"ami-aaa", "ami-bbb"}, charRows(v))
 	assert.Contains(t, charHeader(v), "AMI ID ▲")
@@ -517,10 +517,10 @@ func TestCharAMI_SortPicker(t *testing.T) {
 	req, _ = firstOfType[msg.RequestSortPickerMsg](charRun(cmd))
 	assert.Equal(t, 0, req.CurrentCol)
 
-	v.Update(sortCancelled())
+	v.Update(cancelPick(req))
 	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "a cancelled picker keeps the sort")
 
-	v.Update(sortCleared())
+	v.Update(clearSort(sortRequest(t, v)))
 	assert.Equal(t, []string{"ami-bbb", "ami-aaa"}, charRows(v), "load order")
 	assert.NotContains(t, charHeader(v), "▲")
 	assert.NotContains(t, charHeader(v), "▼")
@@ -656,7 +656,7 @@ func TestCharAMI_UpdateReturnsSamePointer(t *testing.T) {
 	svc.On("RefreshAMIs", mock.Anything, mock.Anything).Return([]aws.AMI{charAMIP}, nil).Maybe()
 	msgs := []tea.Msg{
 		tea.WindowSizeMsg{Width: 100, Height: 20},
-		msg.PickerResultMsg{ID: "sort", Selected: 1},
+		pickColumnAt(1),
 		ui.FilterChangedMsg{Text: ""},
 		msg.FocusResourceMsg{ResourceID: "ami-aaa"},
 		msg.ErrorMsg{Err: errors.New("x")},
@@ -679,6 +679,9 @@ func TestCharAMI_UpdateReturnsSamePointer(t *testing.T) {
 		keyPress('r'),
 	}
 	for _, m := range msgs {
+		if step, ok := m.(replyStep); ok {
+			m = step(t, v)
+		}
 		got, _ := v.Update(m)
 		require.Same(t, v, got, "%T", m)
 	}

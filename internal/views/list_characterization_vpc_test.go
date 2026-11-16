@@ -318,15 +318,17 @@ func TestCharVPC_StaleErrorApplied(t *testing.T) {
 func TestCharVPC_SortPicker(t *testing.T) {
 	v, _ := newCharVPC(t, charVPCMain, charVPCDev)
 	_, cmd := v.Update(keyPress('s'))
+	asked := collectMsgs(cmd)
 	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{
 		Columns:    []string{"VPC ID", "Name", "CIDR Block", "State", "Default", "Tenancy"},
 		CurrentCol: -1,
-	}}, collectMsgs(cmd))
+	}}, asked)
+	first, _ := firstOfType[msg.RequestSortPickerMsg](asked)
 
 	v.Update(msg.PickerResultMsg{ID: "other", Selected: 1, Value: "Name"})
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10], "a picker with another ID is ignored")
 
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Name"})
+	v.Update(pickColumn(t, first, "Name"))
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10])
 	_, cmd = v.Update(keyPress('s'))
 	req, ok := firstOfType[msg.RequestSortPickerMsg](collectMsgs(cmd))
@@ -337,14 +339,14 @@ func TestCharVPC_SortPicker(t *testing.T) {
 	assert.Equal(t, "VPC ID | Name ▲ | CIDR Block | State", netHeader(v), "the sort survives a tier change")
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10])
 
-	v.Update(sortCancelled())
+	v.Update(cancelPick(req))
 	assert.Equal(t, "vpc-bbb222", netRows(v)[0][:10], "a cancelled picker keeps the sort")
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, "VPC ID | Name ▼ | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10], "S reverses the sort")
 
-	v.Update(sortCleared())
+	v.Update(clearSort(sortRequest(t, v)))
 	assert.Equal(t, "VPC ID | Name | CIDR Block | State", netHeader(v))
 	assert.Equal(t, "vpc-aaa111", netRows(v)[0][:10])
 	_, cmd = v.Update(keyPress('s'))

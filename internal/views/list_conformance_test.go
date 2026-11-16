@@ -40,6 +40,7 @@ type conformanceCase struct {
 	// coreMsgs returns the private core messages of the view's item type,
 	// built for its current load generation. Call it only after every
 	// earlier message is delivered, because a reload raises the generation.
+	// A replyStep in the list asks for a prompt when its turn comes.
 	coreMsgs func(v nav.View) []tea.Msg
 	// itemIDs returns the IDs of the items the view holds now.
 	itemIDs func(v nav.View) []string
@@ -215,16 +216,16 @@ var conformanceCases = []conformanceCase{
 			c := &v.(*EC2List).listCore
 			tok := "t2"
 			return []tea.Msg{
-				listPageMsg[aws.Instance]{gen: c.loadGen, items: []aws.Instance{{ID: "i-1"}}, next: &tok, page: 1},
-				listPageMsg[aws.Instance]{gen: c.loadGen, items: []aws.Instance{{ID: "i-2"}}, page: 2},
+				listPageMsg[aws.Instance]{gen: c.loadGen, items: []aws.Instance{{ID: "i-1", State: "running"}}, next: &tok, page: 1},
+				listPageMsg[aws.Instance]{gen: c.loadGen, items: []aws.Instance{{ID: "i-2", State: "running"}}, page: 2},
 				listPageMsg[aws.Instance]{gen: c.loadGen - 1, items: []aws.Instance{{ID: "i-old"}}, page: 3},
 				listRefreshedMsg[aws.Instance]{gen: c.loadGen - 1, items: []aws.Instance{{ID: "i-1", Name: "stale"}}},
 				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
 				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
 				ec2InstanceDetailMsg{err: context.Canceled},
 				ec2SSMSessionFinishedMsg{instanceID: "i-1", err: errors.New("x")},
-				msg.ConfirmResultMsg{Confirmed: false, Action: "ec2_stop"},
-				actionCancelled(),
+				unfiltered(declineActionStep('m', "Stop")),
+				unfiltered(cancelActionStep('m')),
 				keyPress('o'),
 				keyPress('m'),
 			}
@@ -268,8 +269,8 @@ var conformanceCases = []conformanceCase{
 				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
 				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
 				sqsQueueDetailMsg{err: context.Canceled},
-				msg.ConfirmResultMsg{Confirmed: false, Action: "sqs_purge"},
-				actionCancelled(),
+				unfiltered(declineActionStep('m', "Purge Queue")),
+				unfiltered(cancelActionStep('m')),
 				msg.FormResultMsg{ID: "sqs_send_message", Aborted: true},
 				keyPress('p'),
 				keyPress('m'),
@@ -312,7 +313,7 @@ var conformanceCases = []conformanceCase{
 				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
 				s3BucketPropsMsg{err: context.Canceled},
 				s3BucketCreatedMsg{name: "b-3", err: errors.New("x")},
-				msg.ConfirmResultMsg{Confirmed: false, Action: "delete_bucket"},
+				unfiltered(declineKeyStep('x')),
 				ui.FilterChangedMsg{Text: "zz", Source: s3CreateSource},
 				keyPress('n'), tea.KeyPressMsg{Code: tea.KeyEscape},
 				keyPress('x'),
@@ -333,6 +334,78 @@ var conformanceCases = []conformanceCase{
 		coreType:     reflect.TypeFor[listCore[aws.Bucket]](),
 		allowMethods: []string{"CapturingInput"}, // the filter or the create input
 	},
+}
+
+// replyStep stands for a prompt reply in a list of messages. The test runs
+// it at its turn. It asks the view with real key presses and returns the
+// reply to the real request.
+type replyStep func(t *testing.T, v nav.View) tea.Msg
+
+// press sends m to v, checks that Update returns v, and returns the command.
+func press(t *testing.T, v nav.View, m tea.Msg) tea.Cmd {
+	t.Helper()
+	got, cmd := v.Update(m)
+	require.Same(t, v, got, "%T", m)
+	return cmd
+}
+
+// pickColumnAt asks for the sort picker and picks the column at index i.
+func pickColumnAt(i int) replyStep {
+	return func(t *testing.T, v nav.View) tea.Msg {
+		t.Helper()
+		req := sortRequest(t, v)
+		require.Less(t, i, len(req.Columns))
+		return pickColumn(t, req, req.Columns[i])
+	}
+}
+
+// clearSortStep asks for the sort picker and clears the sort.
+func clearSortStep(t *testing.T, v nav.View) tea.Msg {
+	t.Helper()
+	return clearSort(sortRequest(t, v))
+}
+
+// cancelActionStep presses key for the action picker and cancels it.
+func cancelActionStep(key rune) replyStep {
+	return func(t *testing.T, v nav.View) tea.Msg {
+		t.Helper()
+		return cancelPick(requestOf[msg.RequestActionPickerMsg](t, press(t, v, keyPress(key))))
+	}
+}
+
+// declineActionStep presses key for the action picker, picks label, and
+// answers no to the confirm that follows.
+func declineActionStep(key rune, label string) replyStep {
+	return func(t *testing.T, v nav.View) tea.Msg {
+		t.Helper()
+		picker := requestOf[msg.RequestActionPickerMsg](t, press(t, v, keyPress(key)))
+		req := requestOf[msg.RequestConfirmMsg](t, press(t, v, pickLabel(t, picker, label)))
+		return confirmReply(req, false)
+	}
+}
+
+// declineKeyStep presses key for a confirm and answers no.
+func declineKeyStep(key rune) replyStep {
+	return func(t *testing.T, v nav.View) tea.Msg {
+		t.Helper()
+		return confirmReply(requestOf[msg.RequestConfirmMsg](t, press(t, v, keyPress(key))), false)
+	}
+}
+
+// conformanceFilter is the filter text that the shared messages of
+// TestListConformance_UpdateReturnsSamePointer leave on the list.
+const conformanceFilter = "x"
+
+// unfiltered runs step with no filter, so a key that acts on rows finds the
+// cursor row. Then it puts conformanceFilter back.
+func unfiltered(step replyStep) replyStep {
+	return func(t *testing.T, v nav.View) tea.Msg {
+		t.Helper()
+		press(t, v, ui.FilterChangedMsg{Text: ""})
+		reply := step(t, v)
+		press(t, v, ui.FilterChangedMsg{Text: conformanceFilter})
+		return reply
+	}
 }
 
 // conformanceLoaded builds the view at width 160 and runs its first load.
@@ -371,11 +444,11 @@ func TestListConformance_UpdateReturnsSamePointer(t *testing.T) {
 				keyPress('s'), keyPress('S'), keyPress('y'), keyPress('d'), keyPress(' '), keyPress('z'),
 				tea.KeyPressMsg{Code: tea.KeyDown}, tea.KeyPressMsg{Code: tea.KeyUp},
 				tea.KeyPressMsg{Code: tea.KeyEnter},
-				msg.PickerResultMsg{ID: "sort", Selected: 0},
-				sortCleared(),
+				pickColumnAt(0),
+				replyStep(clearSortStep),
 				msg.PickerResultMsg{ID: "other", Selected: 0},
 				msg.ConfirmResultMsg{Confirmed: true, Action: "other"},
-				ui.FilterChangedMsg{Text: "x"},
+				ui.FilterChangedMsg{Text: conformanceFilter},
 				ui.FilterChangedMsg{Text: "x", Source: "side"},
 				msg.FocusResourceMsg{ResourceID: "missing"},
 				keyPress('/'), keyPress('x'), tea.KeyPressMsg{Code: tea.KeyEnter},
@@ -386,6 +459,9 @@ func TestListConformance_UpdateReturnsSamePointer(t *testing.T) {
 			}
 			deliver := func(msgs []tea.Msg) {
 				for _, m := range msgs {
+					if step, ok := m.(replyStep); ok {
+						m = step(t, v)
+					}
 					got, _ := v.Update(m)
 					require.Same(t, v, got, "%T", m)
 				}

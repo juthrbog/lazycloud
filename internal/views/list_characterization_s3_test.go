@@ -510,7 +510,7 @@ func TestCharS3_TableKeepsCursorAndSelectionAcrossReload(t *testing.T) {
 // order.
 func TestCharS3_SortSurvivesReload(t *testing.T) {
 	v, svc := charS3Loaded(t, "b-tmp", "a-logs")
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "Bucket"})
+	v.Update(pickColumn(t, sortRequest(t, v), "Bucket"))
 	v.Update(charS3Down) // cursor on b-tmp
 
 	charS3NextList(svc, "c-web", "b-tmp", "0new", "a-logs")
@@ -554,13 +554,19 @@ func TestCharS3_SortPicker(t *testing.T) {
 	}
 
 	_, cmd := v.Update(keyPress('s'))
-	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: -1}}, collectMsgs(cmd))
+	got := collectMsgs(cmd)
+	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: -1}}, got)
+	req, ok := firstOfType[msg.RequestSortPickerMsg](got)
+	require.True(t, ok)
 
-	v.Update(msg.PickerResultMsg{ID: "sort", Selected: 0, Value: "Bucket"})
+	v.Update(pickColumn(t, req, "Bucket"))
 	assert.Equal(t, []string{"a-logs", "b-tmp", "c-web"}, rows())
 	assert.Equal(t, []string{"Bucket", "▲", "Created"}, charS3Header(v))
 	_, cmd = v.Update(keyPress('s'))
-	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: 0}}, collectMsgs(cmd))
+	got = collectMsgs(cmd)
+	assert.Equal(t, []tea.Msg{msg.RequestSortPickerMsg{Columns: []string{"Bucket", "Created"}, CurrentCol: 0}}, got)
+	req, ok = firstOfType[msg.RequestSortPickerMsg](got)
+	require.True(t, ok)
 
 	v.Update(keyPress('S'))
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
@@ -573,11 +579,11 @@ func TestCharS3_SortPicker(t *testing.T) {
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
 
 	// A cancelled picker and another picker change nothing.
-	v.Update(sortCancelled())
+	v.Update(cancelPick(req))
 	v.Update(msg.PickerResultMsg{ID: "feature", Selected: 1, Value: "x"})
 	assert.Equal(t, []string{"c-web", "b-tmp", "a-logs"}, rows())
 
-	v.Update(sortCleared())
+	v.Update(clearSort(sortRequest(t, v)))
 	assert.Equal(t, []string{"b-tmp", "a-logs", "c-web"}, rows())
 	assert.Equal(t, []string{"Bucket", "Created"}, charS3Header(v))
 }
@@ -586,11 +592,15 @@ func TestCharS3_UpdateReturnsSamePointer(t *testing.T) {
 	charS3SetReadOnly(t, false)
 	v, svc := charS3Loaded(t, "a-logs", "b-tmp")
 	svc.On("ListBuckets", mock.Anything).Return(charS3Buckets("a-logs", "b-tmp"), nil)
+	// The replies answer the real requests of s and x, so they are made
+	// when the loop gets to them.
+	var sortReq msg.RequestSortPickerMsg
+	var confirmReq msg.RequestConfirmMsg
 	msgs := []tea.Msg{
 		tea.WindowSizeMsg{Width: 120, Height: 20},
 		charS3Down, charS3Space, keyPress('s'), keyPress('S'), keyPress('d'), keyPress('x'), keyPress('y'),
-		msg.ConfirmResultMsg{Confirmed: false, Action: "delete_bucket"},
-		msg.PickerResultMsg{ID: "sort", Selected: 0},
+		func() tea.Msg { return confirmReply(confirmReq, false) },
+		func() tea.Msg { return pickColumn(t, sortReq, "Bucket") },
 		ui.FilterChangedMsg{Text: "a"},
 		msg.FocusResourceMsg{ResourceID: "a-logs"},
 		keyPress('/'), keyPress('a'), charS3Enter,
@@ -599,9 +609,19 @@ func TestCharS3_UpdateReturnsSamePointer(t *testing.T) {
 		msg.ErrorMsg{Err: errCharS3Denied, Context: "listing S3 buckets"},
 		charS3Esc, charS3Esc,
 	}
-	for _, m := range msgs {
-		got, _ := v.Update(m)
+	for _, e := range msgs {
+		m := e
+		if f, lazy := e.(func() tea.Msg); lazy {
+			m = f()
+		}
+		got, cmd := v.Update(m)
 		require.Same(t, v, got, "%T", m)
+		switch m {
+		case keyPress('s'):
+			sortReq = requestOf[msg.RequestSortPickerMsg](t, cmd)
+		case keyPress('x'):
+			confirmReq = requestOf[msg.RequestConfirmMsg](t, cmd)
+		}
 	}
 
 	// The view's own replies, made by running its commands against the mock.
@@ -622,8 +642,9 @@ func TestCharS3_UpdateReturnsSamePointer(t *testing.T) {
 	charS3Type(v, "c-new")
 	_, create := v.Update(charS3Enter)
 	replies = append(replies, charS3Reply(t, create))
-	op := charS3ConfirmDelete(t, v)
-	replies = append(replies, op.Run(context.Background()), msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	req := charS3AskDelete(t, v)
+	op := charS3ConfirmDeleteOf(t, v, req)
+	replies = append(replies, op.Run(context.Background()), confirmReply(req, true))
 	for _, m := range replies {
 		got, _ := v.Update(m)
 		require.Same(t, v, got, "%T", m)
@@ -807,16 +828,21 @@ func TestCharS3_DeleteWithNoBucketDoesNothing(t *testing.T) {
 
 func TestCharS3_OtherConfirmResultClearsPending(t *testing.T) {
 	charS3SetReadOnly(t, false)
-	cases := []msg.ConfirmResultMsg{
-		{Confirmed: false, Action: "delete_bucket"},
-		{Confirmed: true, Action: "other"},
+	// A no answers the real request. A yes for another action is a foreign
+	// reply on purpose.
+	cases := []func(msg.RequestConfirmMsg) msg.ConfirmResultMsg{
+		func(req msg.RequestConfirmMsg) msg.ConfirmResultMsg { return confirmReply(req, false) },
+		func(msg.RequestConfirmMsg) msg.ConfirmResultMsg {
+			return msg.ConfirmResultMsg{Confirmed: true, Action: "other"}
+		},
 	}
-	for _, other := range cases {
+	for _, reply := range cases {
 		v, svc := charS3Loaded(t, "a-logs")
-		v.Update(keyPress('x'))
+		req := charS3AskDelete(t, v)
+		other := reply(req)
 		_, cmd := v.Update(other)
 		assert.Nil(t, cmd, "%+v", other)
-		_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+		_, cmd = v.Update(confirmReply(req, true))
 		assert.Nil(t, cmd, "pending was cleared by %+v", other)
 		svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 	}
@@ -839,15 +865,15 @@ func TestCharS3_ViewChecksReadOnlyOnConfirm(t *testing.T) {
 	v.Update(charS3Esc)
 
 	_, cmd := v.Update(keyPress('x'))
-	_, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
+	req, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 	require.True(t, ok, "x asks in ReadOnly mode")
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	_, cmd = v.Update(confirmReply(req, true))
 	require.NotNil(t, cmd)
 	assert.Equal(t, []tea.Msg{msg.ToastError("ReadOnly mode — press W to switch")}, collectMsgs(cmd))
 
 	// The targets are gone: a second confirm in ReadWrite mode does nothing.
 	ui.SetReadOnly(false)
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	_, cmd = v.Update(confirmReply(req, true))
 	assert.Nil(t, cmd)
 	svc.AssertNotCalled(t, "EmptyAndDeleteBucket", mock.Anything, mock.Anything)
 }
@@ -856,10 +882,22 @@ func TestCharS3_ViewChecksReadOnlyOnConfirm(t *testing.T) {
 // returns the StartOpMsg that the confirm gives.
 func charS3ConfirmDelete(t *testing.T, v *S3List) msg.StartOpMsg {
 	t.Helper()
+	return charS3ConfirmDeleteOf(t, v, charS3AskDelete(t, v))
+}
+
+// charS3AskDelete presses x on the current targets and returns the confirm
+// request.
+func charS3AskDelete(t *testing.T, v *S3List) msg.RequestConfirmMsg {
+	t.Helper()
 	_, cmd := v.Update(keyPress('x'))
-	_, ok := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
-	require.True(t, ok)
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
+	return requestOf[msg.RequestConfirmMsg](t, cmd)
+}
+
+// charS3ConfirmDeleteOf answers req with a yes and returns the StartOpMsg
+// that the yes gives.
+func charS3ConfirmDeleteOf(t *testing.T, v *S3List, req msg.RequestConfirmMsg) msg.StartOpMsg {
+	t.Helper()
+	_, cmd := v.Update(confirmReply(req, true))
 	require.NotNil(t, cmd)
 	op, ok := cmd().(msg.StartOpMsg)
 	require.True(t, ok)
