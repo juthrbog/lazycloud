@@ -1112,7 +1112,7 @@ func TestCharSQS_SendNeedsOneQueue(t *testing.T) {
 	// reaches the check in the view.
 	two := []string{charSQSURL("qa"), charSQSURL("qb")}
 	tag := &sqsManageTag{urls: two, ops: []sqsOp{sqsSend}}
-	_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Outcome: msg.Picked, Selected: 0, Value: "Send Message", Tag: tag})
+	_, cmd = v.Update(msg.PickerResultMsg{Outcome: msg.Picked, Selected: 0, Value: "Send Message", Tag: tag})
 	assert.Equal(t, []msg.ToastMsg{msg.ToastError("Select one queue to send a message")}, toasts(collectMsgs(cmd)))
 }
 
@@ -1137,7 +1137,6 @@ func TestCharSQS_PurgeFlow(t *testing.T) {
 	assert.Equal(t, []string{charSQSURL("qa"), charSQSURL("qb")}, tag.urls)
 	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Purge 2 queue(s)?\n  qa\n  qb\nThis removes all messages and cannot be undone.",
-		Action:  "sqs_purge",
 	}, rest)
 
 	svc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Return(charSQSDenied).Once()
@@ -1187,7 +1186,6 @@ func TestCharSQS_DeleteFlow(t *testing.T) {
 	assert.Equal(t, []string{charSQSURL("qa"), charSQSURL("qb"), charSQSURL("qc")}, tag.urls)
 	assert.Equal(t, msg.RequestConfirmMsg{
 		Message: "Delete 3 queue(s)?\n  qa\n  qb\n  qc\nAll messages will be lost.",
-		Action:  "sqs_delete",
 	}, rest)
 
 	svc.On("DeleteQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
@@ -1222,17 +1220,13 @@ func TestCharSQS_ConfirmDeclineRunsNothing(t *testing.T) {
 }
 
 // Divergence #25 (fixed in PR 2). A yes that is not for the open prompt
-// does nothing. The view reads the tag of the reply, not its Action.
+// does nothing. A reply without the tag of the prompt runs nothing.
 func TestCharSQS_UntaggedConfirmRunsNothing(t *testing.T) {
 	charSQSReadWrite(t)
 	v, svc := charSQSThree(t)
 	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete"})
-	assert.Nil(t, cmd, "a reply without the tag runs nothing")
-
-	charSQSConfirm(t, v, "Purge Queue")
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "other"})
-	assert.Nil(t, cmd, "a reply without the tag runs nothing")
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true})
+	assert.Nil(t, cmd, "a reply without the tag of the prompt runs nothing")
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 	svc.AssertNotCalled(t, "DeleteQueue", mock.Anything, mock.Anything)
 }
@@ -1248,7 +1242,7 @@ func TestCharSQS_CancelledPickerIgnoresConfirm(t *testing.T) {
 	_, cmd = v.Update(cancelPick(pick))
 	require.Nil(t, cmd, "esc asks nothing (A7 D2)")
 
-	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge"})
+	_, cmd = v.Update(msg.ConfirmResultMsg{Confirmed: true})
 	assert.Nil(t, cmd, "a reply without the tag runs nothing")
 	svc.AssertNotCalled(t, "PurgeQueue", mock.Anything, mock.Anything)
 }

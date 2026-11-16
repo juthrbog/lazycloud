@@ -45,18 +45,18 @@ func TestPickerRequestWhileAConfirmIsOpenIsRefused(t *testing.T) {
 	m := newTestModel(140, 40)
 	v := newReplyView()
 	m.pushView(v)
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Quick: true}})
 	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}})
 	require.True(t, m.confirm.Visible())
 	assert.False(t, m.picker.Visible())
 	assert.Equal(t, []overlayKind{ovConfirm}, kindsOf(m.overlays))
 	assert.True(t, m.toasts.HasActive(), "the user learns about the skipped prompt")
-	assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Outcome: msg.PickCancelled}}, v.picks)
+	assert.Equal(t, []msg.PickerResultMsg{{Outcome: msg.PickCancelled}}, v.picks)
 
 	m = answer(t, m, press("y"))
 	assert.False(t, m.confirm.Visible())
 	assert.Empty(t, m.overlays)
-	assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
+	assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true}}, v.confirms)
 }
 
 // After a confirm over help closes, help gets the keys again.
@@ -65,7 +65,7 @@ func TestHelpGetsTheKeysAgainAfterAConfirm(t *testing.T) {
 	v := newReplyView()
 	m.pushView(v)
 	m, _ = update(t, m, press("?"))
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Quick: true}})
 	m = answer(t, m, press("n"))
 	require.True(t, m.help.Visible())
 
@@ -86,7 +86,7 @@ func TestConfirmDrawsOverCommandBarSuggestions(t *testing.T) {
 	require.NotEmpty(t, m.commandBar.ViewSuggestions())
 
 	question := strings.Repeat("Q", 60)
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: question, Action: "start", Quick: true}})
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: question, Quick: true}})
 	require.True(t, m.confirm.Visible())
 	assert.Contains(t, rendered(m), question)
 }
@@ -113,7 +113,7 @@ func TestPruneOverlaysKeepsACopy(t *testing.T) {
 	m := newTestModel(140, 40)
 	m.help.Show(nil, 140, 40)
 	m.openOverlay(ovHelp)
-	m.confirm.ShowQuick("Start it?", "start")
+	m.confirm.ShowQuick("Start it?")
 	m.openOverlay(ovConfirm)
 	saved := m
 
@@ -146,13 +146,13 @@ func TestConfirmReplyGoesToTheViewThatAsked(t *testing.T) {
 			m := newTestModel(140, 40)
 			asker := newReplyView()
 			m.pushView(asker)
-			m, _ = update(t, m, nav.Routed{Origin: asker, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
+			m, _ = update(t, m, nav.Routed{Origin: asker, Msg: msg.RequestConfirmMsg{Message: "Start it?", Quick: true}})
 			other := newReplyView()
 			m.pushView(other)
 
 			m = answer(t, m, press(tc.key))
 			assert.False(t, m.confirm.Visible())
-			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: tc.want, Action: "start"}}, asker.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: tc.want}}, asker.confirms)
 			assert.Empty(t, other.confirms)
 		})
 	}
@@ -182,14 +182,14 @@ func TestReplyToAViewThatIsGoneIsDropped(t *testing.T) {
 // Before PR 8, it went the old way and reached the view on top.
 func TestRequestsWithoutOriginAreDropped(t *testing.T) {
 	for _, in := range []tea.Msg{
-		msg.RequestConfirmMsg{Message: "Go?", Action: "go", Quick: true},
+		msg.RequestConfirmMsg{Message: "Go?", Quick: true},
 		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
 		msg.RequestSortPickerMsg{Columns: []string{"Name"}},
 		newDiscardRequest(t),
 		msg.RequestFormMsg{ID: "f", Title: "Form", Fields: []msg.FormField{{Key: "a", Title: "A"}}},
 		msg.FormResultMsg{ID: "f", Aborted: true},
-		msg.ConfirmResultMsg{Confirmed: true, Action: "go"},
-		msg.PickerResultMsg{ID: "action", Value: "Stop"},
+		msg.ConfirmResultMsg{Confirmed: true},
+		msg.PickerResultMsg{Value: "Stop"},
 	} {
 		m := newTestModel(140, 40)
 		v := newReplyView()
@@ -214,8 +214,8 @@ func TestSortReplyGoesToTheViewThatAsked(t *testing.T) {
 		key  tea.KeyPressMsg
 		want msg.PickerResultMsg
 	}{
-		{"pick", keyEnter, msg.PickerResultMsg{ID: "sort", Selected: 1, Value: "Size"}},
-		{"clear", keyCtrlX, msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCleared}},
+		{"pick", keyEnter, msg.PickerResultMsg{Selected: 1, Value: "Size"}},
+		{"clear", keyCtrlX, msg.PickerResultMsg{Outcome: msg.PickCleared}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newTestModel(140, 40)

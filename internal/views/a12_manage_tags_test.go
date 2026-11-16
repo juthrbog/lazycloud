@@ -52,14 +52,14 @@ func TestEC2ManageIgnoresForeignTags(t *testing.T) {
 	for name, tag := range foreignReplies((*ec2ManageTag)(nil)) {
 		var cmd tea.Cmd
 		require.NotPanics(t, func() {
-			_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 0, Value: "Stop", Tag: tag})
+			_, cmd = v.Update(msg.PickerResultMsg{Selected: 0, Value: "Stop", Tag: tag})
 		}, name)
 		_, asked := firstOfType[msg.RequestConfirmMsg](collectMsgs(cmd))
 		assert.False(t, asked, "picker reply with %s", name)
 	}
 	for name, tag := range foreignReplies((*ec2ConfirmTag)(nil)) {
 		require.NotPanics(t, func() {
-			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_stop", Tag: tag})
+			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: tag})
 			assert.Nil(t, cmd, "confirm reply with %s", name)
 		}, name)
 	}
@@ -74,7 +74,7 @@ func TestSQSManageIgnoresForeignTags(t *testing.T) {
 	for name, tag := range foreignReplies((*sqsManageTag)(nil)) {
 		var cmd tea.Cmd
 		require.NotPanics(t, func() {
-			_, cmd = v.Update(msg.PickerResultMsg{ID: "action", Selected: 1, Value: "Purge Queue", Tag: tag})
+			_, cmd = v.Update(msg.PickerResultMsg{Selected: 1, Value: "Purge Queue", Tag: tag})
 		}, name)
 		msgs := collectMsgs(cmd)
 		_, asked := firstOfType[msg.RequestConfirmMsg](msgs)
@@ -83,7 +83,7 @@ func TestSQSManageIgnoresForeignTags(t *testing.T) {
 	}
 	for name, tag := range foreignReplies((*sqsConfirmTag)(nil)) {
 		require.NotPanics(t, func() {
-			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_purge", Tag: tag})
+			_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Tag: tag})
 			assert.Nil(t, cmd, "confirm reply with %s", name)
 		}, name)
 	}
@@ -135,14 +135,14 @@ func TestSQSConfirmActsOnItsOwnTag(t *testing.T) {
 	svc.AssertExpectations(t)
 }
 
-// A yes runs the action of its tag. The Action string of the reply plays
-// no part (I3).
+// A yes runs the action of its tag (I3). The reply carries nothing else
+// that names an action.
 func TestManageConfirmRunsTheOpOfTheTag(t *testing.T) {
 	setReadWrite(t)
 	v, svc := newTestEC2List()
 	loadInstances(v, []aws.Instance{testRunningInstance})
 	svc.On("StopInstances", mock.Anything, []string{"i-running"}).Return(nil).Once()
-	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate",
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true,
 		Tag: &ec2ConfirmTag{op: ec2Stop, ids: []string{"i-running"}}})
 	require.NotNil(t, cmd)
 	collectMsgs(cmd)
@@ -152,7 +152,7 @@ func TestManageConfirmRunsTheOpOfTheTag(t *testing.T) {
 	charSQSReadWrite(t)
 	q, qsvc := charSQSThree(t)
 	qsvc.On("PurgeQueue", mock.Anything, charSQSURL("qa")).Return(nil).Once()
-	_, cmd = q.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "sqs_delete",
+	_, cmd = q.Update(msg.ConfirmResultMsg{Confirmed: true,
 		Tag: &sqsConfirmTag{op: sqsPurge, urls: []string{charSQSURL("qa")}}})
 	require.NotNil(t, cmd)
 	collectMsgs(cmd)

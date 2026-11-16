@@ -12,15 +12,14 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-// A prompt of a view can never run code of the app, also when its action
-// is the one that the quit confirm used before PR 6. The reply goes to the
-// view.
+// A prompt of a view can never run code of the app, also when it asks the
+// same question as the quit confirm. The reply goes to the view.
 func TestViewConfirmNeverRunsAnAppPrompt(t *testing.T) {
 	m := newTestModel(140, 40)
 	m = startTestOp(t, m)
 	v := newReplyView()
 	m.pushView(v)
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Quit?", Action: "app_quit", Quick: true}})
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Quit?", Quick: true}})
 	require.True(t, m.confirm.Visible())
 	assert.False(t, m.quitAsked())
 
@@ -29,7 +28,7 @@ func TestViewConfirmNeverRunsAnAppPrompt(t *testing.T) {
 	reply := cmd()
 	assert.IsType(t, overlayReplyMsg{}, reply)
 	m, cmd = update(t, m, reply)
-	assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true, Action: "app_quit"}}, v.confirms)
+	assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true}}, v.confirms)
 	if cmd != nil {
 		assert.NotEqual(t, tea.QuitMsg{}, cmd(), "the app does not quit")
 	}
@@ -37,19 +36,18 @@ func TestViewConfirmNeverRunsAnAppPrompt(t *testing.T) {
 	m.ops.CancelAll()
 }
 
-// A reply that no prompt of the app asked for runs no code of the app,
-// whatever its action or ID says.
+// A reply that no prompt of the app asked for runs no code of the app.
+// The reply has no tag of a prompt, so it runs nothing, whatever its value
+// says.
 func TestStrayRepliesRunNoAppCode(t *testing.T) {
 	m := newTestModel(140, 40)
 	m = startTestOp(t, m)
 	region := m.activeRegion()
 	for _, stray := range []tea.Msg{
-		msg.ConfirmResultMsg{Confirmed: true, Action: "app_quit"},
-		msg.ConfirmResultMsg{Confirmed: true, Action: "app_session_switch"},
-		msg.ConfirmResultMsg{Confirmed: true, Action: "theme_switch"},
-		msg.PickerResultMsg{ID: "region", Value: "eu-west-1"},
-		msg.PickerResultMsg{ID: "theme", Value: "latte"},
-		msg.PickerResultMsg{ID: "cancel_op", Value: "1"},
+		msg.ConfirmResultMsg{Confirmed: true},
+		msg.PickerResultMsg{Value: "eu-west-1"},
+		msg.PickerResultMsg{Value: "latte"},
+		msg.PickerResultMsg{Value: "1"},
 	} {
 		var cmd tea.Cmd
 		m, cmd = update(t, m, stray)
@@ -153,7 +151,7 @@ func TestClosePromptsSkipsHelpAndTheCommandBar(t *testing.T) {
 	// A reply without a route goes nowhere.
 	v := newReplyView()
 	m.pushView(v)
-	m, cmd := update(t, m, overlayReplyMsg{msg: msg.ConfirmResultMsg{Action: "a"}})
+	m, cmd := update(t, m, overlayReplyMsg{msg: msg.ConfirmResultMsg{}})
 	assert.Nil(t, cmd)
 	assert.Empty(t, v.confirms)
 }
@@ -225,19 +223,19 @@ func TestEveryPromptRequestIsRefusedWhileAPromptIsOpen(t *testing.T) {
 	discard := newDiscardRequest(t)
 	for _, c := range []tc{
 		{"confirm", func(t *testing.T, m Model, v *replyView) Model {
-			return ask(t, m, v, msg.RequestConfirmMsg{Message: "Go?", Action: "go"})
+			return ask(t, m, v, msg.RequestConfirmMsg{Message: "Go?"})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false, Action: "go"}}, v.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: false}}, v.confirms)
 		}},
 		{"action picker", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestActionPickerMsg{Options: []string{"Stop"}})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Outcome: msg.PickCancelled}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"sort picker", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, msg.RequestSortPickerMsg{Columns: []string{"Name"}})
 		}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.PickerResultMsg{{ID: "sort", Outcome: msg.PickCancelled}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"discard confirm", func(t *testing.T, m Model, v *replyView) Model {
 			return ask(t, m, v, discard)
@@ -316,10 +314,10 @@ func TestPromptFromBelowTheTopGetsAToastAndADecline(t *testing.T) {
 		want func(t *testing.T, v *replyView)
 	}{
 		{"action picker", msg.RequestActionPickerMsg{Options: []string{"Stop"}}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Outcome: msg.PickCancelled}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"sort picker", msg.RequestSortPickerMsg{Columns: []string{"Name"}}, func(t *testing.T, v *replyView) {
-			assert.Equal(t, []msg.PickerResultMsg{{ID: "sort", Outcome: msg.PickCancelled}}, v.picks)
+			assert.Equal(t, []msg.PickerResultMsg{{Outcome: msg.PickCancelled}}, v.picks)
 		}},
 		{"discard confirm", discard, func(t *testing.T, v *replyView) {
 			require.Len(t, v.confirms, 1)
@@ -347,7 +345,7 @@ func TestPromptFromBelowTheTopGetsAToastAndADecline(t *testing.T) {
 // view that the user left, and no decline.
 func TestPromptFromAGoneViewIsDropped(t *testing.T) {
 	for _, req := range []tea.Msg{
-		msg.RequestConfirmMsg{Message: "Go?", Action: "go"},
+		msg.RequestConfirmMsg{Message: "Go?"},
 		msg.RequestActionPickerMsg{Options: []string{"Stop"}},
 		newDiscardRequest(t),
 	} {

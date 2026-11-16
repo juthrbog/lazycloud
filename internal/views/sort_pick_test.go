@@ -79,14 +79,13 @@ func TestApplySortPick(t *testing.T) {
 	assert.True(t, unchanged(tb), "a cancel keeps the sort")
 }
 
-// A reply without a sortTag is not a sort reply: another tag, a nil tag, a
-// typed-nil tag, and an untagged reply with ID "sort" (I4).
+// A reply without a sortTag is not a sort reply: another tag, a nil tag and
+// a typed-nil tag (I4). A reply without the tag of the prompt runs nothing.
 func TestApplySortPickIgnoresOtherTags(t *testing.T) {
 	for name, r := range map[string]msg.PickerResultMsg{
-		"untagged":   {ID: "sort", Selected: 1},
-		"other tag":  {ID: "sort", Selected: 1, Tag: &helperTag{}},
-		"typed nil":  {ID: "sort", Selected: 1, Tag: (*sortTag)(nil)},
-		"action tag": {ID: "action", Selected: 1, Tag: &helperTag{}},
+		"untagged":  {Selected: 1},
+		"other tag": {Selected: 1, Tag: &helperTag{}},
+		"typed nil": {Selected: 1, Tag: (*sortTag)(nil)},
 	} {
 		tb := sortedTable()
 		assert.NotPanics(t, func() { assert.False(t, applySortPick(&tb, r), name) })
@@ -126,9 +125,9 @@ func TestSortPickerIsTaggedInEachView(t *testing.T) {
 		assert.Equal(t, req.Columns[1], cols[sorted], name)
 
 		for _, r := range []msg.PickerResultMsg{
-			{ID: "sort", Selected: 0},
-			{ID: "sort", Selected: 0, Tag: &helperTag{}},
-			{ID: "sort", Selected: 0, Tag: (*sortTag)(nil)},
+			{Selected: 0},
+			{Selected: 0, Tag: &helperTag{}},
+			{Selected: 0, Tag: (*sortTag)(nil)},
 		} {
 			assert.NotPanics(t, func() { v.Update(r) }, name)
 			_, now := sortedColumns(v)

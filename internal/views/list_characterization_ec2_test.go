@@ -683,7 +683,7 @@ func TestCharEC2_UpdateReturnsSamePointer(t *testing.T) {
 		tea.KeyPressMsg{Code: tea.KeyEscape}, tea.KeyPressMsg{Code: tea.KeyEscape},
 		pickColumn(t, sortReq, "Name"),
 		pickLabel(t, pickReq, "Stop"),
-		msg.PickerResultMsg{ID: "other", Selected: 0},
+		msg.PickerResultMsg{Selected: 0},
 		confirmReply(confirmReq, false),
 		ui.FilterChangedMsg{Text: "x"},
 		msg.FocusResourceMsg{ResourceID: "i-1"},
@@ -789,11 +789,11 @@ func TestCharEC2_ConfirmRequests(t *testing.T) {
 		op                ec2Op
 		want              msg.RequestConfirmMsg
 	}{
-		{"Start", "i-2", ec2Start, msg.RequestConfirmMsg{Message: "Start 1 instance(s)?\n  db (i-2)\n", Action: "ec2_start", Quick: true}},
-		{"Stop", "i-1", ec2Stop, msg.RequestConfirmMsg{Message: "Stop 1 instance(s)?\n  web (i-1)\n", Action: "ec2_stop"}},
+		{"Start", "i-2", ec2Start, msg.RequestConfirmMsg{Message: "Start 1 instance(s)?\n  db (i-2)\n", Quick: true}},
+		{"Stop", "i-1", ec2Stop, msg.RequestConfirmMsg{Message: "Stop 1 instance(s)?\n  web (i-1)\n"}},
 		// i-3 has no name, so the prompt shows its ID.
-		{"Reboot", "i-1,i-3", ec2Reboot, msg.RequestConfirmMsg{Message: "Reboot 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_reboot"}},
-		{"Terminate", "i-1,i-3", ec2Terminate, msg.RequestConfirmMsg{Message: "Terminate 2 instance(s)?\n  web (i-1)\n  i-3\n", Action: "ec2_terminate"}},
+		{"Reboot", "i-1,i-3", ec2Reboot, msg.RequestConfirmMsg{Message: "Reboot 2 instance(s)?\n  web (i-1)\n  i-3\n"}},
+		{"Terminate", "i-1,i-3", ec2Terminate, msg.RequestConfirmMsg{Message: "Terminate 2 instance(s)?\n  web (i-1)\n  i-3\n"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.action, func(t *testing.T) {
@@ -841,30 +841,17 @@ func TestCharEC2_DeclineRunsNothing(t *testing.T) {
 }
 
 // The view acts only on a reply that carries an ec2ConfirmTag. A reply
-// without the tag runs nothing, whatever its Action says.
+// without the tag of the prompt runs nothing.
 func TestCharEC2_UntaggedConfirmRunsNothing(t *testing.T) {
-	t.Run("other ec2 action", func(t *testing.T) {
-		v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
-		p := charEC2Picker(t, v)
-		charEC2Confirm(t, v, p, "Stop")
-		_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "ec2_terminate"})
-		// Divergence #25 (fixed in PR 2).
-		assert.Nil(t, cmd, "a reply without the tag runs nothing")
-		assert.Equal(t, "3/3 instances", plain(v.Footer()))
-		assert.Contains(t, charEC2Lines(v)[2], "● running")
-		svc.AssertNotCalled(t, "TerminateInstances", mock.Anything, mock.Anything)
-		svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
-	})
-	t.Run("unknown action", func(t *testing.T) {
-		v, _ := charEC2Loaded(t, nil, charEC2Instances()...)
-		p := charEC2Picker(t, v)
-		charEC2Confirm(t, v, p, "Stop")
-		_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true, Action: "delete_bucket"})
-		assert.Nil(t, cmd, "a reply without the tag runs nothing")
-		// Divergence #25 and #26 (fixed in PR 2): no spinner.
-		assert.Equal(t, "3/3 instances", plain(v.Footer()))
-		assert.Contains(t, charEC2Lines(v)[2], "● running")
-	})
+	v, svc := charEC2Loaded(t, nil, charEC2Instances()...)
+	p := charEC2Picker(t, v)
+	charEC2Confirm(t, v, p, "Stop")
+	_, cmd := v.Update(msg.ConfirmResultMsg{Confirmed: true})
+	// Divergence #25 and #26 (fixed in PR 2): no call and no spinner.
+	assert.Nil(t, cmd, "a reply without the tag of the prompt runs nothing")
+	assert.Equal(t, "3/3 instances", plain(v.Footer()))
+	assert.Contains(t, charEC2Lines(v)[2], "● running")
+	svc.AssertNotCalled(t, "StopInstances", mock.Anything, mock.Anything)
 }
 
 func TestCharEC2_OptimisticStatesAndSpinner(t *testing.T) {

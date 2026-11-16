@@ -21,9 +21,7 @@ import (
 // A view asks with a request, and the app answers with a reply. These
 // helpers build the reply that the app sends from the request that the view
 // sent, so a test answers the real request. The reply copies the Tag of
-// the request, as the app does (docs/design/a12-view-tags.md). Until PR 6
-// of A12 it also copies the Action of a confirm and uses the picker ID of
-// the app ("action" or "sort").
+// the request, as the app does (docs/design/a12-view-tags.md).
 
 // requestOf runs cmd and returns the message of type T. It fails the test
 // when cmd sends none, or more than one, because a view asks for one prompt
@@ -56,7 +54,7 @@ func answerYes(t testing.TB, v tea.Model, req msg.RequestConfirmMsg) {
 // and a no otherwise. A no is also the decline that the app sends when it
 // refuses req.
 func confirmReply(req msg.RequestConfirmMsg, yes bool) msg.ConfirmResultMsg {
-	return msg.ConfirmResultMsg{Confirmed: yes, Action: req.Action, Tag: req.Tag}
+	return msg.ConfirmResultMsg{Confirmed: yes, Tag: req.Tag}
 }
 
 // pickLabel is the reply of the action picker of req when the user picks
@@ -65,7 +63,7 @@ func pickLabel(t testing.TB, req msg.RequestActionPickerMsg, label string) msg.P
 	t.Helper()
 	i := slices.Index(req.Options, label)
 	require.GreaterOrEqual(t, i, 0, "no option %q in %q", label, req.Options)
-	return msg.PickerResultMsg{ID: "action", Selected: i, Value: label, Tag: req.Tag}
+	return msg.PickerResultMsg{Selected: i, Value: label, Tag: req.Tag}
 }
 
 // pickColumn is the reply of the sort picker of req when the user picks
@@ -74,7 +72,7 @@ func pickColumn(t testing.TB, req msg.RequestSortPickerMsg, title string) msg.Pi
 	t.Helper()
 	i := slices.Index(req.Columns, title)
 	require.GreaterOrEqual(t, i, 0, "no column %q in %q", title, req.Columns)
-	return msg.PickerResultMsg{ID: "sort", Selected: i, Value: title, Tag: req.Tag}
+	return msg.PickerResultMsg{Selected: i, Value: title, Tag: req.Tag}
 }
 
 // cancelPick is the reply of the picker of req when the user presses esc.
@@ -82,9 +80,9 @@ func pickColumn(t testing.TB, req msg.RequestSortPickerMsg, title string) msg.Pi
 func cancelPick[R msg.RequestActionPickerMsg | msg.RequestSortPickerMsg](req R) msg.PickerResultMsg {
 	switch r := any(req).(type) {
 	case msg.RequestSortPickerMsg:
-		return msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCancelled, Tag: r.Tag}
+		return msg.PickerResultMsg{Outcome: msg.PickCancelled, Tag: r.Tag}
 	case msg.RequestActionPickerMsg:
-		return msg.PickerResultMsg{ID: "action", Outcome: msg.PickCancelled, Tag: r.Tag}
+		return msg.PickerResultMsg{Outcome: msg.PickCancelled, Tag: r.Tag}
 	}
 	panic("unreachable")
 }
@@ -92,7 +90,7 @@ func cancelPick[R msg.RequestActionPickerMsg | msg.RequestSortPickerMsg](req R) 
 // clearSort is the reply of the sort picker of req when the user presses
 // ctrl+x.
 func clearSort(req msg.RequestSortPickerMsg) msg.PickerResultMsg {
-	return msg.PickerResultMsg{ID: "sort", Outcome: msg.PickCleared, Tag: req.Tag}
+	return msg.PickerResultMsg{Outcome: msg.PickCleared, Tag: req.Tag}
 }
 
 // sortRequest presses s on v and returns the sort picker request.

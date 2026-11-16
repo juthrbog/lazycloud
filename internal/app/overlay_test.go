@@ -68,13 +68,13 @@ func TestOverlayPin_ConfirmOverHelpAndCommandBar(t *testing.T) {
 			m, _ = update(t, m, press(tc.open))
 			require.True(t, tc.shown(m))
 
-			m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Action: "start", Quick: true}})
+			m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Start it?", Quick: true}})
 			require.True(t, m.confirm.Visible(), "the confirm shows over the %s", tc.name)
 
 			m = answer(t, m, press("y"))
 			assert.False(t, m.confirm.Visible())
 			assert.True(t, tc.shown(m), "the %s stays open under the confirm", tc.name)
-			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true, Action: "start"}}, v.confirms)
+			assert.Equal(t, []msg.ConfirmResultMsg{{Confirmed: true}}, v.confirms)
 		})
 	}
 }
@@ -118,13 +118,12 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 			assert.Equal(t, tc.hint, strings.Contains(ansi.Strip(m.picker.View()), "ctrl+x clear"), "the clear hint")
 			m = answer(t, m, press("esc"))
 			assert.False(t, m.picker.Visible())
-			id := tc.name
-			assert.Equal(t, []msg.PickerResultMsg{{ID: id, Outcome: msg.PickCancelled}}, v.picks, "esc reaches the view")
+			assert.Equal(t, []msg.PickerResultMsg{{Outcome: msg.PickCancelled}}, v.picks, "esc reaches the view")
 
 			m, _ = update(t, m, nav.Routed{Origin: v, Msg: tc.req})
 			m = answer(t, m, keyCtrlX)
 			assert.False(t, m.picker.Visible())
-			assert.Equal(t, msg.PickerResultMsg{ID: id, Outcome: tc.clear}, v.picks[len(v.picks)-1])
+			assert.Equal(t, msg.PickerResultMsg{Outcome: tc.clear}, v.picks[len(v.picks)-1])
 			assert.Len(t, v.picks, 2)
 		})
 	}
@@ -210,7 +209,7 @@ func TestOverlayPin_ReplyGoesToTheViewThatAsked(t *testing.T) {
 	other := newReplyView()
 	m.pushView(other)
 	m = answer(t, m, keyEnter)
-	assert.Equal(t, []msg.PickerResultMsg{{ID: "action", Selected: 0, Value: "Stop"}}, asker.picks)
+	assert.Equal(t, []msg.PickerResultMsg{{Selected: 0, Value: "Stop"}}, asker.picks)
 	assert.Empty(t, other.picks, "the view on top gets no reply")
 }
 

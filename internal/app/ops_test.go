@@ -40,9 +40,9 @@ func TestSkippedPromptIsANoForItsView(t *testing.T) {
 	m.pushView(v)
 	m.askQuit("Quit?")
 
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Replace it?", Action: "s3_overwrite:1"}})
+	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestConfirmMsg{Message: "Replace it?"}})
 	require.Len(t, v.answers, 1)
-	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: false, Action: "s3_overwrite:1"}, v.answers[0])
+	assert.Equal(t, msg.ConfirmResultMsg{Confirmed: false}, v.answers[0])
 	assert.True(t, m.quitAsked(), "the quit confirm stays")
 }
 
@@ -233,7 +233,7 @@ func TestLatePromptDoesNotReplaceAnOpenPrompt(t *testing.T) {
 	m, _ = update(t, m, press("q"))
 	require.True(t, m.quitAsked())
 
-	late := msg.RequestConfirmMsg{Message: "s3://b/k exists. Replace it?", Action: "s3_overwrite"}
+	late := msg.RequestConfirmMsg{Message: "s3://b/k exists. Replace it?"}
 	m, cmd := update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: late})
 	assert.True(t, m.confirm.Visible())
 	assert.True(t, m.quitAsked(), "the open prompt stays")
@@ -247,7 +247,7 @@ func TestPromptFromAViewNotOnTopIsSkippedWithAToast(t *testing.T) {
 	below := m.nav.Current()
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 
-	m, _ = update(t, m, nav.Routed{Origin: below, Msg: msg.RequestConfirmMsg{Message: "Replace it?", Action: "s3_overwrite"}})
+	m, _ = update(t, m, nav.Routed{Origin: below, Msg: msg.RequestConfirmMsg{Message: "Replace it?"}})
 	assert.False(t, m.confirm.Visible())
 	assert.True(t, m.toasts.HasActive())
 }

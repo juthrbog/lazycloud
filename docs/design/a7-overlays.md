@@ -185,7 +185,7 @@ Each PR is small and keeps all tests green. Each PR keeps the behavior the same,
 - PR 6, typed handlers for the app's own prompts. Remove `pendingTheme`, `pendingSession`, the action constants and the picker IDs of the app. Add `closePrompts`. No behavior change.
 - PR 7: one rule for all prompt requests while a prompt is open (D3).
 - PR 8, cleanup and docs. Remove the old reply cases, the untagged paths, `Selected: -1` for a cancel, `Confirm.Action()` and the aliases. Update `ARCHITECTURE.md`, `KEYBINDINGS.md`, the tracker and the A10 note.
-- Not in A7 (D1): typed tags in the views. A new tracker item, A12, keeps them: typed confirm tags (removes `pendingConfirm` and `"s3_overwrite:N"`) and typed sort and action pickers (removes the label matching and `PickerResultMsg.ID`).
+- Not in A7 (D1): typed tags in the views. A new tracker item, A12, keeps them: typed confirm tags (removes `pendingConfirm` and `"s3_overwrite:N"`) and typed sort and action pickers (removes the label matching and `PickerResultMsg.ID`). A12 did them.
 
 ## Decisions
 

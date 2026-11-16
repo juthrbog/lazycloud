@@ -123,7 +123,7 @@ func TestStatusBarShowsSafeError(t *testing.T) {
 
 func TestConfirmShowsSafeMessageAndKeepsLines(t *testing.T) {
 	c := NewConfirm()
-	c.Show("Delete 1 object(s)?\n  key-"+dcs+"\nA folder is deleted.", "delete_objects", "")
+	c.Show("Delete 1 object(s)?\n  key-"+dcs+"\nA folder is deleted.", "")
 
 	out := c.View()
 	assertTerminalSafe(t, out)
@@ -132,7 +132,7 @@ func TestConfirmShowsSafeMessageAndKeepsLines(t *testing.T) {
 	assert.True(t, hasLine(lines, "key-␛P$qm␛\\"))
 	assert.True(t, hasLine(lines, "A folder is deleted."))
 
-	c.ShowQuick("Move all messages of q"+csi8+"?", "sqs_redrive")
+	c.ShowQuick("Move all messages of q" + csi8 + "?")
 	out = c.View()
 	assertTerminalSafe(t, out)
 	assert.Contains(t, ansi.Strip(out), "q�7m?")
@@ -140,7 +140,7 @@ func TestConfirmShowsSafeMessageAndKeepsLines(t *testing.T) {
 
 func TestConfirmShowsSafePhrase(t *testing.T) {
 	c := NewConfirm()
-	c.Show("Delete?", "delete_bucket", "b"+csi8)
+	c.Show("Delete?", "b"+csi8)
 	out := c.View()
 	assertTerminalSafe(t, out)
 	assert.Contains(t, ansi.Strip(out), "type 'b�7m' + enter")
@@ -169,7 +169,7 @@ func TestHeaderShowsSafeBreadcrumbs(t *testing.T) {
 
 func TestPickerShowsSafeText(t *testing.T) {
 	p := NewPicker()
-	p.Show("action", "Manage k-"+dcs, []PickerOption{{Label: "Copy " + csi8, Value: "copy"}}, 0)
+	p.Show("Manage k-"+dcs, []PickerOption{{Label: "Copy " + csi8, Value: "copy"}}, 0)
 
 	out := p.View()
 	assertTerminalSafe(t, out)

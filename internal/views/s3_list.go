@@ -314,7 +314,6 @@ func (s *S3List) askDelete() tea.Cmd {
 	message, phrase := deleteBucketsPrompt(names)
 	req := msg.RequestConfirmMsg{
 		Message: message,
-		Action:  "delete_bucket",
 		Phrase:  phrase,
 		Tag:     &s3BucketDeleteTag{names: slices.Clone(names)},
 	}

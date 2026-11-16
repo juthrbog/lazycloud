@@ -242,10 +242,8 @@ func TestListCore_SpinnerTicksWhileVisible(t *testing.T) {
 
 func TestListCore_HandleIgnoresOtherPicker(t *testing.T) {
 	c := newFakeCore(t, fetchReturns(nil))
-	_, ok := c.handle(msg.PickerResultMsg{ID: "action", Selected: 0})
-	assert.False(t, ok)
-	_, ok = c.handle(msg.PickerResultMsg{ID: "sort", Selected: 0})
-	assert.False(t, ok, "a sort reply needs the sort tag")
+	_, ok := c.handle(msg.PickerResultMsg{Selected: 0})
+	assert.False(t, ok, "a reply without the tag of the prompt runs nothing")
 	_, ok = c.handle(pickColumn(t, requestOf[msg.RequestSortPickerMsg](t, askSort(&c.table)), "Name"))
 	assert.True(t, ok)
 }

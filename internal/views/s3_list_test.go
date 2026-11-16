@@ -95,8 +95,8 @@ func TestS3List_DeleteTriggersConfirm(t *testing.T) {
 	result := cmd()
 	confirm, ok := result.(msg.RequestConfirmMsg)
 	require.True(t, ok, "expected RequestConfirmMsg, got %T", result)
-	assert.Equal(t, "delete_bucket", confirm.Action)
 	assert.Contains(t, confirm.Message, "test-bucket")
+	assert.IsType(t, &s3BucketDeleteTag{}, confirm.Tag, "a bucket delete")
 }
 
 // --- Multi-select ---

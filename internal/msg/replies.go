@@ -17,7 +17,6 @@ type PromptTag interface{ PromptTag() }
 // ConfirmResultMsg is the reply of a confirm dialog.
 type ConfirmResultMsg struct {
 	Confirmed bool
-	Action    string // the Action of the RequestConfirmMsg
 	// Tag is the Tag of the request. It is nil for the prompts of the app.
 	Tag PromptTag
 }
@@ -39,7 +38,6 @@ const (
 
 // PickerResultMsg is the reply of a picker.
 type PickerResultMsg struct {
-	ID       string      // picker identifier
 	Outcome  PickOutcome // how the picker closed
 	Selected int         // the index of the picked option; only set when Outcome is Picked
 	Value    string      // the value of the picked option; empty when Outcome is not Picked
