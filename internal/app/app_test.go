@@ -715,8 +715,8 @@ func TestCrossNavSavesPanelState(t *testing.T) {
 
 	assert.False(t, m.panels.IsOpen())
 	require.Len(t, m.panels.history, 1)
-	assert.Equal(t, "web-server-1 (i-123)", m.panels.history[0].snap.title)
-	assert.Len(t, m.panels.history[0].snap.tabs, 2)
+	assert.Equal(t, "web-server-1 (i-123)", m.panels.history[0].state.title)
+	assert.Equal(t, 2, m.panels.history[0].state.panel.TabCount())
 }
 
 func TestCrossNavBackRestoresPanel(t *testing.T) {
@@ -768,7 +768,7 @@ func TestCrossNavHistoryBounded(t *testing.T) {
 
 	// Push more than max entries
 	for i := range historyMax + 5 {
-		m.panels.Open("entry", []msg.TabContent{{Title: "Info", Content: "x"}})
+		m.panels.Open("entry", []msg.TabContent{{Title: "Info", Content: "x"}}, m.nav.Current())
 		m.panels.Push(i + 1)
 	}
 
@@ -787,8 +787,8 @@ func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
 
 	// Add history entries at different depths
 	m.panels.history = []historyEntry{
-		{depth: 2, snap: panelSnapshot{title: "deep"}},
-		{depth: 1, snap: panelSnapshot{title: "shallow"}},
+		{depth: 2, state: panelState{title: "deep", owner: m.nav.Views()[1]}},
+		{depth: 1, state: panelState{title: "shallow", owner: m.nav.Views()[0]}},
 	}
 
 	// Manual back (esc → NavigateBackMsg) should trim entries at depth >= current
@@ -797,7 +797,7 @@ func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
 
 	assert.Equal(t, 2, m.nav.Depth())
 	require.Len(t, m.panels.history, 1)
-	assert.Equal(t, "shallow", m.panels.history[0].snap.title)
+	assert.Equal(t, "shallow", m.panels.history[0].state.title)
 }
 
 func TestBackspaceHintOnlyShownWithHistory(t *testing.T) {
@@ -811,7 +811,7 @@ func TestBackspaceHintOnlyShownWithHistory(t *testing.T) {
 
 	// Add history — hint should appear
 	m.panels.history = []historyEntry{
-		{depth: 1, snap: panelSnapshot{title: "test"}},
+		{depth: 1, state: panelState{title: "test"}},
 	}
 	hints = m.currentKeyHints()
 	descs := make([]string, len(hints))

@@ -1,6 +1,6 @@
 # A6: a controller for the side panel
 
-Status: approved on 2026-11-16, with all proposed answers. PR 0 adds the tests in `internal/app/a6_pins_test.go`. PR 1 fixes H7. PR 2 adds `panelController` with the same behavior.
+Status: approved on 2026-11-16, with all proposed answers. PR 0 adds the tests in `internal/app/a6_pins_test.go`. PR 1 fixes H7. PR 2 adds `panelController` with the same behavior. PR 3 fixes H1 and H3.
 
 ## Summary
 

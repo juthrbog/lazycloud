@@ -417,7 +417,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.panels.Hide()
 			m.resizeViews()
 		}
-		if !m.panels.IsOpen() && m.canShowPanel() && m.panels.Unhide() {
+		if !m.panels.IsOpen() && m.canShowPanel() && m.panels.Unhide(m.nav.Current()) {
 			eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", m.panels.Title(), m.panels.Panel().TabCount())
 		}
 		m.resizeViews()
@@ -501,8 +501,10 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ui.ContentLinkActivatedMsg:
-		// Save panel state before cross-navigation for back traversal
-		if m.panels.IsOpen() {
+		// Save the panel for back traversal. A link to a row of the view on
+		// top only moves its cursor, so it leaves no entry (decision D3).
+		sameView := msg.Params["focus"] != "" && m.nav.Current().ID() == msg.ViewID
+		if m.panels.IsOpen() && !sameView {
 			m.panels.Push(m.nav.Depth())
 		}
 		m.closePanel()
@@ -791,7 +793,7 @@ func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
 }
 
 func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
-	m.panels.Open(title, tabs)
+	m.panels.Open(title, tabs, m.nav.Current())
 	m.resizeViews()
 	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
 }
@@ -813,10 +815,11 @@ func (m *Model) dismissPanel() {
 }
 
 // popCrossNavBack pops the cross-nav history, goes back to the view that
-// showed the panel, and restores the panel. The user can open more views
-// after a link, so it pops to the saved depth, not one level.
+// showed the panel, and restores the panel as the user left it. The user can
+// open more views after a link, so it pops to the saved depth, not one level.
+// An entry whose view is gone is dropped.
 func (m *Model) popCrossNavBack() {
-	entry, ok := m.panels.PopHistory()
+	entry, ok := m.panels.Back(m.nav.Views())
 	if !ok {
 		return
 	}
@@ -828,15 +831,18 @@ func (m *Model) popCrossNavBack() {
 	if !m.canShowPanel() {
 		// The terminal got narrow after the link. The panel opens when the
 		// terminal is wide again.
-		m.panels.StashSnapshot(entry.snap)
+		m.panels.StashState(entry.state)
 		return
 	}
-	m.openTabbedPanel(entry.snap.title, entry.snap.tabs)
+	m.panels.Restore(entry.state)
+	m.resizeViews()
+	eventlog.Infof(eventlog.CatUI, "Panel restored: %s", entry.state.title)
 }
 
-// trimCrossNavHistory removes stale entries whose source depth is no longer on the stack.
+// trimCrossNavHistory drops the history entries whose view is no longer at
+// its depth, and the entries of the view on top.
 func (m *Model) trimCrossNavHistory() {
-	m.panels.Trim(m.nav.Depth())
+	m.panels.Trim(m.nav.Views())
 }
 
 // chromeHeight returns the vertical lines consumed by fixed layout chrome:
