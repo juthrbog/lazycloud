@@ -1,6 +1,6 @@
 # A6: a controller for the side panel
 
-Status: approved on 2026-11-16, with all proposed answers. PR 0 adds the tests in `internal/app/a6_pins_test.go`.
+Status: approved on 2026-11-16, with all proposed answers. PR 0 adds the tests in `internal/app/a6_pins_test.go`. PR 1 fixes H7.
 
 ## Summary
 
@@ -151,7 +151,7 @@ Each PR keeps every invariant, except where the PR names a change.
 
 Each PR runs the unit tests, `go vet`, golangci-lint with gosec and the LocalStack smoke tests.
 
-- PR 0, tests only. Tests pin H1 to H7 as they are today, each marked with the PR that changes it. Tests pin the behavior that must stay: I1 to I9, a link to another view and back, a chain of two links, back after a narrow terminal, the depth cap, and `q` after a link. A test named `TestA6Hazard_...` pins a hazard, and the PR that fixes it flips the test.
+- PR 0, tests only. Tests pin H1 to H7 as they are today, each marked with the PR that changes it. Tests pin the behavior that must stay: I1 to I9, a link to another view and back, a chain of two links, back after a narrow terminal, the depth cap, and `q` after a link. A test named `TestA6Hazard_...` pins a hazard. The PR that fixes it flips the test and renames it `TestA6_<hazard>_<new behavior>`.
 - PR 1. `TabbedPanel.SetSize` resizes every viewer (H7, L7).
 - PR 2. Add `panelController` and move the fields and the functions into it, with the same behavior. Only `internal/app` changes.
 - PR 3. Owners and saved panels: the stash and the history keep the panel, its focus and its owner (H1). A link to the view on top adds no entry (H3).

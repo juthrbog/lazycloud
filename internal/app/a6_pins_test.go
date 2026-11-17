@@ -19,7 +19,8 @@ import (
 // The tests in this file pin the side panel before A6
 // (docs/design/a6-panel-controller.md). A test named TestA6Hazard_... pins a
 // hazard as it is today. Its comment names the PR that changes it, and that PR
-// flips the test. A test named TestA6Keep_... pins behavior that A6 keeps.
+// flips the test and renames it TestA6_<hazard>_<new behavior>. A test named
+// TestA6Keep_... pins behavior that A6 keeps.
 //
 // The helpers below are the only code here that reads the panel fields of
 // Model. PR 2 moves the fields into panelController and changes only these
@@ -346,26 +347,47 @@ func TestA6Hazard_H6_BackLabelOverAForm(t *testing.T) {
 	assert.Equal(t, 1, historyLenOf(m))
 }
 
-// H7 (L7). A tab that was shown before keeps its old width after the panel
-// gets narrower. PR 1 flips this: every tab gets the width of the panel.
-func TestA6Hazard_H7_HiddenTabKeepsItsOldWidth(t *testing.T) {
+// H7 (L7). Fixed in PR 1: a tab that was shown before gets the new width when
+// the panel width changes or the terminal is resized.
+func TestA6_H7_EveryTabHasThePanelWidth(t *testing.T) {
 	long := strings.Repeat("abcdefghij", 30)
 	tabs := []msg.TabContent{
 		{Title: "One", Content: long, Format: "text"},
 		{Title: "Two", Content: long, Format: "text"},
 	}
-	m := newTestModel(200, 40)
-	m, _ = update(t, m, msg.TabbedContentMsg{PanelTitle: "p", Tabs: tabs})
-	require.True(t, panelShown(m))
-	m, _ = update(t, m, press("2"))
-	m, _ = update(t, m, press("1"))
-	for range 4 {
-		m, _ = update(t, m, press(">"))
-	}
-	m, _ = update(t, m, press("2"))
+	for name, change := range map[string]func(t *testing.T, m Model) Model{
+		"panel width keys": func(t *testing.T, m Model) Model {
+			for range 4 {
+				m, _ = update(t, m, press(">"))
+			}
+			return m
+		},
+		"terminal resize": func(t *testing.T, m Model) Model {
+			m, _ = update(t, m, tea.WindowSizeMsg{Width: 160, Height: 30})
+			return m
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			m := newTestModel(200, 40)
+			m, _ = update(t, m, msg.TabbedContentMsg{PanelTitle: "p", Tabs: tabs})
+			require.True(t, panelShown(m))
+			m, _ = update(t, m, press("2"))
+			m, _ = update(t, m, press("1"))
+			before := a6MaxWidth(panelViewOf(m))
+			m = change(t, m)
+			tab1 := panelViewOf(m)
+			require.NotEqual(t, before, a6MaxWidth(tab1), "the panel width changed")
 
-	assert.Greater(t, a6MaxWidth(panelViewOf(m)), m.panelWidth(), "tab 2 is wider than the panel")
-	assert.Greater(t, a6MaxWidth(ansi.Strip(m.View().Content)), m.width, "the screen is wider than the terminal")
+			m, _ = update(t, m, press("2"))
+
+			assert.Equal(t, a6MaxWidth(tab1), a6MaxWidth(panelViewOf(m)), "tab 2 has the width of tab 1")
+			// Only the terminal resize changes the height. The ui test
+			// TestTabbedPanelSetSizeResizesHiddenTabs checks the height of
+			// each viewer.
+			assert.Equal(t, strings.Count(tab1, "\n"), strings.Count(panelViewOf(m), "\n"), "tab 2 has the height of tab 1")
+			assert.LessOrEqual(t, a6MaxWidth(ansi.Strip(m.View().Content)), m.width, "the screen fits the terminal")
+		})
+	}
 }
 
 // --- Behavior that A6 keeps ---

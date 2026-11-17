@@ -125,12 +125,17 @@ func (tp TabbedPanel) ActiveTab() int {
 	return tp.active
 }
 
-// SetSize sets the panel dimensions and resizes the active viewer.
+// SetSize sets the panel dimensions and resizes the viewer of every tab that
+// has one. A tab that was shown before keeps its viewer, so it must get the
+// new size too (L7).
 func (tp *TabbedPanel) SetSize(w, h int) {
 	tp.width = w
 	tp.height = h
-	if tp.active < len(tp.tabs) && tp.tabs[tp.active].viewer != nil {
-		tp.tabs[tp.active].viewer.SetSize(w, tp.viewerHeight())
+	vh := tp.viewerHeight()
+	for i := range tp.tabs {
+		if tp.tabs[i].viewer != nil {
+			tp.tabs[i].viewer.SetSize(w, vh)
+		}
 	}
 }
 
