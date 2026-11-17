@@ -1,6 +1,8 @@
 # A6: a controller for the side panel
 
-Status: approved on 2026-11-16, with all proposed answers. PR 0 adds the tests in `internal/app/a6_pins_test.go`. PR 1 fixes H7. PR 2 adds `panelController` with the same behavior. PR 3 fixes H1 and H3.
+Status: done on 2026-11-17. The design was approved on 2026-11-16, with all proposed answers. PR 0 (#284) adds the tests in `internal/app/a6_pins_test.go`. PR 1 (#288) fixes H7. PR 2 (#289) adds `panelController` with the same behavior. PR 3 (#290) fixes H1 and H3. PR 4 fixes H2, H4, H5 and H6.
+
+The code differs from the sketch below in small points. `panelState` also keeps the title. The panel on screen is a `panelState` value, not a pointer. `Back` returns the entry, and the app pops the navigator and calls `Restore`. The focus argument comes last in `Open`, `Unhide` and `Restore`.
 
 ## Summary
 

@@ -53,6 +53,15 @@ func (h *HelpOverlay) SetSize(width, height int) {
 	h.viewport.SetXOffset(h.viewport.XOffset())
 }
 
+// SetHints replaces the hints of the help overlay. While it is open, it lays
+// out the text again. The filter and the scroll position stay.
+func (h *HelpOverlay) SetHints(hints []HintBinding) {
+	h.hints = hints
+	if h.visible {
+		h.viewport.SetContent(h.renderContent())
+	}
+}
+
 // Hide dismisses the help overlay.
 func (h *HelpOverlay) Hide() {
 	h.visible = false

@@ -417,44 +417,24 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.panels.Hide()
 			m.resizeViews()
 		}
-		if !m.panels.IsOpen() && m.canShowPanel() && m.panels.Unhide(m.nav.Current()) {
+		if !m.panels.IsOpen() && m.canShowPanel() && m.panels.Unhide(m.nav.Current(), !m.capturingInput()) {
 			eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", m.panels.Title(), m.panels.Panel().TabCount())
 		}
 		m.resizeViews()
+		m.refreshHelp()
 		return m, nil
 
-	case appmsg.NavigateMsg:
-		// Show content in side panel when space permits
-		if msg.ViewID == "content" && m.canShowPanel() {
-			format := ui.ContentFormat(msg.Params["format"])
-			m.openPanel(msg.Params["title"], msg.Params["content"], format)
+	case panelRouted:
+		// A result of a panel command. A panel that closed, or an older
+		// panel, may not act on what the user sees now (H4).
+		if !m.panels.IsCurrent(msg.gen) {
+			eventlog.Debugf(eventlog.CatUI, "Dropped %T from panel %d: panel is not on screen", msg.msg, msg.gen)
 			return m, nil
 		}
-		// Non-content navigation closes the panel
-		m.dismissPanel()
-		if focusID := msg.Params["focus"]; focusID != "" && m.nav.Current().ID() == msg.ViewID {
-			// A link to another row of the view on top only moves its
-			// cursor. Pushing would put the same view on the stack twice.
-			return m, func() tea.Msg { return appmsg.FocusResourceMsg{ResourceID: focusID} }
-		}
-		if m.svcErr != nil && needsSession(msg.ViewID) {
-			_, cmd := m.toasts.Add(noSessionText(m.svcErr), ui.ToastError, 0)
-			return m, cmd
-		}
-		view := m.resolveView(msg)
-		if view != nil {
-			eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
-			cmd := m.pushView(view)
-			if focusID := msg.Params["focus"]; focusID != "" {
-				focusCmd := func() tea.Msg {
-					return appmsg.FocusResourceMsg{ResourceID: focusID}
-				}
-				return m, tea.Batch(cmd, focusCmd)
-			}
-			return m, cmd
-		}
-		eventlog.Warnf(eventlog.CatNav, "Unknown view: %s", msg.ViewID)
-		return m, nil
+		return m.Update(msg.msg)
+
+	case appmsg.NavigateMsg:
+		return m.navigate(msg)
 
 	case appmsg.NavigateBackMsg:
 		m.dismissPanel()
@@ -476,16 +456,14 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		// Narrow terminal fallback: push first tab as full-screen content
 		if len(msg.Tabs) > 0 {
 			first := msg.Tabs[0]
-			return m, func() tea.Msg {
-				return appmsg.NavigateMsg{
-					ViewID: "content",
-					Params: map[string]string{
-						"title":   first.Title,
-						"content": first.Content,
-						"format":  first.Format,
-					},
-				}
-			}
+			return m.navigate(appmsg.NavigateMsg{
+				ViewID: "content",
+				Params: map[string]string{
+					"title":   first.Title,
+					"content": first.Content,
+					"format":  first.Format,
+				},
+			})
 		}
 		return m, nil
 
@@ -508,11 +486,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.panels.Push(m.nav.Depth())
 		}
 		m.closePanel()
-		viewID := msg.ViewID
-		params := msg.Params
-		return m, func() tea.Msg {
-			return appmsg.NavigateMsg{ViewID: viewID, Params: params}
-		}
+		return m.navigate(appmsg.NavigateMsg{ViewID: msg.ViewID, Params: msg.Params})
 
 	case appmsg.ToastMsg:
 		_, cmd := m.toasts.Add(msg.Text, ui.ToastLevel(msg.Level), 0)
@@ -639,7 +613,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.dismissPanel()
 				return m, nil
 			case key.Matches(msg, m.keys.PanelEditor.Binding):
-				return m, m.panels.Panel().OpenInEditorCmd()
+				return m, m.panels.EditorCmd()
 			case key.Matches(msg, m.keys.PanelGrow.Binding):
 				m.panels.SetWidth(m.panelWidth() + panelResizeStep)
 				m.resizeViews()
@@ -682,6 +656,43 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	cmd := m.nav.UpdateCurrent(teaMsg)
 	return m, cmd
+}
+
+// navigate handles a NavigateMsg. The link of a panel and the narrow
+// fallback of TabbedContentMsg call it directly, so no key can change the
+// stack between them and the navigation (H4).
+func (m Model) navigate(msg appmsg.NavigateMsg) (Model, tea.Cmd) {
+	// Show content in side panel when space permits
+	if msg.ViewID == "content" && m.canShowPanel() {
+		format := ui.ContentFormat(msg.Params["format"])
+		m.openPanel(msg.Params["title"], msg.Params["content"], format)
+		return m, nil
+	}
+	// Non-content navigation closes the panel
+	m.dismissPanel()
+	if focusID := msg.Params["focus"]; focusID != "" && m.nav.Current().ID() == msg.ViewID {
+		// A link to another row of the view on top only moves its
+		// cursor. Pushing would put the same view on the stack twice.
+		return m, func() tea.Msg { return appmsg.FocusResourceMsg{ResourceID: focusID} }
+	}
+	if m.svcErr != nil && needsSession(msg.ViewID) {
+		_, cmd := m.toasts.Add(noSessionText(m.svcErr), ui.ToastError, 0)
+		return m, cmd
+	}
+	view := m.resolveView(msg)
+	if view != nil {
+		eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
+		cmd := m.pushView(view)
+		if focusID := msg.Params["focus"]; focusID != "" {
+			focusCmd := func() tea.Msg {
+				return appmsg.FocusResourceMsg{ResourceID: focusID}
+			}
+			return m, tea.Batch(cmd, focusCmd)
+		}
+		return m, cmd
+	}
+	eventlog.Warnf(eventlog.CatNav, "Unknown view: %s", msg.ViewID)
+	return m, nil
 }
 
 // capturingInput reports whether the view on top takes text input.
@@ -756,6 +767,8 @@ func (m Model) resizeCmd() tea.Cmd {
 // resizeViews would give it (see contentSize).
 func (m *Model) pushView(v nav.View) tea.Cmd {
 	initCmd := m.nav.Push(v)
+	// Open help lists the keys of the view on top, so it follows the push.
+	m.refreshHelp()
 	if m.width > 0 && m.height > 0 {
 		w, h := m.contentSize()
 		sizeCmd := m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: w, Height: h})
@@ -793,14 +806,16 @@ func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
 }
 
 func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
-	m.panels.Open(title, tabs, m.nav.Current())
+	m.panels.Open(title, tabs, m.nav.Current(), !m.capturingInput())
 	m.resizeViews()
+	m.refreshHelp()
 	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
 }
 
 func (m *Model) closePanel() {
 	m.panels.Close()
 	m.resizeViews()
+	m.refreshHelp()
 }
 
 // dismissPanel closes the panel for good: it closes an open panel and drops a
@@ -811,6 +826,16 @@ func (m *Model) dismissPanel() {
 	m.panels.Dismiss()
 	if wasOpen {
 		m.resizeViews()
+		m.refreshHelp()
+	}
+}
+
+// refreshHelp builds the keys of the open help overlay again, after the panel
+// opened, closed, hid or came back (H5). The filter and the scroll position
+// stay.
+func (m *Model) refreshHelp() {
+	if m.help.Visible() {
+		m.help.SetHints(m.collectAllKeyHints())
 	}
 }
 
@@ -834,8 +859,9 @@ func (m *Model) popCrossNavBack() {
 		m.panels.StashState(entry.state)
 		return
 	}
-	m.panels.Restore(entry.state)
+	m.panels.Restore(entry.state, !m.capturingInput())
 	m.resizeViews()
+	m.refreshHelp()
 	eventlog.Infof(eventlog.CatUI, "Panel restored: %s", entry.state.title)
 }
 
@@ -843,6 +869,7 @@ func (m *Model) popCrossNavBack() {
 // its depth, and the entries of the view on top.
 func (m *Model) trimCrossNavHistory() {
 	m.panels.Trim(m.nav.Views())
+	m.refreshHelp()
 }
 
 // chromeHeight returns the vertical lines consumed by fixed layout chrome:
@@ -1208,7 +1235,12 @@ func (m Model) View() tea.View {
 	if m.panels.IsOpen() && m.panels.Title() != "" {
 		crumbs = append(crumbs, m.panels.Title())
 	}
-	crossNavLabel := m.panels.BackTitle()
+	// backspace goes back only while the view on top does not take input,
+	// such as a filter or a form (H6).
+	crossNavLabel := ""
+	if !m.capturingInput() {
+		crossNavLabel = m.panels.BackTitle()
+	}
 	header := ui.RenderHeader(ui.HeaderData{
 		Profile:           m.config.AWS.Profile,
 		Region:            m.activeRegion(),
