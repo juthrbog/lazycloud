@@ -62,7 +62,7 @@ func TestPushedViewGetsTheResizeSize(t *testing.T) {
 		{"operation running", 140, "3 items", startTestOp, 40 - 8},
 		{"panel open", panelWide, "3 items", func(t *testing.T, m Model) Model {
 			m.openPanel("detail", "{}", "json")
-			require.True(t, m.panelOpen)
+			require.True(t, m.panels.IsOpen())
 			return m
 		}, 40 - 7},
 	} {
@@ -77,7 +77,7 @@ func TestPushedViewGetsTheResizeSize(t *testing.T) {
 			pushed := v.sizes[0]
 			assert.Equal(t, tc.wantH, pushed.Height)
 			wantW := tc.width - 2 // the borders of the main box
-			if m.panelOpen {
+			if m.panels.IsOpen() {
 				wantW = tc.width - m.panelWidth() - 3 // panel, gap, borders
 				assert.Less(t, wantW, tc.width-2)
 			}

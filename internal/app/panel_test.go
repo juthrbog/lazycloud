@@ -25,8 +25,8 @@ func stashedOnEC2(t *testing.T) Model {
 	t.Helper()
 	m := panelOnEC2(t)
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelNarrow, Height: 40})
-	require.False(t, m.panelOpen)
-	require.Equal(t, "web-server-1", m.stashedPanelTitle)
+	require.False(t, m.panels.IsOpen())
+	require.Equal(t, "web-server-1", m.panels.StashTitle())
 	return m
 }
 
@@ -47,9 +47,9 @@ func TestWideningRestoresStashedPanel(t *testing.T) {
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
 
 	assert.Equal(t, "ec2_list", m.nav.Current().ID())
-	assert.True(t, m.panelOpen)
-	assert.Equal(t, "web-server-1", m.panelTitle)
-	assert.Empty(t, m.stashedPanelTitle)
+	assert.True(t, m.panels.IsOpen())
+	assert.Equal(t, "web-server-1", m.panels.Title())
+	assert.Empty(t, m.panels.StashTitle())
 }
 
 // M12: what closes an open panel also drops a stashed one, so the old panel
@@ -102,8 +102,8 @@ func TestLeavingTheViewDropsStashedPanel(t *testing.T) {
 			require.Contains(t, m.nav.Current().ID(), tc.top)
 			m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
 
-			assert.False(t, m.panelOpen, "the old panel stays closed")
-			assert.Empty(t, m.stashedPanelTitle)
+			assert.False(t, m.panels.IsOpen(), "the old panel stays closed")
+			assert.Empty(t, m.panels.StashTitle())
 		})
 	}
 }
@@ -116,29 +116,29 @@ func TestEventLogKeyClosesPanel(t *testing.T) {
 	m, _ = update(t, m, keyEventLog)
 
 	assert.Equal(t, "eventlog", m.nav.Current().ID())
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 
 	m, _ = update(t, m, msg.NavigateBackMsg{})
 	assert.Equal(t, "ec2_list", m.nav.Current().ID())
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 }
 
 // M12: back traversal replaces a stashed panel. The stash of the view that the
 // user left must not win over the panel that back traversal restores.
 func TestCrossNavBackReplacesStashedPanel(t *testing.T) {
 	m := panelOnEC2(t)
-	m.pushCrossNavHistory()
+	m.panels.Push(m.nav.Depth())
 	m.closePanel()
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	m.openPanel("newer", "{}", "json")
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelNarrow, Height: 40})
-	require.Equal(t, "newer", m.stashedPanelTitle)
+	require.Equal(t, "newer", m.panels.StashTitle())
 
 	m, _ = update(t, m, keyBackspace)
 	assert.Equal(t, "ec2_list", m.nav.Current().ID())
-	assert.False(t, m.panelOpen, "a narrow terminal cannot show a panel")
+	assert.False(t, m.panels.IsOpen(), "a narrow terminal cannot show a panel")
 
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
-	assert.True(t, m.panelOpen)
-	assert.Equal(t, "web-server-1", m.panelTitle)
+	assert.True(t, m.panels.IsOpen())
+	assert.Equal(t, "web-server-1", m.panels.Title())
 }

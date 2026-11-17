@@ -51,7 +51,7 @@ func TestFilterTakesAppWideKeys(t *testing.T) {
 	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 	m, _ = update(t, m, findMsgPrefix(collectMsgs(cmd), "views.listPageMsg[", "aws.Instance]"))
 	m.openPanel("detail", "{}", "json")
-	m.panelFocused = false
+	m.panels.SetFocus(false)
 	depth := m.nav.Depth()
 
 	m, _ = update(t, m, press("/"))
@@ -65,7 +65,7 @@ func TestFilterTakesAppWideKeys(t *testing.T) {
 	assert.False(t, m.picker.Visible(), "W, T, P, and R must not open a picker")
 	assert.False(t, m.help.Visible(), "? must not open help")
 	assert.False(t, m.commandBar.Visible(), ": must not open the command bar")
-	assert.False(t, m.panelFocused, "tab must not move the focus to the panel")
+	assert.False(t, m.panels.Focused(), "tab must not move the focus to the panel")
 	assert.Contains(t, screen(m), "qWTPRL:?s", "the letters are in the filter")
 	assert.NotContains(t, screen(m), "qWTPRL:?sx", "backspace deletes a character")
 
@@ -73,7 +73,7 @@ func TestFilterTakesAppWideKeys(t *testing.T) {
 	m, _ = update(t, m, press("esc"))
 	require.False(t, m.capturingInput())
 	m, _ = update(t, m, press("q"))
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 	m, _ = update(t, m, press("q"))
 	assert.Equal(t, depth-1, m.nav.Depth())
 }

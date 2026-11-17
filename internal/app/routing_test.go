@@ -339,10 +339,10 @@ func TestRouting_LatePanelFromHiddenViewDropped(t *testing.T) {
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 
 	m, _ = update(t, m, nav.Routed{Origin: hidden, Msg: panel})
-	assert.False(t, m.panelOpen, "panel from a hidden view opened over the current view")
+	assert.False(t, m.panels.IsOpen(), "panel from a hidden view opened over the current view")
 
 	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: panel})
-	assert.True(t, m.panelOpen, "panel from the current view still opens")
+	assert.True(t, m.panels.IsOpen(), "panel from the current view still opens")
 }
 
 // H4: a page for one subnet list must not be appended to another one.

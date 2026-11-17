@@ -69,9 +69,9 @@ func TestNavigateContentOpensPanelWhenWide(t *testing.T) {
 	result, _ := m.Update(contentMsg())
 	m = result.(Model)
 
-	assert.True(t, m.panelOpen)
-	assert.True(t, m.panelFocused)
-	assert.NotNil(t, m.panel)
+	assert.True(t, m.panels.IsOpen())
+	assert.True(t, m.panels.Focused())
+	assert.NotNil(t, m.panels.Panel())
 }
 
 func TestNavigateContentFallsBackToStackWhenNarrow(t *testing.T) {
@@ -81,19 +81,19 @@ func TestNavigateContentFallsBackToStackWhenNarrow(t *testing.T) {
 	result, _ := m.Update(contentMsg())
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 	assert.Greater(t, m.nav.Depth(), initialDepth)
 }
 
 func TestNonContentNavigateClosesPanel(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelOpen)
+	assert.True(t, m.panels.IsOpen())
 
 	result, _ := m.Update(msg.NavigateMsg{ViewID: "eventlog"})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 }
 
 // --- Focus toggle ---
@@ -101,18 +101,18 @@ func TestNonContentNavigateClosesPanel(t *testing.T) {
 func TestTabTogglesFocus(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelFocused)
+	assert.True(t, m.panels.Focused())
 
 	// Tab → main focused
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = result.(Model)
-	assert.False(t, m.panelFocused)
-	assert.True(t, m.panelOpen) // panel still open
+	assert.False(t, m.panels.Focused())
+	assert.True(t, m.panels.IsOpen()) // panel still open
 
 	// Tab → panel focused
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 	m = result.(Model)
-	assert.True(t, m.panelFocused)
+	assert.True(t, m.panels.Focused())
 }
 
 // --- Panel close triggers ---
@@ -120,26 +120,26 @@ func TestTabTogglesFocus(t *testing.T) {
 func TestEscWhenPanelFocusedClosesPanel(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelFocused)
+	assert.True(t, m.panels.Focused())
 
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen)
-	assert.False(t, m.panelFocused)
+	assert.False(t, m.panels.IsOpen())
+	assert.False(t, m.panels.Focused())
 }
 
 func TestQWhenPanelOpenClosesPanel(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
 	// Switch focus to main
-	m.panelFocused = false
+	m.panels.SetFocus(false)
 
 	result, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen) // panel closed
-	assert.Nil(t, cmd)           // did NOT quit
+	assert.False(t, m.panels.IsOpen()) // panel closed
+	assert.Nil(t, cmd)                 // did NOT quit
 }
 
 func TestNavigateBackClosesPanel(t *testing.T) {
@@ -149,18 +149,18 @@ func TestNavigateBackClosesPanel(t *testing.T) {
 	result, _ := m.Update(msg.NavigateBackMsg{})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 }
 
 func TestResizeBelowThresholdClosesPanel(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelOpen)
+	assert.True(t, m.panels.IsOpen())
 
 	result, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 }
 
 // --- topLevelViewID ---
@@ -326,7 +326,7 @@ func TestReadOnlyToastFullPath(t *testing.T) {
 func TestKeyHintsPanelFocused(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelFocused)
+	assert.True(t, m.panels.Focused())
 
 	hints := m.currentKeyHints()
 	descs := make([]string, len(hints))
@@ -341,7 +341,7 @@ func TestKeyHintsPanelFocused(t *testing.T) {
 func TestKeyHintsMainFocusedWithPanel(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	m.panelFocused = false
+	m.panels.SetFocus(false)
 
 	hints := m.currentKeyHints()
 	descs := make([]string, len(hints))
@@ -618,10 +618,10 @@ func TestTabbedContentMsgOpensTabbedPanel(t *testing.T) {
 	result, _ := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
 	m = result.(Model)
 
-	assert.True(t, m.panelOpen)
-	assert.True(t, m.panelFocused)
-	assert.NotNil(t, m.panel)
-	assert.Equal(t, 3, m.panel.TabCount())
+	assert.True(t, m.panels.IsOpen())
+	assert.True(t, m.panels.Focused())
+	assert.NotNil(t, m.panels.Panel())
+	assert.Equal(t, 3, m.panels.Panel().TabCount())
 }
 
 func TestTabbedContentMsgFallbackOnNarrow(t *testing.T) {
@@ -636,7 +636,7 @@ func TestTabbedContentMsgFallbackOnNarrow(t *testing.T) {
 	result, cmd := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen, "panel should not open on narrow terminal")
+	assert.False(t, m.panels.IsOpen(), "panel should not open on narrow terminal")
 	assert.NotNil(t, cmd, "should return NavigateMsg for first tab")
 
 	// Execute the NavigateMsg
@@ -650,7 +650,7 @@ func TestTabbedContentMsgFallbackOnNarrow(t *testing.T) {
 func TestTabbedPanelTabSwitchKeyHint(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelFocused)
+	assert.True(t, m.panels.Focused())
 
 	// Single tab — no switch hint
 	hints := m.currentKeyHints()
@@ -678,7 +678,7 @@ func TestTabbedPanelTabSwitchKeyHint(t *testing.T) {
 func TestContentLinkActivatedMsgClosesPanelAndNavigates(t *testing.T) {
 	m := newTestModel(140, 40)
 	openPanel(&m)
-	assert.True(t, m.panelOpen)
+	assert.True(t, m.panels.IsOpen())
 
 	result, cmd := m.Update(ui.ContentLinkActivatedMsg{
 		ViewID: "ami_list",
@@ -686,7 +686,7 @@ func TestContentLinkActivatedMsgClosesPanelAndNavigates(t *testing.T) {
 	})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen, "panel should close on link activation")
+	assert.False(t, m.panels.IsOpen(), "panel should close on link activation")
 	assert.NotNil(t, cmd, "should return NavigateMsg cmd")
 }
 
@@ -703,8 +703,8 @@ func openTabbedPanel(m *Model, title string) {
 func TestCrossNavSavesPanelState(t *testing.T) {
 	m := newTestModel(140, 40)
 	openTabbedPanel(&m, "web-server-1 (i-123)")
-	assert.True(t, m.panelOpen)
-	assert.Empty(t, m.crossNavHistory)
+	assert.True(t, m.panels.IsOpen())
+	assert.Empty(t, m.panels.history)
 
 	// Cross-nav: link activation saves panel state
 	result, _ := m.Update(ui.ContentLinkActivatedMsg{
@@ -713,10 +713,10 @@ func TestCrossNavSavesPanelState(t *testing.T) {
 	})
 	m = result.(Model)
 
-	assert.False(t, m.panelOpen)
-	require.Len(t, m.crossNavHistory, 1)
-	assert.Equal(t, "web-server-1 (i-123)", m.crossNavHistory[0].panelTitle)
-	assert.Len(t, m.crossNavHistory[0].panelTabs, 2)
+	assert.False(t, m.panels.IsOpen())
+	require.Len(t, m.panels.history, 1)
+	assert.Equal(t, "web-server-1 (i-123)", m.panels.history[0].snap.title)
+	assert.Len(t, m.panels.history[0].snap.tabs, 2)
 }
 
 func TestCrossNavBackRestoresPanel(t *testing.T) {
@@ -734,7 +734,7 @@ func TestCrossNavBackRestoresPanel(t *testing.T) {
 		Params: map[string]string{},
 	})
 	m = result.(Model)
-	require.Len(t, m.crossNavHistory, 1)
+	require.Len(t, m.panels.history, 1)
 
 	// Execute the NavigateMsg returned by link activation to push the target view
 	navMsg := cmd()
@@ -746,10 +746,10 @@ func TestCrossNavBackRestoresPanel(t *testing.T) {
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
 	m = result.(Model)
 
-	assert.True(t, m.panelOpen, "panel should be restored")
-	assert.Equal(t, "test-resource", m.panelTitle)
+	assert.True(t, m.panels.IsOpen(), "panel should be restored")
+	assert.Equal(t, "test-resource", m.panels.Title())
 	assert.Equal(t, 2, m.nav.Depth(), "nav stack should have popped")
-	assert.Empty(t, m.crossNavHistory, "history entry should be consumed")
+	assert.Empty(t, m.panels.history, "history entry should be consumed")
 }
 
 func TestCrossNavBackNoopWhenEmpty(t *testing.T) {
@@ -760,25 +760,20 @@ func TestCrossNavBackNoopWhenEmpty(t *testing.T) {
 	m = result.(Model)
 
 	assert.Equal(t, depth, m.nav.Depth(), "should not pop when history is empty")
-	assert.False(t, m.panelOpen)
+	assert.False(t, m.panels.IsOpen())
 }
 
 func TestCrossNavHistoryBounded(t *testing.T) {
 	m := newTestModel(140, 40)
 
 	// Push more than max entries
-	for i := range crossNavHistoryMax + 5 {
-		m.crossNavHistory = append(m.crossNavHistory, crossNavEntry{
-			navDepth:   i + 1,
-			panelTitle: "entry",
-			panelTabs:  []msg.TabContent{{Title: "Info", Content: "x"}},
-		})
-		if len(m.crossNavHistory) > crossNavHistoryMax {
-			m.crossNavHistory = m.crossNavHistory[1:]
-		}
+	for i := range historyMax + 5 {
+		m.panels.Open("entry", []msg.TabContent{{Title: "Info", Content: "x"}})
+		m.panels.Push(i + 1)
 	}
 
-	assert.Len(t, m.crossNavHistory, crossNavHistoryMax)
+	assert.Len(t, m.panels.history, historyMax)
+	assert.Equal(t, historyMax+5, m.panels.history[historyMax-1].depth, "the newest entries stay")
 }
 
 func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
@@ -791,9 +786,9 @@ func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
 	assert.Equal(t, 3, m.nav.Depth())
 
 	// Add history entries at different depths
-	m.crossNavHistory = []crossNavEntry{
-		{navDepth: 2, panelTitle: "deep"},
-		{navDepth: 1, panelTitle: "shallow"},
+	m.panels.history = []historyEntry{
+		{depth: 2, snap: panelSnapshot{title: "deep"}},
+		{depth: 1, snap: panelSnapshot{title: "shallow"}},
 	}
 
 	// Manual back (esc → NavigateBackMsg) should trim entries at depth >= current
@@ -801,8 +796,8 @@ func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
 	m = result.(Model)
 
 	assert.Equal(t, 2, m.nav.Depth())
-	require.Len(t, m.crossNavHistory, 1)
-	assert.Equal(t, "shallow", m.crossNavHistory[0].panelTitle)
+	require.Len(t, m.panels.history, 1)
+	assert.Equal(t, "shallow", m.panels.history[0].snap.title)
 }
 
 func TestBackspaceHintOnlyShownWithHistory(t *testing.T) {
@@ -815,8 +810,8 @@ func TestBackspaceHintOnlyShownWithHistory(t *testing.T) {
 	}
 
 	// Add history — hint should appear
-	m.crossNavHistory = []crossNavEntry{
-		{navDepth: 1, panelTitle: "test"},
+	m.panels.history = []historyEntry{
+		{depth: 1, snap: panelSnapshot{title: "test"}},
 	}
 	hints = m.currentKeyHints()
 	descs := make([]string, len(hints))
