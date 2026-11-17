@@ -146,7 +146,7 @@ func TestResetClearsPanelAndHistory(t *testing.T) {
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 			m.openPanel("web-server-1", "{}", "json")
 			m.panels.Push(m.nav.Depth())
-			m.panels.StashSnapshot(panelSnapshot{title: "old"})
+			m.panels.StashState(panelState{title: "old", owner: m.nav.Current()})
 			require.True(t, m.panels.IsOpen(), "the panel is open and a panel is stashed")
 
 			m = reset(m)

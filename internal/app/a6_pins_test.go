@@ -32,7 +32,6 @@ func panelHasFocus(m Model) bool         { return m.panels.Focused() }
 func panelTabOf(m Model) int             { return m.panels.Panel().ActiveTab() }
 func stashTitleOf(m Model) string        { return m.panels.StashTitle() }
 func historyLenOf(m Model) int           { return len(m.panels.history) }
-func historyDepthOf(m Model) int         { return m.panels.history[len(m.panels.history)-1].depth }
 func panelViewOf(m Model) string         { return m.panels.Panel().View() }
 func openA6Panel(m *Model, title string) { m.openTabbedPanel(title, a6Tabs(title)) }
 
@@ -95,9 +94,9 @@ func openA6Form(t *testing.T, m Model) Model {
 
 // --- Hazards ---
 
-// H1. A narrow and then wide resize opens the panel on tab 1, with the focus.
-// PR 3 flips this: the tab and the focus come back.
-func TestA6Hazard_H1_StashLosesTabAndFocus(t *testing.T) {
+// H1. Fixed in PR 3: after a narrow and then wide resize, the panel comes
+// back on the same tab and with the same focus.
+func TestA6_H1_StashKeepsTabAndFocus(t *testing.T) {
 	m := panelOnEC2(t)
 	openA6Panel(&m, "i-1")
 	m, _ = update(t, m, press("2"))
@@ -109,17 +108,18 @@ func TestA6Hazard_H1_StashLosesTabAndFocus(t *testing.T) {
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
 
 	require.True(t, panelShown(m))
-	assert.Equal(t, 0, panelTabOf(m), "the stash lost the tab")
-	assert.True(t, panelHasFocus(m), "the stash lost the focus")
+	assert.Equal(t, 1, panelTabOf(m), "the stash keeps the tab")
+	assert.False(t, panelHasFocus(m), "the stash keeps the focus")
 }
 
-// H1. Back traversal opens the panel on tab 1, not on the tab with the link.
-// PR 3 flips this.
-func TestA6Hazard_H1_BackLosesTheTabOfTheLink(t *testing.T) {
+// H1. Fixed in PR 3: back traversal opens the panel on the tab with the link,
+// with the focus that it had.
+func TestA6_H1_BackKeepsTheTabOfTheLink(t *testing.T) {
 	m := panelOnEC2(t)
 	openA6Panel(&m, "i-1")
 	m, _ = update(t, m, press("2"))
 	require.Equal(t, 1, panelTabOf(m))
+	require.True(t, panelHasFocus(m))
 	m = followLink(t, m, "eventlog", nil)
 	require.Equal(t, "eventlog", m.nav.Current().ID())
 
@@ -128,27 +128,40 @@ func TestA6Hazard_H1_BackLosesTheTabOfTheLink(t *testing.T) {
 	assert.Equal(t, "ec2_list", m.nav.Current().ID())
 	require.True(t, panelShown(m))
 	assert.Equal(t, "i-1", panelTitleOf(m))
-	assert.Equal(t, 0, panelTabOf(m), "back lost the tab")
+	assert.Equal(t, 1, panelTabOf(m), "back keeps the tab")
+	assert.True(t, panelHasFocus(m), "back keeps the focus")
 }
 
-// H1. A narrow and then wide resize opens the panel at the top of the text.
-// PR 3 flips this: the scroll position comes back.
-func TestA6Hazard_H1_StashLosesTheScrollPosition(t *testing.T) {
+// a6LongPanel opens a panel with 100 rows and scrolls it to the bottom.
+func a6LongPanel(t *testing.T, m Model) Model {
+	t.Helper()
 	var rows []string
 	for i := range 100 {
 		rows = append(rows, "row "+string(rune('A'+i/26))+string(rune('a'+i%26)))
 	}
-	m := panelOnEC2(t)
 	m.openTabbedPanel("long", []msg.TabContent{{Title: "Info", Content: strings.Join(rows, "\n"), Format: "text"}})
 	m, _ = update(t, m, press("G"))
 	require.NotContains(t, panelViewOf(m), "row Aa")
 	require.Contains(t, panelViewOf(m), "row Dv")
+	return m
+}
 
+// H1. Fixed in PR 3: after a narrow and then wide resize, and after back
+// traversal, the panel keeps its scroll position.
+func TestA6_H1_RestoreKeepsTheScrollPosition(t *testing.T) {
+	m := a6LongPanel(t, panelOnEC2(t))
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelNarrow, Height: 40})
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
-
 	require.True(t, panelShown(m))
-	assert.Contains(t, panelViewOf(m), "row Aa", "the stash lost the scroll position")
+	assert.NotContains(t, panelViewOf(m), "row Aa", "the stash keeps the scroll position")
+	assert.Contains(t, panelViewOf(m), "row Dv")
+
+	m = a6LongPanel(t, panelOnEC2(t))
+	m = followLink(t, m, "eventlog", nil)
+	m, _ = update(t, m, keyBackspace)
+	require.True(t, panelShown(m))
+	assert.NotContains(t, panelViewOf(m), "row Aa", "back keeps the scroll position")
+	assert.Contains(t, panelViewOf(m), "row Dv")
 }
 
 // H2. A panel that had the focus when the stash took it gets the focus back
@@ -186,53 +199,81 @@ func TestA6Hazard_H2_DetailDuringTheFilterLooksFocused(t *testing.T) {
 	assert.True(t, panelHasFocus(m), "tab goes to the filter")
 }
 
-// H3. A link to a row of the view on top adds a history entry at the current
-// depth. PR 3 flips this: the link adds no entry.
-func TestA6Hazard_H3_SameViewLinkAddsAnEntry(t *testing.T) {
+// H3. Fixed in PR 3: a link to a row of the view on top adds no history
+// entry (decision D3), so back does not open the old panel next to the new
+// row.
+func TestA6_H3_SameViewLinkAddsNoEntry(t *testing.T) {
 	m := sameViewLink(t, sqsWithDLQPanel(t))
 
 	assert.Equal(t, 2, m.nav.Depth(), "the link only moves the cursor")
-	require.Equal(t, 1, historyLenOf(m))
-	assert.Equal(t, 2, historyDepthOf(m))
+	assert.Equal(t, 0, historyLenOf(m))
 
 	m, _ = update(t, m, keyBackspace)
 	assert.Equal(t, 2, m.nav.Depth())
-	assert.True(t, panelShown(m))
-	assert.Equal(t, "orders-dlq", panelTitleOf(m), "back opens the old panel next to the new row")
+	assert.False(t, panelShown(m), "back has nothing to open")
 }
 
-// H3. A child view that closes with q drops the entry of a same-view link, but
-// a form that closes keeps it. PR 3 flips this: no entry exists.
-func TestA6Hazard_H3_SameViewEntryDependsOnHowTheChildCloses(t *testing.T) {
+// H3. Fixed in PR 3: no entry exists after a same-view link, so it does not
+// matter how a child view closes.
+func TestA6_H3_ChildViewsLeaveNoEntry(t *testing.T) {
 	m := sameViewLink(t, sqsWithDLQPanel(t))
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	m, _ = update(t, m, press("q"))
 	assert.Equal(t, "sqs_queues", m.nav.Current().ID())
-	assert.Equal(t, 0, historyLenOf(m), "q drops the entry")
+	assert.Equal(t, 0, historyLenOf(m), "after q")
 
 	m = sameViewLink(t, sqsWithDLQPanel(t))
 	m = openA6Form(t, m)
 	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.FormResultMsg{}})
 	assert.Equal(t, "sqs_queues", m.nav.Current().ID())
-	assert.Equal(t, 1, historyLenOf(m), "a form keeps the entry")
+	assert.Equal(t, 0, historyLenOf(m), "after a form")
 }
 
-// H3. A detail result of the new row that arrives after back replaces the
-// restored panel, and the history is empty. PR 3 flips this: back has no
-// entry to restore, so the late result is the only panel.
-func TestA6Hazard_H3_LateDetailReplacesTheRestoredPanel(t *testing.T) {
+// H3. Fixed in PR 3: the detail of the new row opens as usual, and back has
+// no old panel to put in its place.
+func TestA6_H3_DetailOfTheNewRowStays(t *testing.T) {
 	m := sameViewLink(t, sqsWithDLQPanel(t))
 	top := m.nav.Current()
-	m, _ = update(t, m, keyBackspace)
-	require.Equal(t, "orders-dlq", panelTitleOf(m))
-	require.Equal(t, 0, historyLenOf(m))
-
 	m, _ = update(t, m, nav.Routed{Origin: top, Msg: msg.TabbedContentMsg{
 		PanelTitle: "orders", Tabs: a6Tabs("orders"),
 	}})
+	require.Equal(t, "orders", panelTitleOf(m))
 
+	m, _ = update(t, m, keyBackspace)
+
+	assert.True(t, panelShown(m))
 	assert.Equal(t, "orders", panelTitleOf(m))
-	assert.Equal(t, 0, historyLenOf(m), "the restored panel is gone")
+	assert.Equal(t, 0, historyLenOf(m))
+}
+
+// D3. A link to another view, or a same-view link without a focus row, still
+// adds an entry.
+func TestA6Keep_LinksToOtherViewsAddAnEntry(t *testing.T) {
+	m := followLink(t, sqsWithDLQPanel(t), "eventlog", nil)
+	assert.Equal(t, 1, historyLenOf(m), "another view")
+
+	m = followLink(t, sqsWithDLQPanel(t), "sqs_queues", nil)
+	assert.Equal(t, 1, historyLenOf(m), "the same view ID without a focus row pushes a view")
+	assert.Equal(t, 3, m.nav.Depth())
+}
+
+// I3. Back skips an entry whose view is gone from its depth, also when no
+// trim removed it.
+func TestA6Keep_BackSkipsAnEntryOfAReplacedView(t *testing.T) {
+	m := panelOnEC2(t)
+	m = followLink(t, m, "eventlog", nil)
+	require.Equal(t, 1, historyLenOf(m))
+	m.nav.PopTo(1)
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	require.Equal(t, 3, m.nav.Depth())
+	require.Equal(t, 1, historyLenOf(m), "the stale entry is still there")
+
+	m, _ = update(t, m, keyBackspace)
+
+	assert.Equal(t, 3, m.nav.Depth(), "back does not pop to a view that is not the owner")
+	assert.False(t, panelShown(m))
+	assert.Equal(t, 0, historyLenOf(m))
 }
 
 // H4. A link travels as a plain message. A key in between changes the stack,

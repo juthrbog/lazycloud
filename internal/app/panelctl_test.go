@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/nav"
 )
 
 func ctlTabs(title string) []msg.TabContent {
@@ -18,16 +19,28 @@ func ctlTabs(title string) []msg.TabContent {
 	}
 }
 
+// ctlViews gives n distinct views, as a navigator stack from the root.
+func ctlViews(n int) []nav.View {
+	vs := make([]nav.View, n)
+	for i := range vs {
+		vs[i] = newRowView("")
+	}
+	return vs
+}
+
 func TestPanelControllerOpenAndClose(t *testing.T) {
 	var p panelController
+	owner := newRowView("")
 	assert.False(t, p.IsOpen())
 	assert.False(t, p.Focused())
 	assert.Nil(t, p.Panel())
+	assert.Nil(t, p.Owner())
 
-	p.Open("a", ctlTabs("a"))
+	p.Open("a", ctlTabs("a"), owner)
 	assert.True(t, p.IsOpen())
 	assert.True(t, p.Focused(), "a new panel has the focus")
 	assert.Equal(t, "a", p.Title())
+	assert.Equal(t, owner, p.Owner())
 	assert.Equal(t, 2, p.Panel().TabCount())
 
 	p.SetFocus(false)
@@ -39,6 +52,7 @@ func TestPanelControllerOpenAndClose(t *testing.T) {
 	assert.False(t, p.IsOpen())
 	assert.False(t, p.Focused())
 	assert.Empty(t, p.Title())
+	assert.Nil(t, p.Owner())
 
 	p.SetFocus(true)
 	assert.False(t, p.Focused(), "a closed panel cannot get the focus")
@@ -46,27 +60,47 @@ func TestPanelControllerOpenAndClose(t *testing.T) {
 
 func TestPanelControllerHideAndUnhide(t *testing.T) {
 	var p panelController
-	assert.False(t, p.Unhide(), "no stash")
+	vs := ctlViews(2)
+	assert.False(t, p.Unhide(vs[1]), "no stash")
 
-	p.Open("a", ctlTabs("a"))
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Update(press("2"))
+	p.SetFocus(false)
+	panel := p.Panel()
 	p.Hide()
 	assert.False(t, p.IsOpen())
 	assert.True(t, p.HasStash())
 	assert.Equal(t, "a", p.StashTitle())
 
-	require.True(t, p.Unhide())
-	assert.True(t, p.IsOpen())
-	assert.Equal(t, "a", p.Title())
+	require.True(t, p.Unhide(vs[1]))
+	assert.Same(t, panel, p.Panel(), "the stash keeps the panel itself")
+	assert.Equal(t, 1, p.Panel().ActiveTab())
+	assert.False(t, p.Focused(), "the stash keeps the focus")
+	assert.Equal(t, vs[1], p.Owner())
 	assert.False(t, p.HasStash())
-	links := p.Panel().TabData()[1].Links
-	assert.Equal(t, "eventlog", links[0].ViewID, "the stash keeps the links")
-	assert.Equal(t, "a", links[0].Params["focus"])
 
 	p.Hide()
-	p.Open("b", ctlTabs("b"))
-	assert.False(t, p.Unhide(), "a panel is open")
-	assert.Equal(t, "a", p.StashTitle(), "Open keeps the stash, as openTabbedPanel did")
+	assert.False(t, p.Unhide(vs[0]), "the stash opens only in its owner")
+	assert.False(t, p.HasStash(), "a stash of another view is dropped")
+	assert.False(t, p.IsOpen())
 
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Hide()
+	assert.False(t, p.Unhide(nil), "no top view")
+	assert.False(t, p.HasStash())
+
+	p.StashState(panelState{title: "x"})
+	assert.False(t, p.Unhide(nil), "a stash without an owner never opens")
+
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Hide()
+	p.Open("b", ctlTabs("b"), vs[1])
+	assert.False(t, p.HasStash(), "Open drops the stash of an older panel")
+	p.StashState(panelState{title: "old", owner: vs[1]})
+	assert.False(t, p.Unhide(vs[1]), "a panel is open")
+	assert.Equal(t, "b", p.Title(), "the open panel stays")
+
+	p.Hide()
 	p.Dismiss()
 	assert.False(t, p.IsOpen())
 	assert.False(t, p.HasStash())
@@ -74,54 +108,115 @@ func TestPanelControllerHideAndUnhide(t *testing.T) {
 
 func TestPanelControllerHideWithoutATitle(t *testing.T) {
 	var p panelController
-	p.Open("", ctlTabs(""))
+	owner := newRowView("")
+	p.Open("", ctlTabs(""), owner)
 	p.Hide()
 	assert.False(t, p.HasStash(), "a panel without a title is not restored")
-	assert.False(t, p.Unhide())
+	assert.False(t, p.Unhide(owner))
 }
 
 func TestPanelControllerHistory(t *testing.T) {
 	var p panelController
+	vs := ctlViews(4)
 	p.Push(2)
 	assert.False(t, p.HasHistory(), "no panel, no entry")
 
-	p.Open("", ctlTabs(""))
+	p.Open("", ctlTabs(""), vs[1])
 	p.Push(2)
 	assert.False(t, p.HasHistory(), "a panel without a title adds no entry")
 
-	p.Open("a", ctlTabs("a"))
+	p.Open("a", ctlTabs("a"), vs[1])
 	p.Push(2)
-	p.Open("b", ctlTabs("b"))
+	p.Open("b", ctlTabs("b"), vs[2])
+	p.Update(press("2"))
+	b := p.Panel()
 	p.Push(3)
 	assert.Equal(t, "b", p.BackTitle())
 
-	e, ok := p.PopHistory()
+	e, ok := p.Back(vs)
 	require.True(t, ok)
 	assert.Equal(t, 3, e.depth)
-	assert.Equal(t, "b", e.snap.title)
-	assert.Len(t, e.snap.tabs, 2)
+	assert.Equal(t, "b", e.state.title)
+	assert.Same(t, b, e.state.panel, "the entry keeps the panel itself")
+	assert.Equal(t, 1, e.state.panel.ActiveTab())
 	assert.Equal(t, "a", p.BackTitle())
 
-	p.Open("c", ctlTabs("c"))
+	p.Open("c", ctlTabs("c"), vs[3])
 	p.Push(4)
-	p.Trim(3)
+	p.Trim(vs[:3])
 	require.Len(t, p.history, 1)
-	assert.Equal(t, "a", p.BackTitle(), "Trim keeps entries below the depth")
-	p.Trim(2)
-	assert.False(t, p.HasHistory())
+	assert.Equal(t, "a", p.BackTitle(), "Trim keeps entries below the top whose owner is at its depth")
+	p.Trim(vs[:2])
+	assert.False(t, p.HasHistory(), "Trim drops the entry of the view on top")
 	assert.Empty(t, p.BackTitle())
 
-	_, ok = p.PopHistory()
+	_, ok = p.Back(vs)
 	assert.False(t, ok)
+}
+
+// An entry whose owner is gone from its depth is skipped and dropped, by Back
+// and by Trim.
+func TestPanelControllerHistoryChecksTheOwner(t *testing.T) {
+	var p panelController
+	vs := ctlViews(3)
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Push(2)
+	p.Open("b", ctlTabs("b"), vs[2])
+	p.Push(3)
+
+	other := []nav.View{vs[0], vs[1], newRowView("")}
+	e, ok := p.Back(other)
+	require.True(t, ok)
+	assert.Equal(t, "a", e.state.title, "the entry of the replaced view is skipped")
+	assert.False(t, p.HasHistory())
+
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Push(2)
+	_, ok = p.Back([]nav.View{vs[0], newRowView("")})
+	assert.False(t, ok, "another view at the depth")
+	assert.False(t, p.HasHistory())
+
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Push(2)
+	p.Trim([]nav.View{vs[0], newRowView(""), newRowView("")})
+	assert.False(t, p.HasHistory(), "Trim drops an entry whose owner was replaced")
+
+	p.Open("a", ctlTabs("a"), nil)
+	p.Push(1)
+	_, ok = p.Back(vs)
+	assert.False(t, ok, "an entry without an owner never opens")
+}
+
+func TestPanelControllerRestoreAndStashState(t *testing.T) {
+	var p panelController
+	vs := ctlViews(2)
+	p.Open("a", ctlTabs("a"), vs[1])
+	p.Push(2)
+	e, ok := p.Back(vs)
+	require.True(t, ok)
+	p.Close()
+
+	p.StashState(e.state)
+	assert.Equal(t, "a", p.StashTitle())
+	require.True(t, p.Unhide(vs[1]))
+	assert.Same(t, e.state.panel, p.Panel())
+
+	p.Hide()
+	p.Restore(e.state)
+	assert.True(t, p.IsOpen())
+	assert.False(t, p.HasStash(), "Restore drops the stash")
 }
 
 func TestPanelControllerResetKeepsTheWidth(t *testing.T) {
 	var p panelController
+	vs := ctlViews(2)
 	p.SetWidth(50)
-	p.Open("a", ctlTabs("a"))
+	p.Open("a", ctlTabs("a"), vs[1])
 	p.Push(2)
 	p.Hide()
-	p.Open("b", ctlTabs("b"))
+	p.StashState(panelState{title: "old", owner: vs[1]})
+	p.Open("b", ctlTabs("b"), vs[1])
+	p.StashState(panelState{title: "old", owner: vs[1]})
 	require.True(t, p.IsOpen())
 	require.True(t, p.HasStash())
 
