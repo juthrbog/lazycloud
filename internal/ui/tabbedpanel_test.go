@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -68,6 +69,32 @@ func TestTabbedPanelSetSize(t *testing.T) {
 
 	assert.Equal(t, 80, tp.width)
 	assert.Equal(t, 24, tp.height)
+}
+
+// L7: SetSize resizes the viewer of every tab that has one, not only the
+// active tab.
+func TestTabbedPanelSetSizeResizesHiddenTabs(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 30)
+	tp := NewTabbedPanel("test", []TabInput{
+		{Title: "One", Content: long, Format: "text"},
+		{Title: "Two", Content: long, Format: "text"},
+		{Title: "Three", Content: long, Format: "text"},
+	})
+	tp.SetSize(100, 20)
+	tp, _ = tp.Update(tea.KeyPressMsg{Code: '2', Text: "2"})
+	tp, _ = tp.Update(tea.KeyPressMsg{Code: '1', Text: "1"})
+
+	tp.SetSize(60, 12)
+
+	for _, i := range []int{0, 1} {
+		v := tp.tabs[i].viewer
+		assert.Equal(t, 60, v.width, "tab %d", i+1)
+		assert.Equal(t, tp.viewerHeight(), v.height, "tab %d", i+1)
+	}
+	assert.Nil(t, tp.tabs[2].viewer, "a tab that was never shown still has no viewer")
+
+	tp, _ = tp.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
+	assert.Equal(t, 60, tp.tabs[2].viewer.width, "a new viewer gets the current size")
 }
 
 func TestTabbedPanelViewRendersTabBar(t *testing.T) {
