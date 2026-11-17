@@ -22,18 +22,18 @@ import (
 // flips the test and renames it TestA6_<hazard>_<new behavior>. A test named
 // TestA6Keep_... pins behavior that A6 keeps.
 //
-// The helpers below are the only code here that reads the panel fields of
-// Model. PR 2 moves the fields into panelController and changes only these
+// The helpers below are the only code here that reads the panel controller
+// (m.panels). A later PR that changes the controller changes only these
 // helpers.
 
-func panelShown(m Model) bool            { return m.panelOpen }
-func panelTitleOf(m Model) string        { return m.panelTitle }
-func panelHasFocus(m Model) bool         { return m.panelFocused }
-func panelTabOf(m Model) int             { return m.panel.ActiveTab() }
-func stashTitleOf(m Model) string        { return m.stashedPanelTitle }
-func historyLenOf(m Model) int           { return len(m.crossNavHistory) }
-func historyDepthOf(m Model) int         { return m.crossNavHistory[len(m.crossNavHistory)-1].navDepth }
-func panelViewOf(m Model) string         { return m.panel.View() }
+func panelShown(m Model) bool            { return m.panels.IsOpen() }
+func panelTitleOf(m Model) string        { return m.panels.Title() }
+func panelHasFocus(m Model) bool         { return m.panels.Focused() }
+func panelTabOf(m Model) int             { return m.panels.Panel().ActiveTab() }
+func stashTitleOf(m Model) string        { return m.panels.StashTitle() }
+func historyLenOf(m Model) int           { return len(m.panels.history) }
+func historyDepthOf(m Model) int         { return m.panels.history[len(m.panels.history)-1].depth }
+func panelViewOf(m Model) string         { return m.panels.Panel().View() }
 func openA6Panel(m *Model, title string) { m.openTabbedPanel(title, a6Tabs(title)) }
 
 // a6Tabs gives two tabs. The second tab has a link to the event log on its
@@ -461,19 +461,19 @@ func TestA6Keep_BackInANarrowTerminal(t *testing.T) {
 	assert.Equal(t, "web-server-1", panelTitleOf(m))
 }
 
-// I3. The history holds at most crossNavHistoryMax entries. Back still works
+// I3. The history holds at most historyMax entries. Back still works
 // for the newest ones.
 func TestA6Keep_TheDepthCap(t *testing.T) {
 	m := panelOnEC2(t)
-	for i := range crossNavHistoryMax + 2 {
+	for i := range historyMax + 2 {
 		openA6Panel(&m, "p"+string(rune('a'+i)))
 		m = followLink(t, m, "eventlog", nil)
 	}
-	require.Equal(t, crossNavHistoryMax, historyLenOf(m))
+	require.Equal(t, historyMax, historyLenOf(m))
 
 	m, _ = update(t, m, keyBackspace)
-	assert.Equal(t, "p"+string(rune('a'+crossNavHistoryMax+1)), panelTitleOf(m))
-	assert.Equal(t, crossNavHistoryMax-1, historyLenOf(m))
+	assert.Equal(t, "p"+string(rune('a'+historyMax+1)), panelTitleOf(m))
+	assert.Equal(t, historyMax-1, historyLenOf(m))
 }
 
 // D7. q in the view that a link opened goes back without the panel and drops

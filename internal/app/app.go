@@ -24,22 +24,8 @@ import (
 	"github.com/juthrbog/lazycloud/internal/views"
 )
 
-// Side panel constants.
-const (
-	panelMinWidth     = 30
-	panelMaxWidth     = 80
-	panelMinMainWidth = 30 // minimum width for main view when panel is open
-	panelResizeStep   = 5  // columns per resize keystroke
-)
-
-// Cross-navigation history for back traversal.
-const crossNavHistoryMax = 10
-
-type crossNavEntry struct {
-	navDepth   int                 // nav stack depth when saved
-	panelTitle string              // panel title to restore
-	panelTabs  []appmsg.TabContent // panel content to restore
-}
+// panelResizeStep is the number of columns per resize keystroke.
+const panelResizeStep = 5
 
 // Model is the root application model — message router and layout compositor.
 type Model struct {
@@ -65,19 +51,9 @@ type Model struct {
 
 	keys ui.AppKeyMap
 
-	// Side detail panel
-	panel              *ui.TabbedPanel
-	panelOpen          bool
-	panelFocused       bool
-	panelTitle         string
-	panelWidthOverride int // 0 = use default 40% calculation
-
-	// Stashed panel state for resize restoration
-	stashedPanelTitle string
-	stashedPanelTabs  []appmsg.TabContent
-
-	// Cross-navigation history for back traversal
-	crossNavHistory []crossNavEntry
+	// panels holds the side detail panel, the panel that a narrow terminal
+	// hides, and the history for back traversal.
+	panels panelController
 
 	// ops holds the long operations that run in the background (see
 	// appmsg.StartOpMsg). The pointer is shared by every copy of Model.
@@ -437,13 +413,12 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.resizeOverlays()
-		if m.panelOpen && !m.canShowPanel() {
-			m.stashPanel()
-			m.closePanel()
+		if m.panels.IsOpen() && !m.canShowPanel() {
+			m.panels.Hide()
+			m.resizeViews()
 		}
-		if !m.panelOpen && m.canShowPanel() && m.stashedPanelTitle != "" {
-			m.openTabbedPanel(m.stashedPanelTitle, m.stashedPanelTabs)
-			m.clearStashedPanel()
+		if !m.panels.IsOpen() && m.canShowPanel() && m.panels.Unhide() {
+			eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", m.panels.Title(), m.panels.Panel().TabCount())
 		}
 		m.resizeViews()
 		return m, nil
@@ -527,8 +502,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ui.ContentLinkActivatedMsg:
 		// Save panel state before cross-navigation for back traversal
-		if m.panelOpen && m.panel != nil {
-			m.pushCrossNavHistory()
+		if m.panels.IsOpen() {
+			m.panels.Push(m.nav.Depth())
 		}
 		m.closePanel()
 		viewID := msg.ViewID
@@ -588,8 +563,8 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Tab toggles focus between main view and panel
-		if m.panelOpen && key.Matches(msg, m.keys.TabToggle.Binding) {
-			m.panelFocused = !m.panelFocused
+		if m.panels.IsOpen() && key.Matches(msg, m.keys.TabToggle.Binding) {
+			m.panels.SetFocus(!m.panels.Focused())
 			return m, nil
 		}
 
@@ -600,7 +575,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, m.keys.CancelOp.Binding):
 			return m.showCancelPicker()
 		case key.Matches(msg, m.keys.Quit.Binding):
-			if m.panelOpen {
+			if m.panels.IsOpen() {
 				m.dismissPanel()
 				return m, nil
 			}
@@ -648,7 +623,7 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.openOverlay(ovHelp)
 			return m, nil
 		case key.Matches(msg, m.keys.CrossNavBack.Binding):
-			if len(m.crossNavHistory) > 0 {
+			if m.panels.HasHistory() {
 				m.popCrossNavBack()
 				return m, nil
 			}
@@ -656,30 +631,28 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Panel-focused key handling
-		if m.panelOpen && m.panelFocused && m.panel != nil {
+		if m.panels.Focused() {
 			switch {
 			case key.Matches(msg, m.keys.PanelClose.Binding):
 				m.dismissPanel()
 				return m, nil
 			case key.Matches(msg, m.keys.PanelEditor.Binding):
-				return m, m.panel.OpenInEditorCmd()
+				return m, m.panels.Panel().OpenInEditorCmd()
 			case key.Matches(msg, m.keys.PanelGrow.Binding):
-				m.panelWidthOverride = m.panelWidth() + panelResizeStep
+				m.panels.SetWidth(m.panelWidth() + panelResizeStep)
 				m.resizeViews()
 				return m, nil
 			case key.Matches(msg, m.keys.PanelShrink.Binding):
-				m.panelWidthOverride = m.panelWidth() - panelResizeStep
+				m.panels.SetWidth(m.panelWidth() - panelResizeStep)
 				m.resizeViews()
 				return m, nil
 			case key.Matches(msg, m.keys.PanelReset.Binding):
-				m.panelWidthOverride = 0
+				m.panels.SetWidth(0)
 				m.resizeViews()
 				return m, nil
 			default:
 				// Forward scroll/visual/yank keys to panel
-				updated, cmd := m.panel.Update(msg)
-				m.panel = &updated
-				return m, cmd
+				return m, m.panels.Update(msg)
 			}
 		}
 
@@ -808,11 +781,7 @@ func (m Model) canShowPanel() bool {
 }
 
 func (m Model) panelWidth() int {
-	if m.panelWidthOverride > 0 {
-		maxW := m.width - panelMinMainWidth - 3 // gap + main borders
-		return min(max(m.panelWidthOverride, panelMinWidth), maxW)
-	}
-	return min(max(m.width*40/100, panelMinWidth), panelMaxWidth)
+	return m.panels.Width(m.width)
 }
 
 func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
@@ -822,100 +791,24 @@ func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
 }
 
 func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
-	tabInputs := make([]ui.TabInput, len(tabs))
-	for i, t := range tabs {
-		var links map[int]ui.ContentLink
-		if len(t.Links) > 0 {
-			links = make(map[int]ui.ContentLink)
-			for _, l := range t.Links {
-				links[l.Line] = ui.ContentLink{ViewID: l.ViewID, Params: l.Params}
-			}
-		}
-		tabInputs[i] = ui.TabInput{
-			Title:   t.Title,
-			Content: t.Content,
-			Format:  t.Format,
-			Links:   links,
-		}
-	}
-	tp := ui.NewTabbedPanel(title, tabInputs)
-	m.panel = &tp
-	m.panelOpen = true
-	m.panelFocused = true
-	m.panelTitle = title
+	m.panels.Open(title, tabs)
 	m.resizeViews()
 	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
 }
 
 func (m *Model) closePanel() {
-	m.panel = nil
-	m.panelOpen = false
-	m.panelFocused = false
-	m.panelTitle = ""
+	m.panels.Close()
 	m.resizeViews()
 }
 
 // dismissPanel closes the panel for good: it closes an open panel and drops a
 // stashed one. Use it when the panel no longer belongs on screen. A stashed
-// panel has panelOpen false, so do not guard this call with panelOpen.
+// panel is not open, so do not guard this call with panels.IsOpen.
 func (m *Model) dismissPanel() {
-	m.clearStashedPanel()
-	if m.panelOpen {
-		m.closePanel()
-	}
-}
-
-// savePanelState extracts the current panel's title and tabs for saving.
-func (m *Model) savePanelState() (string, []appmsg.TabContent) {
-	if m.panel == nil {
-		return "", nil
-	}
-	tabData := m.panel.TabData()
-	tabs := make([]appmsg.TabContent, len(tabData))
-	for i, t := range tabData {
-		var links []appmsg.TabLink
-		for line, link := range t.Links {
-			links = append(links, appmsg.TabLink{
-				Line:   line,
-				ViewID: link.ViewID,
-				Params: link.Params,
-			})
-		}
-		tabs[i] = appmsg.TabContent{
-			Title:   t.Title,
-			Content: t.Content,
-			Format:  t.Format,
-			Links:   links,
-		}
-	}
-	return m.panelTitle, tabs
-}
-
-// stashPanel saves the current panel state for resize restoration.
-func (m *Model) stashPanel() {
-	m.stashedPanelTitle, m.stashedPanelTabs = m.savePanelState()
-}
-
-// clearStashedPanel discards any stashed panel state.
-func (m *Model) clearStashedPanel() {
-	m.stashedPanelTitle = ""
-	m.stashedPanelTabs = nil
-}
-
-// pushCrossNavHistory saves the current panel state for later restoration.
-func (m *Model) pushCrossNavHistory() {
-	title, tabs := m.savePanelState()
-	if title == "" {
-		return
-	}
-	entry := crossNavEntry{
-		navDepth:   m.nav.Depth(),
-		panelTitle: title,
-		panelTabs:  tabs,
-	}
-	m.crossNavHistory = append(m.crossNavHistory, entry)
-	if len(m.crossNavHistory) > crossNavHistoryMax {
-		m.crossNavHistory = m.crossNavHistory[1:]
+	wasOpen := m.panels.IsOpen()
+	m.panels.Dismiss()
+	if wasOpen {
+		m.resizeViews()
 	}
 }
 
@@ -923,34 +816,27 @@ func (m *Model) pushCrossNavHistory() {
 // showed the panel, and restores the panel. The user can open more views
 // after a link, so it pops to the saved depth, not one level.
 func (m *Model) popCrossNavBack() {
-	n := len(m.crossNavHistory)
-	entry := m.crossNavHistory[n-1]
-	m.crossNavHistory = m.crossNavHistory[:n-1]
+	entry, ok := m.panels.PopHistory()
+	if !ok {
+		return
+	}
 
 	m.dismissPanel()
-	m.nav.PopTo(entry.navDepth)
+	m.nav.PopTo(entry.depth)
 	m.resizeViews()
 
 	if !m.canShowPanel() {
 		// The terminal got narrow after the link. The panel opens when the
 		// terminal is wide again.
-		m.stashedPanelTitle, m.stashedPanelTabs = entry.panelTitle, entry.panelTabs
+		m.panels.StashSnapshot(entry.snap)
 		return
 	}
-	m.openTabbedPanel(entry.panelTitle, entry.panelTabs)
+	m.openTabbedPanel(entry.snap.title, entry.snap.tabs)
 }
 
 // trimCrossNavHistory removes stale entries whose source depth is no longer on the stack.
 func (m *Model) trimCrossNavHistory() {
-	depth := m.nav.Depth()
-	n := 0
-	for _, e := range m.crossNavHistory {
-		if e.navDepth < depth {
-			m.crossNavHistory[n] = e
-			n++
-		}
-	}
-	m.crossNavHistory = m.crossNavHistory[:n]
+	m.panels.Trim(m.nav.Depth())
 }
 
 // chromeHeight returns the vertical lines consumed by fixed layout chrome:
@@ -975,7 +861,7 @@ func (m Model) chromeHeight() int {
 func (m Model) contentSize() (width, height int) {
 	height = m.height - m.chromeHeight()
 	width = m.width - 2 // the borders of the main box
-	if m.panelOpen && m.panel != nil {
+	if m.panels.IsOpen() {
 		width = m.width - m.panelWidth() - 3 // panel, gap (1), main borders (2)
 	}
 	return width, height
@@ -987,8 +873,8 @@ func (m *Model) resizeViews() {
 	}
 	w, h := m.contentSize()
 	m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: w, Height: h})
-	if m.panelOpen && m.panel != nil {
-		m.panel.SetSize(m.panelWidth()-2, h)
+	if p := m.panels.Panel(); p != nil {
+		p.SetSize(m.panelWidth()-2, h)
 	}
 }
 
@@ -1221,8 +1107,7 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 // so nothing of the old views comes back. It returns the commands that start
 // the home animation and size the new view.
 func (m *Model) resetNav() tea.Cmd {
-	m.dismissPanel()
-	m.crossNavHistory = nil
+	m.panels.Reset()
 	m.err, m.errView = "", nil
 	// Stop the loads of the old views. Background operations keep running.
 	m.nav.Close()
@@ -1314,13 +1199,10 @@ func (m Model) View() tea.View {
 		mode = "RW"
 	}
 	crumbs := m.nav.Breadcrumbs()
-	if m.panelOpen && m.panelTitle != "" {
-		crumbs = append(crumbs, m.panelTitle)
+	if m.panels.IsOpen() && m.panels.Title() != "" {
+		crumbs = append(crumbs, m.panels.Title())
 	}
-	var crossNavLabel string
-	if n := len(m.crossNavHistory); n > 0 {
-		crossNavLabel = m.crossNavHistory[n-1].panelTitle
-	}
+	crossNavLabel := m.panels.BackTitle()
 	header := ui.RenderHeader(ui.HeaderData{
 		Profile:           m.config.AWS.Profile,
 		Region:            m.activeRegion(),
@@ -1394,13 +1276,13 @@ func (m Model) View() tea.View {
 	contentStr := childView.Content
 
 	var rendered string
-	if m.panelOpen && m.panel != nil {
+	if m.panels.IsOpen() {
 		pw := m.panelWidth()
 		mainW := m.width - pw - 1 // 1 char gap between borders
 
 		mainBorderColor := t.Secondary
 		panelBorderColor := t.Secondary
-		if m.panelFocused {
+		if m.panels.Focused() {
 			panelBorderColor = t.Accent
 		} else {
 			mainBorderColor = t.Accent
@@ -1421,10 +1303,10 @@ func (m Model) View() tea.View {
 			MaxHeight(contentHeight)
 
 		mainContent := contentStr
-		panelContent := m.panel.View()
+		panelContent := m.panels.Panel().View()
 		// ui.Dim keeps the text faint after each styled token, not only up
 		// to the first reset.
-		if m.panelFocused {
+		if m.panels.Focused() {
 			mainContent = ui.Dim(mainContent)
 		} else {
 			panelContent = ui.Dim(panelContent)
@@ -1519,11 +1401,11 @@ func (m Model) topLevelViewID() string {
 }
 
 func (m Model) currentKeyHints() []ui.HintBinding {
-	if m.panelOpen && m.panelFocused {
+	if m.panels.Focused() {
 		var hints []ui.HintBinding
-		if m.panel != nil && m.panel.TabCount() > 1 {
+		if n := m.panels.Panel().TabCount(); n > 1 {
 			hints = append(hints, ui.NewHintBinding(
-				nil, fmt.Sprintf("1-%d", m.panel.TabCount()), "switch tab",
+				nil, fmt.Sprintf("1-%d", n), "switch tab",
 			))
 		}
 		cvk := ui.DefaultContentViewKeyMap()
@@ -1551,7 +1433,7 @@ func (m Model) currentKeyHints() []ui.HintBinding {
 		return hints
 	}
 
-	if m.panelOpen {
+	if m.panels.IsOpen() {
 		hints = append(hints, ui.NewHintBinding([]string{"tab"}, "tab", "focus panel"))
 	}
 
@@ -1563,7 +1445,7 @@ func (m Model) currentKeyHints() []ui.HintBinding {
 	}
 
 	// Global hints
-	if len(m.crossNavHistory) > 0 {
+	if m.panels.HasHistory() {
 		hints = append(hints, m.keys.CrossNavBack)
 	}
 	if m.nav.Depth() > 1 {
@@ -1594,10 +1476,10 @@ func (m Model) collectAllKeyHints() []ui.HintBinding {
 	}
 
 	// Navigation hints
-	if m.panelOpen {
+	if m.panels.IsOpen() {
 		hints = append(hints, m.keys.TabToggle.WithCategory("Navigation"))
 	}
-	if len(m.crossNavHistory) > 0 {
+	if m.panels.HasHistory() {
 		hints = append(hints, m.keys.CrossNavBack.WithCategory("Navigation"))
 	}
 	if m.nav.Depth() > 1 {
@@ -1605,7 +1487,7 @@ func (m Model) collectAllKeyHints() []ui.HintBinding {
 	}
 
 	// Panel hints (when panel is open)
-	if m.panelOpen {
+	if m.panels.IsOpen() {
 		cvk := ui.DefaultContentViewKeyMap()
 		panelHints := []ui.HintBinding{
 			{Binding: cvk.CursorDown, Category: "Panel"},

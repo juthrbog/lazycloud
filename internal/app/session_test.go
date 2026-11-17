@@ -129,8 +129,8 @@ func TestCrossNavBackPopsToLinkOrigin(t *testing.T) {
 
 	m, _ = update(t, m, keyBackspace)
 	assert.Equal(t, "ec2_list", m.nav.Current().ID())
-	assert.True(t, m.panelOpen)
-	assert.Equal(t, "web-server-1", m.panelTitle)
+	assert.True(t, m.panels.IsOpen())
+	assert.Equal(t, "web-server-1", m.panels.Title())
 }
 
 // M11: :home and a theme switch start over. Back on Home restores nothing.
@@ -145,17 +145,18 @@ func TestResetClearsPanelAndHistory(t *testing.T) {
 			m.svc.EC2 = new(awstest.MockEC2Service)
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
 			m.openPanel("web-server-1", "{}", "json")
-			m.pushCrossNavHistory()
-			m.stashPanel()
+			m.panels.Push(m.nav.Depth())
+			m.panels.StashSnapshot(panelSnapshot{title: "old"})
+			require.True(t, m.panels.IsOpen(), "the panel is open and a panel is stashed")
 
 			m = reset(m)
 			assert.Equal(t, 1, m.nav.Depth())
-			assert.False(t, m.panelOpen)
-			assert.Empty(t, m.crossNavHistory)
-			assert.Empty(t, m.stashedPanelTitle)
+			assert.False(t, m.panels.IsOpen())
+			assert.Empty(t, m.panels.history)
+			assert.Empty(t, m.panels.StashTitle())
 
 			m, _ = update(t, m, keyBackspace)
-			assert.False(t, m.panelOpen, "backspace on Home restores no old panel")
+			assert.False(t, m.panels.IsOpen(), "backspace on Home restores no old panel")
 		})
 	}
 }
