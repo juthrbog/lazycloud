@@ -44,8 +44,7 @@ func TestAutoThemeOnDarkTerminal(t *testing.T) {
 	assert.Equal(t, ui.Catppuccin.Name, ui.ActiveTheme.Name)
 }
 
-// The app picks the theme once. A later report does not switch the theme,
-// because that would rebuild the views that the user opened.
+// The app picks the theme once. A later report does not switch the theme.
 func TestAutoThemePicksOnce(t *testing.T) {
 	m := autoModel(t, ui.AutoTheme)
 

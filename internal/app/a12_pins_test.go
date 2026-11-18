@@ -144,29 +144,6 @@ func TestA12_RefusalsCarryTheTag(t *testing.T) {
 	}
 }
 
-// The decline of closePrompts carries the tag when the view still exists.
-// From PR 4, S3 objects keeps no question state, so a decline needs no
-// tag there (H3). A view that reads a decline can still tell its prompts
-// apart by this tag. Today a theme switch removes the views first, so the decline is
-// dropped (TestA12Pin_ThemeSwitchWithEachViewPromptOpen).
-func TestA12_ClosePromptsDeclineCarriesTheTag(t *testing.T) {
-	for name, req := range viewRequests {
-		t.Run(name, func(t *testing.T) {
-			m := newTestModel(140, 40)
-			v := newReplyView()
-			m.pushView(v)
-			tag := &testTag{name}
-			m, _ = update(t, m, nav.Routed{Origin: v, Msg: withTag(req, tag)})
-			cmd := m.closePrompts()
-			require.Len(t, declinesOf(cmd), 1)
-			pump(t, m, cmd)
-			got := repliesOf(v)
-			require.Len(t, got, 1)
-			assert.Same(t, tag, tagOf(got[0]))
-		})
-	}
-}
-
 // A prompt of the app after a prompt of a view replies with a nil tag (I9).
 func TestA12_AppPromptAfterAViewPromptHasNoTag(t *testing.T) {
 	m := newTestModel(140, 40)
@@ -225,9 +202,8 @@ func TestA12Pin_ActionPickAfterAFilterHasTheOriginalIndex(t *testing.T) {
 	assert.Equal(t, []msg.PickerResultMsg{{Selected: 2, Value: "Reboot"}}, v.picks)
 }
 
-// A theme switch resets the views. It declines each kind of view prompt
-// exactly once (I6). The decline then finds no view and is dropped, and no
-// prompt stays open.
+// A8: a theme switch keeps each kind of view prompt open and sends no
+// reply. The answer of the user then reaches the view.
 func TestA12Pin_ThemeSwitchWithEachViewPromptOpen(t *testing.T) {
 	for name, req := range map[string]tea.Msg{
 		"confirm":       msg.RequestConfirmMsg{Message: "Go?"},
@@ -236,44 +212,36 @@ func TestA12Pin_ThemeSwitchWithEachViewPromptOpen(t *testing.T) {
 		"sort picker":   msg.RequestSortPickerMsg{Columns: []string{"Name"}},
 	} {
 		t.Run(name, func(t *testing.T) {
+			a8Theme(t)
 			m := newTestModel(140, 40)
 			v := newReplyView()
 			m.pushView(v)
 			m, _ = update(t, m, nav.Routed{Origin: v, Msg: req})
 			require.True(t, m.promptOpen())
 
-			m, cmd := m.setTheme(ui.ThemeOrder[0])
-			assert.Len(t, declinesOf(cmd), 1, "one decline")
+			m, cmd := m.applyTheme("nord")
 			m = pump(t, m, cmd)
+			assert.True(t, m.promptOpen())
+			assert.Empty(t, repliesOf(v), "no decline")
+
+			m, _ = reply(t, m, press("esc"))
 			assert.False(t, m.promptOpen())
-			assert.Empty(t, m.overlays)
-			assert.Empty(t, repliesOf(v), "the view is gone, so it gets nothing")
+			assert.Len(t, repliesOf(v), 1, "the answer reaches the view")
 		})
 	}
 	t.Run("form discard confirm", func(t *testing.T) {
+		a8Theme(t)
 		m := newTestModel(140, 40)
 		v := newReplyView()
 		m.pushView(v)
-		m, _ = askDiscardOfAnEditedForm(t, m, v)
+		m, form := askDiscardOfAnEditedForm(t, m, v)
 
-		m, cmd := m.setTheme(ui.ThemeOrder[0])
-		assert.Len(t, declinesOf(cmd), 1, "one decline")
+		m, cmd := m.applyTheme("nord")
 		m = pump(t, m, cmd)
-		assert.False(t, m.promptOpen())
-		assert.Empty(t, m.overlays)
-		assert.Empty(t, v.forms, "the view is gone, so it gets nothing")
+		assert.True(t, m.confirm.Visible())
+		assert.Same(t, form, m.nav.Current(), "the form stays")
+		assert.Empty(t, v.forms)
 	})
-}
-
-// declinesOf returns the prompt replies that cmd sends.
-func declinesOf(cmd tea.Cmd) []overlayReplyMsg {
-	var out []overlayReplyMsg
-	for _, m := range collectMsgs(cmd) {
-		if r, ok := m.(overlayReplyMsg); ok {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // askDiscardOfAnEditedForm opens a form for v, types into it and presses

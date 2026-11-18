@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -17,10 +18,10 @@ import (
 )
 
 // The tests in this file pin the theme switch through A8
-// (docs/design/a8-theme-switch.md). PR 0 pins each hazard as a test named
-// TestA8Hazard_.... The PR that fixes a hazard flips its test and renames it
-// TestA8_<hazard>_<new behavior>. A test named TestA8Keep_... pins behavior
-// that A8 keeps.
+// (docs/design/a8-theme-switch.md). PR 0 pinned each hazard as a test named
+// TestA8Hazard_.... PR 2 fixed all of them, flipped their tests and renamed
+// them TestA8_<hazard>_<new behavior>. A test named TestA8Keep_... pins
+// behavior that A8 keeps.
 
 // a8Theme puts the default theme back after the test.
 func a8Theme(t *testing.T) {
@@ -52,11 +53,13 @@ func ec2WithRows(t *testing.T) Model {
 
 // --- Hazards ---
 
-// H1 (L17). A theme switch below the home view closes the views, the panel
-// and the back history. The loaded rows are gone.
-func TestA8Hazard_H1_SwitchBelowHomeResetsTheViews(t *testing.T) {
+// H1 (L17). Fixed in PR 2: a theme switch below the home view keeps the
+// views, the panel, the back history and the loaded rows. The rows take the
+// new colors.
+func TestA8_H1_SwitchBelowHomeKeepsTheViews(t *testing.T) {
 	a8Theme(t)
 	m := ec2WithRows(t)
+	list := m.nav.Current()
 	m = followLink(t, m, "eventlog", nil)
 	require.Equal(t, 1, historyLenOf(m))
 	require.Equal(t, 3, m.nav.Depth())
@@ -64,26 +67,33 @@ func TestA8Hazard_H1_SwitchBelowHomeResetsTheViews(t *testing.T) {
 	m, _ = m.applyTheme("nord")
 
 	assert.Equal(t, ui.Nord.Name, ui.ActiveTheme.Name)
-	assert.Equal(t, 1, m.nav.Depth(), "only the home view stays")
-	assert.False(t, panelShown(m))
-	assert.Zero(t, historyLenOf(m))
-	assert.NotContains(t, screen(m), "i-abc")
+	assert.Equal(t, 3, m.nav.Depth())
+	assert.Equal(t, 1, historyLenOf(m))
+	rows := list.View().Content
+	assert.Contains(t, rows, fgParams(ui.Nord.StateRunning))
+	assert.NotContains(t, rows, fgParams(ui.Catppuccin.StateRunning))
+
+	m, _ = update(t, m, keyBackspace)
+	assert.Same(t, list, m.nav.Current())
+	assert.True(t, panelShown(m), "the saved panel comes back")
+	assert.Contains(t, screen(m), "i-abc")
 }
 
-// H1 (L17). A theme switch closes an open form.
-func TestA8Hazard_H1_SwitchClosesAForm(t *testing.T) {
+// H1 (L17). Fixed in PR 2: a theme switch keeps an open form.
+func TestA8_H1_SwitchKeepsAForm(t *testing.T) {
 	a8Theme(t)
 	m := ec2WithRows(t)
 	m = openA6Form(t, m)
+	form := m.nav.Current()
 
 	m, _ = m.applyTheme("nord")
 
-	assert.Equal(t, "home", m.nav.Current().ID())
-	assert.Empty(t, m.forms)
+	assert.Same(t, form, m.nav.Current())
+	assert.Contains(t, form.View().Content, fgParams(ui.Nord.Primary))
 }
 
-// H2. Below the home view, the theme picker asks first.
-func TestA8Hazard_H2_PickerAsksBelowHome(t *testing.T) {
+// H2. Fixed in PR 2: below the home view, the theme picker switches at once.
+func TestA8_H2_PickerSwitchesAtOnceBelowHome(t *testing.T) {
 	a8Theme(t)
 	m := ec2WithRows(t)
 	before := ui.ActiveTheme.Name
@@ -93,12 +103,14 @@ func TestA8Hazard_H2_PickerAsksBelowHome(t *testing.T) {
 	m, _ = update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
 	m = answer(t, m, keyEnter)
 
-	assert.True(t, m.confirm.Visible(), "the switch asks first")
-	assert.Equal(t, before, ui.ActiveTheme.Name)
+	assert.False(t, m.confirm.Visible(), "no question")
+	assert.NotEqual(t, before, ui.ActiveTheme.Name)
+	assert.Equal(t, "ec2_list", m.nav.Current().ID())
 }
 
-// H3. A theme switch declines an open prompt and closes it.
-func TestA8Hazard_H3_SwitchDeclinesAnOpenPrompt(t *testing.T) {
+// H3. Fixed in PR 2: a theme switch keeps an open prompt and sends no
+// decline.
+func TestA8_H3_SwitchKeepsAnOpenPrompt(t *testing.T) {
 	a8Theme(t)
 	m := newTestModel(140, 40)
 	var replies []string
@@ -108,15 +120,15 @@ func TestA8Hazard_H3_SwitchDeclinesAnOpenPrompt(t *testing.T) {
 	require.True(t, m.confirm.Visible())
 
 	m, cmd := m.applyTheme("nord")
-	pump(t, m, cmd)
+	m = pump(t, m, cmd)
 
-	assert.False(t, m.confirm.Visible())
-	assert.Equal(t, []string{"no"}, replies)
+	assert.True(t, m.confirm.Visible())
+	assert.Empty(t, replies)
 }
 
-// H4 (L34). With the auto setting, a reply of the terminal that comes after
-// the user opened views closes them.
-func TestA8Hazard_H4_LateReplyResetsTheViews(t *testing.T) {
+// H4 (L34). Fixed in PR 2: with the auto setting, a reply of the terminal
+// that comes after the user opened views switches the theme and keeps them.
+func TestA8_H4_LateReplyKeepsTheViews(t *testing.T) {
 	a8Theme(t)
 	m := ec2WithRows(t)
 	m.autoTheme = true
@@ -124,13 +136,14 @@ func TestA8Hazard_H4_LateReplyResetsTheViews(t *testing.T) {
 	m, _ = update(t, m, lightBackground)
 
 	assert.Equal(t, ui.CatppuccinLatte.Name, ui.ActiveTheme.Name)
-	assert.Equal(t, 1, m.nav.Depth())
-	assert.False(t, panelShown(m))
+	assert.Equal(t, "ec2_list", m.nav.Current().ID())
+	assert.True(t, panelShown(m))
+	assert.Contains(t, m.nav.Current().View().Content, fgParams(ui.CatppuccinLatte.StateRunning))
 }
 
-// H5 (L34). A reply of the terminal that comes after the user picked a
-// theme replaces that theme.
-func TestA8Hazard_H5_LateReplyReplacesAPickedTheme(t *testing.T) {
+// H5 (L34). Fixed in PR 2: a theme that the user picked ends the auto
+// setting, so a later reply of the terminal does not replace it.
+func TestA8_H5_LateReplyKeepsAPickedTheme(t *testing.T) {
 	a8Theme(t)
 	m := newTestModel(140, 40)
 	m.autoTheme = true
@@ -139,7 +152,36 @@ func TestA8Hazard_H5_LateReplyReplacesAPickedTheme(t *testing.T) {
 
 	update(t, m, lightBackground)
 
-	assert.Equal(t, ui.CatppuccinLatte.Name, ui.ActiveTheme.Name)
+	assert.Equal(t, ui.Nord.Name, ui.ActiveTheme.Name)
+}
+
+// Help that is open during a switch takes the new colors.
+func TestA8_HelpTakesTheNewTheme(t *testing.T) {
+	a8Theme(t)
+	m := ec2WithRows(t)
+	m.autoTheme = true
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, m.help.View(), fgParams(ui.Catppuccin.Text))
+
+	m, _ = update(t, m, lightBackground)
+
+	assert.Contains(t, m.help.View(), fgParams(ui.CatppuccinLatte.Text))
+	assert.NotContains(t, m.help.View(), fgParams(ui.Catppuccin.Text))
+}
+
+// A table made before the color profile arrives draws again without
+// colors: its cursor row uses reverse video.
+func TestA8_ColorProfileRestylesTheViews(t *testing.T) {
+	a8Theme(t)
+	t.Cleanup(func() { ui.SetNoColor(false) })
+	m := ec2WithRows(t)
+	const reverse = "\x1b[7;"
+	require.NotContains(t, m.nav.Current().View().Content, reverse)
+
+	m, _ = update(t, m, tea.ColorProfileMsg{Profile: colorprofile.ASCII})
+
+	assert.True(t, ui.NoColor())
+	assert.Contains(t, m.nav.Current().View().Content, reverse)
 }
 
 // --- Kept ---

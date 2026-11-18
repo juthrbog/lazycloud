@@ -125,29 +125,3 @@ func (m Model) quitAsked() bool {
 	e, ok := m.overlays.find(ovConfirm)
 	return ok && e.route.quit && m.confirm.Visible()
 }
-
-// closePrompts sends a decline on the route of each open prompt, so every
-// prompt gets exactly one reply. Call it before the app throws the prompt
-// components away. The declines arrive after the current update.
-func (m Model) closePrompts() tea.Cmd {
-	var cmds []tea.Cmd
-	for _, e := range m.overlays {
-		if !e.route.routed() || !m.overlay(e.kind).Visible() {
-			continue
-		}
-		var decline tea.Msg
-		switch e.kind {
-		case ovConfirm:
-			// The views are gone after the reset, so only the handlers of
-			// the app read this decline.
-			decline = appmsg.ConfirmResultMsg{Confirmed: false}
-		case ovPicker:
-			decline = pickDecline()
-		default:
-			continue
-		}
-		reply := overlayReplyMsg{route: e.route, msg: decline}
-		cmds = append(cmds, func() tea.Msg { return reply })
-	}
-	return tea.Batch(cmds...)
-}

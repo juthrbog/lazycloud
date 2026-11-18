@@ -129,34 +129,24 @@ func TestOverlayPin_EscAndClearOnViewPickers(t *testing.T) {
 	}
 }
 
-// Below the home view, a theme switch asks first, because it resets the
-// views. A no keeps the theme, and a yes switches it.
-func TestOverlayPin_ThemeSwitchAsksBelowHome(t *testing.T) {
-	defer func() { ui.ActiveTheme = ui.DefaultTheme; ui.RebuildStyles() }()
+// A8: below the home view, the theme picker switches the theme at once and
+// keeps the views.
+func TestOverlayPin_ThemeSwitchBelowHomeAppliesAtOnce(t *testing.T) {
+	a8Theme(t)
 	m := newTestModel(140, 40)
 	v := newReplyView()
 	m.pushView(v)
 	before := ui.ActiveTheme.Name
 
-	pickNext := func(m Model) Model {
-		m, _ = update(t, m, press("T"))
-		require.True(t, m.picker.Visible())
-		m, _ = update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
-		return answer(t, m, keyEnter)
-	}
+	m, _ = update(t, m, press("T"))
+	require.True(t, m.picker.Visible())
+	m, _ = update(t, m, tea.KeyPressMsg{Code: tea.KeyDown})
+	m = answer(t, m, keyEnter)
 
-	m = pickNext(m)
-	require.True(t, m.confirm.Visible(), "the switch asks first")
-	m = answer(t, m, press("n"))
-	assert.Equal(t, before, ui.ActiveTheme.Name)
-	assert.Same(t, v, m.nav.Current())
-
-	m = pickNext(m)
-	require.True(t, m.confirm.Visible())
-	m = answer(t, m, press("y"))
+	assert.False(t, m.confirm.Visible(), "no question")
 	assert.NotEqual(t, before, ui.ActiveTheme.Name)
-	assert.Equal(t, 1, m.nav.Depth(), "the switch resets the views")
-	assert.Empty(t, v.confirms, "the theme confirm does not reach the view")
+	assert.Same(t, v, m.nav.Current(), "the views stay")
+	assert.Empty(t, v.picks, "the theme pick does not reach the view")
 }
 
 // The discard confirm of a form shows over the form and takes the keys

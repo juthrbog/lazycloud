@@ -132,14 +132,13 @@ func TestCrossNavBackPopsToLinkOrigin(t *testing.T) {
 	assert.Equal(t, "web-server-1", m.panels.Title())
 }
 
-// M11: :home and a theme switch start over. Back on Home restores nothing.
+// M11: :home starts over. Back on Home restores nothing. A theme switch
+// keeps the views and the panel (A8, TestA8_H1_SwitchBelowHomeKeepsTheViews).
 func TestResetClearsPanelAndHistory(t *testing.T) {
 	for name, reset := range map[string]func(Model) Model{
 		"home command": func(m Model) Model { m, _ = m.executeCommand("home"); return m },
-		"theme":        func(m Model) Model { m, _ = m.applyTheme("nord"); return m },
 	} {
 		t.Run(name, func(t *testing.T) {
-			defer func() { ui.ActiveTheme = ui.DefaultTheme; ui.RebuildStyles() }()
 			m := newTestModel(140, 40)
 			m.svc.EC2 = new(awstest.MockEC2Service)
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
@@ -218,24 +217,22 @@ func TestHomeKeepsOneTickChain(t *testing.T) {
 	assert.NotNil(t, next, "the new chain goes on")
 }
 
-// L3: a reset from a deeper view used to leave Home without a tick, so the
-// animation stopped.
-func TestThemeSwitchRestartsHomeAnimation(t *testing.T) {
-	defer func() { ui.ActiveTheme = ui.DefaultTheme; ui.RebuildStyles() }()
+// A8: a theme switch on the home view keeps its tick chain. It starts no
+// second chain.
+func TestThemeSwitchKeepsHomeAnimation(t *testing.T) {
+	a8Theme(t)
 	m := newTestModel(140, 40)
-	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	frame := runTick(t, m.nav.InitCurrent())
+
 	m, cmd := m.applyTheme("nord")
-	var frame tea.Msg
 	for _, got := range runAll(cmd) {
 		if r, ok := got.(nav.Routed); ok {
-			if _, ok := r.Msg.(ui.AnimationFrameMsg); ok {
-				frame = got
-			}
+			_, isFrame := r.Msg.(ui.AnimationFrameMsg)
+			assert.False(t, isFrame, "no second chain")
 		}
 	}
-	require.NotNil(t, frame, "the reset starts the home animation")
 	_, next := update(t, m, frame)
-	assert.NotNil(t, next)
+	assert.NotNil(t, next, "the chain goes on")
 }
 
 // L5: the root of the nearest view under the top of the stack opens again
