@@ -102,7 +102,7 @@ PR 0 pins each hazard with a test that shows the behaviour today. The PR that fi
 
 `loginCommand(err)` reads the profile from `ProfileError` and classifies it with `ClassifyProfile` (see "Profile info"). It returns `aws login --profile ROOT` for a login root, `aws sso login --profile ROOT` for an SSO root, and "" for keys, a process, web identity or `credential_source`. ROOT is the profile at the end of the `source_profile` chain, because that profile signs in. With "", the text says "Get new credentials for profile X". When the profile does not load, it falls back to `aws sso login` as today.
 
-`hasCredentials` also checks `sc.LoginSession != ""` and `sc.CredentialSource != ""`.
+`hasCredentials` also checks `sc.LoginSession != ""`. It needs no check for `credential_source`, because the SDK refuses a `credential_source` without `role_arn`, and the role check covers that (found in PR 1).
 
 ### The session mode
 
@@ -229,6 +229,8 @@ func ClassifyProfile(name string, now time.Time) ProfileInfo
 func DescribeProfiles(now time.Time) []ProfileInfo
 ```
 
+PR 1 adds `ClassifyProfile(name string)` with the kind, the role, the MFA mark and the root, and a `SignInCommand` method. PR 4 adds the `now` argument with the token state and the account.
+
 `ClassifyProfile` calls `LoadSharedConfigProfile` with the same file overrides as `hasCredentials`. It walks `sc.Source` to the end of the chain and labels the root in the SDK order of `resolve_credentials.go:139-206`. In the SSO step it checks `sc.SSOSession != nil` first and returns `KindSSO`. It returns `KindSSOLegacy` only when `SSOSession` is nil and `SSOStartURL` is set. It never uses the legacy test of `shared_config.go:1499-1501` alone, because that test is true for most sso-session profiles. A profile with no credential settings is `KindDefault`.
 
 The token state reads the cache file at the path from the SDK helpers: `ssocreds.StandardCachedTokenFilepath(key)` and `logincreds.StandardCachedTokenFilepath(session, os.Getenv("AWS_LOGIN_CACHE_DIRECTORY"))`. So the app does not copy the hash rules. It parses only `expiresAt`, the three refresh fields, and `accessToken.accountId` into small local structs.
@@ -350,7 +352,7 @@ The header gets a width budget, because `RenderHeader` truncates only the breadc
 Each PR keeps `go test ./...` green and runs golangci-lint with gosec.
 
 - PR 0. This design, and `internal/app/p9_pins_test.go` and `internal/aws/p9_pins_test.go`. `TestP9Hazard_*` pins H1 to H7 as they are today. `TestP9Keep_*` pins what stays: start in ReadOnly, a failed switch keeps the session, a switched session is guarded, the RO badge at 80 columns. Path tests compare the planned cache paths with the SDK helpers.
-- PR 1. Error hints with no new UI: `loginNeeded`, `loginCommand` by kind and root, `hasCredentials` with `LoginSession` and `CredentialSource`. It adds the first part of `ClassifyProfile` (kind and root only). H5 and H6 flip.
+- PR 1. Error hints with no new UI: `loginNeeded`, `loginCommand` by kind and root, `hasCredentials` with `LoginSession`. It adds the first part of `ClassifyProfile` (kind and root only). H5 and H6 flip.
 - PR 2. `ui.SessionMode`, per-session guards, ReadOnly on a profile switch and after a sign-in, the mode copied on a region switch. `ui.SetReadOnly` becomes the thin wrapper. `docs/ARCHITECTURE.md` updates the ReadOnly and session sections. H1 and H7 flip.
 - PR 3. `[[rules]]` with checks and warnings, the `WriteDefault` example, match by profile name, locks in `New`, `switchSession`, `applyMode` and for `--read-write`. The lock badge in the header and the session badge in the status bar. H2 and H3 flip. The config section of the docs changes.
 - PR 4. `DescribeProfiles` with the token state and the config account, and the new picker rows, loaded in a command. Rules also match by the config account.

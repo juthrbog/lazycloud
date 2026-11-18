@@ -123,8 +123,9 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 }
 
 // hasCredentials reports whether the environment or the shared AWS files
-// give credentials for profile: keys, SSO, a role, a credential process, a
-// web identity token, or container credentials. It makes no network call,
+// give credentials for profile: keys, SSO, an aws login session, a role, a
+// credential process, a web identity token, or
+// container credentials. It makes no network call,
 // so it does not ask the EC2 instance metadata service. An empty profile
 // means AWS_PROFILE, then "default".
 func hasCredentials(ctx context.Context, profile string) bool {
@@ -136,27 +137,16 @@ func hasCredentials(ctx context.Context, profile string) bool {
 		env.ContainerCredentialsEndpoint != "" || env.ContainerCredentialsRelativePath != "" {
 		return true
 	}
-	if profile == "" {
-		profile = env.SharedConfigProfile
-	}
-	if profile == "" {
-		profile = "default"
-	}
-	// Read the same files as the SDK: AWS_CONFIG_FILE and
-	// AWS_SHARED_CREDENTIALS_FILE when they are set.
-	sc, err := config.LoadSharedConfigProfile(ctx, profile, func(o *config.LoadSharedConfigOptions) {
-		if env.SharedConfigFile != "" {
-			o.ConfigFiles = []string{env.SharedConfigFile}
-		}
-		if env.SharedCredentialsFile != "" {
-			o.CredentialsFiles = []string{env.SharedCredentialsFile}
-		}
-	})
+	// loadSharedProfile reads the same files as the SDK: AWS_CONFIG_FILE
+	// and AWS_SHARED_CREDENTIALS_FILE when they are set.
+	sc, _, err := loadSharedProfile(ctx, profile)
 	if err != nil {
 		return false
 	}
+	// A credential_source needs a role_arn, so the role check covers it.
 	return sc.Credentials.HasKeys() || sc.SSOSessionName != "" || sc.SSOStartURL != "" ||
-		sc.RoleARN != "" || sc.CredentialProcess != "" || sc.WebIdentityTokenFile != ""
+		sc.RoleARN != "" || sc.CredentialProcess != "" || sc.WebIdentityTokenFile != "" ||
+		sc.LoginSession != ""
 }
 
 // SQSClient returns an SQS service client configured for the current profile/region/endpoint.

@@ -74,8 +74,8 @@ The text of an SDK error is long. It names the request ID, the HTTP status, and 
 
 `ErrorText` keeps the AWS error code and message and names the call that failed, for example `S3 ListBuckets: access denied (AccessDenied)`. When a call fails inside another call, such as the STS call that gets the credentials for an S3 call, it names the inner call. It adds a hint for common problems:
 
-- An SSO session that has expired, is missing, or cannot be refreshed: `aws sso login --profile <name>`.
-- Credentials that have expired, that AWS does not accept, or that are missing.
+- An SSO session that has expired, is missing, or cannot be refreshed: `aws sso login --profile <name>`. An `aws login` session that has expired or is missing: `aws login --profile <name>`.
+- Credentials that have expired, that AWS does not accept, or that are missing. For expired credentials, the hint depends on the profile. `aws.ClassifyProfile` reads the profile from the shared AWS files, with no network call. The hint names the profile that signs in, at the end of the `source_profile` chain. For a profile that does not sign in, such as one with keys, the hint asks for new credentials of that profile.
 - A denied call and throttling.
 - A profile that is not in the AWS config files, a host that DNS cannot find, and a refused connection.
 - A cancel (`cancelled`) and a timeout (`no answer from AWS in time`).
