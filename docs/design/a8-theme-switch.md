@@ -1,6 +1,6 @@
 # A8: switch the theme without a reset
 
-Status: done on 2026-11-17. The design was approved on 2026-11-17, with all proposed answers. PR 0 (#292) adds the tests in `internal/app/a8_pins_test.go`. PR 1 (#293) adds `ui.Restyler` and `Restyle` on the table and the views. PR 2 changes the app and fixes H1 to H5.
+Status: done on 2026-11-17. The design was approved on 2026-11-17, with all proposed answers. PR 0 (#292) adds the tests in `internal/app/a8_pins_test.go`. PR 1 (#293) adds `ui.Restyler` and `Restyle` on the table and the views. PR 2 (#294) changes the app and fixes H1 to H5.
 
 The code differs from the design in two points. `ContentView` keeps its cache key, because its cached lines use no style that depends on NoColor. `FormView` also implements `Restyler`: a test of PR 2 showed that huh keeps the drawn fields of a group until the next update, so the fact about huh below was wrong. The app removes `closePrompts`, because no code calls it after the change.
 
