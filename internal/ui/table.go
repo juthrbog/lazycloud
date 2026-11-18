@@ -101,6 +101,17 @@ func tableStyles(theme Theme) table.Styles {
 	return st
 }
 
+// Restyle draws the table again with the active theme: the header, the
+// cursor row and the cells that a column styles. The rows, the sort, the
+// filter, the selection and the cursor stay.
+func (t *Table) Restyle() {
+	t.inner.SetStyles(tableStyles(ActiveTheme))
+	for i, r := range t.rows {
+		t.cells[i] = t.showCells(r.Cells)
+	}
+	t.redraw()
+}
+
 // DefaultTableKeyMap returns the navigation keys of a Table. It leaves out
 // the single letters that views bind to actions: space selects, d describes,
 // and u presigns. A half page moves with ctrl+d and ctrl+u.
@@ -242,7 +253,8 @@ func (t *Table) addRows(rows []Row) {
 
 // showCells returns the cells to show for a row. Each cell is made safe with
 // Sanitize, then styled by its column. The table does this once per row,
-// when the row is added, because a redraw can show many thousands of rows.
+// when the row is added and again in Restyle, because a redraw can show
+// many thousands of rows.
 // It returns cells itself when nothing changes. The cells of the Row keep
 // the original text, for SelectedRow and the filter.
 func (t *Table) showCells(cells table.Row) table.Row {

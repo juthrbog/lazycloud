@@ -39,6 +39,9 @@ var listKeys = struct {
 // CapturingInput implements nav.InputCapturer: true while the filter is open.
 func (c *listCore[T]) CapturingInput() bool { return c.filter.Active() }
 
+// Restyle draws the rows again with the active theme (ui.Restyler).
+func (c *listCore[T]) Restyle() { c.table.Restyle() }
+
 // hints returns a copy of bs with the ReadOnly mode applied, for KeyMap.
 func (c *listCore[T]) hints(bs ...ui.HintBinding) []ui.HintBinding {
 	out := append([]ui.HintBinding(nil), bs...)

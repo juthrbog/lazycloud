@@ -318,6 +318,9 @@ func NewS3Objects(s3 aws.S3Service, bucket, prefix string) *S3Objects {
 	}
 }
 
+// Restyle draws the rows again with the active theme (ui.Restyler).
+func (s *S3Objects) Restyle() { s.table.Restyle() }
+
 func (s *S3Objects) Init() tea.Cmd {
 	if !s.loading {
 		return nil

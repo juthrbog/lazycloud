@@ -99,6 +99,9 @@ func NewEventLog() *EventLog {
 	}
 }
 
+// Restyle draws the events again with the active theme (ui.Restyler).
+func (e *EventLog) Restyle() { e.refreshContent() }
+
 func (e *EventLog) Init() tea.Cmd {
 	e.refreshContent()
 	return nil

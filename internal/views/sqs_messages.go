@@ -224,6 +224,9 @@ func NewSQSMessages(sqs aws.SQSService, queueURL, queueName string, isFIFO bool)
 	}
 }
 
+// Restyle draws the rows again with the active theme (ui.Restyler).
+func (s *SQSMessages) Restyle() { s.table.Restyle() }
+
 func (s *SQSMessages) Init() tea.Cmd {
 	s.table.DeselectAll()
 	// Fetch queue settings (no side effects) but don't auto-peek.

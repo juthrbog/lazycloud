@@ -209,6 +209,13 @@ func RebuildStyles() {
 	S = NewStyles(ActiveTheme)
 }
 
+// Restyler is a view or a component that keeps text drawn with the styles
+// of a theme. Restyle draws that text again with the active theme and the
+// NoColor setting.
+type Restyler interface {
+	Restyle()
+}
+
 // noColor is true when the terminal shows no colors, for example because
 // NO_COLOR is set. A cursor or selection drawn only with a background then
 // does not show, so these use reverse video too.
