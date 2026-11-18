@@ -104,6 +104,9 @@ func NewS3Versions(s3 aws.S3Service, bucket, key string) *S3Versions {
 	}
 }
 
+// Restyle draws the rows again with the active theme (ui.Restyler).
+func (s *S3Versions) Restyle() { s.table.Restyle() }
+
 func (s *S3Versions) Init() tea.Cmd {
 	if !s.loading {
 		return nil

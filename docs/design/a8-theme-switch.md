@@ -1,6 +1,6 @@
 # A8: switch the theme without a reset
 
-Status: approved on 2026-11-17, with all proposed answers. PR 0 adds the tests in `internal/app/a8_pins_test.go`.
+Status: approved on 2026-11-17, with all proposed answers. PR 0 (#292) adds the tests in `internal/app/a8_pins_test.go`.
 
 ## Summary
 
@@ -26,7 +26,7 @@ These facts were checked at `521e75d`:
 - `tea.BackgroundColorMsg` sets the auto theme only while `autoTheme` is true, and clears it. `applyTheme` does not clear `autoTheme`. So when the reply comes after the user picked a theme, the reply replaces that theme, and it resets the views.
 - These components read `ui.S` or `ui.ActiveTheme` each time they draw: the header, the status bar, the command bar, the toasts, the confirm, the picker, the filter, the spinner, the animations of the home view, the tab bar of the panel, `listcore_ui.go`, and the `View` functions of the event log and SQS messages.
 - `huh` forms call the theme function of `ui.HuhTheme` on each render (`field_input.go`, `Input.View`), so an open form takes the new colors without help.
-- `ContentView` caches its drawn lines with the theme name, and draws again when the name changes (`contentview.go`, `screen.theme`). The cache key does not hold the NoColor setting.
+- `ContentView` caches its drawn lines with the theme name, and draws again when the name changes (`contentview.go`, `screen.theme`). The cache key does not hold the NoColor setting. It does not need it, because the cached lines use no style that depends on NoColor, and `paintHighlight` reads NoColor each time it draws.
 - `NewTable` sets the table styles once, from `tableStyles(ActiveTheme)`. `Table.showCells` runs the `Style` function of each column once per row, when the row is added, and keeps the result in `t.cells`. The `Style` functions are `ui.StateColor` and `ui.CountColor`, which read `ActiveTheme`. The cells of a `Row` hold plain text.
 - Four view types own a `ui.Table`: `listCore` (all seven resource lists), `S3Objects`, `S3Versions` and `SQSMessages`.
 - `EventLog.refreshContent` writes colored lines into its viewport. It runs on a resize, a filter change and some keys, not on a theme switch.
@@ -103,7 +103,7 @@ func (m *Model) restyle() {
 
 The views are pointers, so the call changes the view in the stack. The panel needs no call: its tab bar reads the styles when it draws, and each `ContentView` draws again when the theme name changes. The saved panels in the stash and the back history are the same panel values, so they draw with the new theme when they come back. `setTheme` no longer returns a command, because it no longer declines prompts or starts the home view.
 
-`ContentView` adds the NoColor setting to its cache key. The handler of `tea.ColorProfileMsg` calls `restyle` after `ui.SetNoColor`. Then the order of the start messages no longer matters.
+The handler of `tea.ColorProfileMsg` calls `restyle` after `ui.SetNoColor`. Then the order of the start messages no longer matters.
 
 The theme picker applies the theme at once at every depth. `applyTheme` sets `autoTheme` to false. The handler of `tea.BackgroundColorMsg` keeps its test of `autoTheme`, and calls the new `setTheme`.
 
@@ -125,7 +125,7 @@ The theme picker applies the theme at once at every depth. `applyTheme` sets `au
 Each PR keeps the tests green.
 
 - PR 0. This design, and the tests in `internal/app/a8_pins_test.go`. `TestA8Hazard_*` pins H1 to H5 as they are today. `TestA8Keep_*` pins what stays: the new theme reaches the header, a table, a panel and an open form, and ReadOnly survives a switch.
-- PR 1. `ui.Restyler`, `Table.Restyle`, the NoColor key of `ContentView`, and `Restyle` on `listCore`, `S3Objects`, `S3Versions`, `SQSMessages` and `EventLog`, with unit tests and the conformance test. The app does not call it yet, so the behavior is the same.
+- PR 1. `ui.Restyler`, `Table.Restyle`, and `Restyle` on `listCore`, `S3Objects`, `S3Versions`, `SQSMessages` and `EventLog`, with unit tests and the conformance test. The app does not call it yet, so the behavior is the same.
 - PR 2. The app: the new `setTheme` and `restyle`, the call after `SetNoColor`, no confirmation in the theme picker, and `autoTheme` cleared by a pick. The pins of H1 to H5 flip. The tests that expect a reset change: `TestA12Pin_ThemeSwitchWithEachViewPromptOpen`, `TestThemeSwitchDeclinesOpenPrompts`, `TestThemeSwitchDropsTheDeclineForAViewPrompt`, `TestOverlayPin_ThemeSwitchAsksBelowHome` and `TestThemeSwitchRestartsHomeAnimation`. `docs/ARCHITECTURE.md` describes the restyle. The tracker marks L17, L34 and A8 done.
 
 ## Decisions
