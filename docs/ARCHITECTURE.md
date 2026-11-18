@@ -208,6 +208,8 @@ An S3 call must go to the region of its bucket. The S3 service of a session keep
 
 `:home` also calls `resetNav()`. Each time Home is shown again, the app calls its `Init()`. This starts a new chain of animation ticks with a new generation, and Home ignores the frames of older chains.
 
+The animation moves only in `Update`, once per frame of the current chain, so its speed does not depend on how often Bubble Tea draws the screen. `View` draws a frame once and keeps the text until the frame, the size, the theme or the speed changes. It writes a color sequence only where the colors change. The app asks the terminal for focus reports (`ReportFocus`). While the terminal does not have the focus, the app drops the frames, so the chain stops. When the focus comes back on Home, the app calls `Init()` again.
+
 ### Input Capture
 
 A view that takes text input implements `nav.InputCapturer`. Its `CapturingInput()` returns true while a filter, a form, or another input is active. While it returns true, the app sends every key except `ctrl+c` to the view. Typed letters such as `q`, `W`, `:`, or `tab` do not run app-wide keys, and the status bar shows only the hints of the view. `FormView` always returns true.

@@ -199,6 +199,42 @@ func runAll(cmd tea.Cmd) []tea.Msg {
 	}
 }
 
+// P3: the home animation pauses while the terminal does not have the focus.
+// The focus starts a new tick chain, and a frame of the old chain ends it.
+func TestHomeAnimationPausesWithoutFocus(t *testing.T) {
+	m := newTestModel(140, 40)
+	assert.True(t, m.View().ReportFocus, "the app asks the terminal for focus reports")
+	oldFrame := runTick(t, m.nav.InitCurrent())
+
+	m, _ = update(t, m, tea.BlurMsg{})
+	_, next := update(t, m, oldFrame)
+	assert.Nil(t, next, "the chain stops without the focus")
+
+	m, restart := update(t, m, tea.FocusMsg{})
+	require.NotNil(t, restart, "the focus starts the animation again")
+	_, next = update(t, m, oldFrame)
+	assert.Nil(t, next, "a frame of the old chain ends it")
+	_, next = update(t, m, runTick(t, restart))
+	assert.NotNil(t, next, "the new chain goes on")
+}
+
+// P3: a focus report without a blur before it starts no second chain, and
+// the focus below the home view starts no animation.
+func TestFocusStartsTheAnimationOnlyAfterABlurOnHome(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, cmd := update(t, m, tea.FocusMsg{})
+	assert.Nil(t, cmd)
+
+	// The EC2 list starts a load in Init, so a focus that called Init would
+	// return a command.
+	m.svc.EC2 = new(awstest.MockEC2Service)
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
+	require.NotNil(t, m.nav.InitCurrent(), "Init of the list returns a command")
+	m, _ = update(t, m, tea.BlurMsg{})
+	_, cmd = update(t, m, tea.FocusMsg{})
+	assert.Nil(t, cmd)
+}
+
 // L3: Home shown again starts a new tick chain. A frame of the old chain
 // that was still in flight must end that chain, not start a second one.
 func TestHomeKeepsOneTickChain(t *testing.T) {

@@ -28,9 +28,12 @@ func AnimationTick(gen int) tea.Cmd {
 
 // Animation is an idle animation that renders into a given area.
 type Animation interface {
-	// Update advances the animation by one frame.
-	Update()
-	// View renders the current frame into a string of the given dimensions.
+	// Update advances the animation by one frame in an area of the given
+	// dimensions. All motion happens here, so the speed does not depend on
+	// how often the screen is drawn.
+	Update(width, height int)
+	// View renders the current frame into a string of the given
+	// dimensions. It does not move anything, and it draws a frame only once.
 	View(width, height int) string
 	// SpeedUp increases the animation speed.
 	SpeedUp()
@@ -54,6 +57,97 @@ type cloud struct {
 	speed float64     // horizontal drift speed (pixels per frame)
 }
 
+// frameKey identifies a drawn frame. The same key gives the same text.
+type frameKey struct {
+	frame, width, height int
+	theme                string
+	speed                float64
+}
+
+// frameCache keeps the last drawn frame. Bubble Tea draws the screen after
+// each message, also between two frames.
+type frameCache struct {
+	key  frameKey
+	text string
+	ok   bool
+}
+
+func (f *frameCache) get(k frameKey) (string, bool) {
+	if f.ok && f.key == k {
+		return f.text, true
+	}
+	return "", false
+}
+
+func (f *frameCache) put(k frameKey, text string) string {
+	f.key, f.text, f.ok = k, text, true
+	return text
+}
+
+// halfBlocks draws a grid of width by 2*height pixels. Each cell is "▀",
+// with the upper pixel as the foreground and the lower pixel as the
+// background. It writes a color sequence only when the colors change from
+// the cell before, and resets the colors at the end of each line.
+func halfBlocks(width, height int, pixel func(x, y int) color.Color) string {
+	params := make(map[uint32]string, 8)
+	param := func(c color.Color) (uint32, string) {
+		r, g, b, _ := c.RGBA()
+		k := (r>>8)<<16 | (g>>8)<<8 | b>>8
+		p, ok := params[k]
+		if !ok {
+			p = fmt.Sprintf("%d;%d;%d", r>>8, g>>8, b>>8)
+			params[k] = p
+		}
+		return k, p
+	}
+
+	var b strings.Builder
+	b.Grow(width*height*4 + height*40)
+	for row := range height {
+		var lastFg, lastBg uint32
+		for col := range width {
+			fk, fp := param(pixel(col, row*2))
+			bk, bp := param(pixel(col, row*2+1))
+			if col == 0 || fk != lastFg || bk != lastBg {
+				b.WriteString("\x1b[38;2;")
+				b.WriteString(fp)
+				b.WriteString(";48;2;")
+				b.WriteString(bp)
+				b.WriteByte('m')
+				lastFg, lastBg = fk, bk
+			}
+			b.WriteString("▀")
+		}
+		b.WriteString("\x1b[m")
+		if row < height-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
+}
+
+// withSpeed draws the speed label in the lower right corner when the speed
+// is not the default.
+func withSpeed(frame string, width, height int, speed float64) string {
+	if speed == 1.0 {
+		return frame
+	}
+	label := fmt.Sprintf(" %.0fx ", speed)
+	if speed != math.Trunc(speed) {
+		label = fmt.Sprintf(" %.2gx ", speed)
+	}
+	indicator := S.Muted.Render(label)
+	x := width - lipgloss.Width(indicator) - 1
+	y := height - lipgloss.Height(indicator)
+	if x <= 0 || y <= 0 {
+		return frame
+	}
+	return lipgloss.NewCompositor(
+		lipgloss.NewLayer(frame).Z(0),
+		lipgloss.NewLayer(indicator).X(x).Y(y).Z(1),
+	).Render()
+}
+
 // Speed multiplier bounds.
 const (
 	speedMin  = 0.25
@@ -67,6 +161,7 @@ type CloudAnimation struct {
 	frame     int
 	rng       lcg
 	speedMult float64 // drift speed multiplier (default 1.0)
+	drawn     frameCache
 }
 
 // NewCloudAnimation creates a cloud animation with the given random seed.
@@ -75,7 +170,23 @@ func NewCloudAnimation(seed int64) *CloudAnimation {
 	return &CloudAnimation{rng: rng, speedMult: 1.0}
 }
 
-func (c *CloudAnimation) Update() {
+// Update moves the clouds by one frame. A cloud that leaves the screen
+// comes back as a new cloud on the right.
+func (c *CloudAnimation) Update(width, height int) {
+	if width <= 0 || height <= 0 {
+		return
+	}
+	pixH := height * 2
+	if len(c.clouds) == 0 {
+		c.clouds = c.generateClouds(width, pixH)
+	}
+	for i := range c.clouds {
+		c.clouds[i].x -= c.clouds[i].speed * c.speedMult
+		if c.clouds[i].x+c.clouds[i].w < 0 {
+			c.clouds[i] = c.makeCloud(width, pixH, i, len(c.clouds))
+			c.clouds[i].x = float64(width) + c.rng.float()*40
+		}
+	}
 	c.frame++
 }
 
@@ -97,22 +208,13 @@ func (c *CloudAnimation) View(width, height int) string {
 	if width <= 0 || height <= 0 {
 		return ""
 	}
-
 	t := ActiveTheme
-	pixH := height * 2
-
-	// Generate clouds on first render or when dimensions change significantly
-	if len(c.clouds) == 0 {
-		c.clouds = c.generateClouds(width, pixH)
+	key := frameKey{c.frame, width, height, t.Name, c.speedMult}
+	if text, ok := c.drawn.get(key); ok {
+		return text
 	}
-
-	// Advance cloud positions — generate a fresh cloud when one wraps off-screen
-	for i := range c.clouds {
-		c.clouds[i].x -= c.clouds[i].speed * c.speedMult
-		if c.clouds[i].x+c.clouds[i].w < 0 {
-			c.clouds[i] = c.makeCloud(width, pixH, i, len(c.clouds))
-			c.clouds[i].x = float64(width) + c.rng.float()*40
-		}
+	if len(c.clouds) == 0 {
+		c.clouds = c.generateClouds(width, height*2)
 	}
 
 	// Cloud shading colors (top-lit: highlight on top, shadow on bottom)
@@ -121,50 +223,10 @@ func (c *CloudAnimation) View(width, height int) string {
 	shadow := t.Surface  // darkest cloud color — bottom
 	sky := t.Base
 
-	// Render each pixel
-	var b strings.Builder
-	b.Grow(width * height * 20)
-	for row := range height {
-		topY := row * 2
-		botY := topY + 1
-
-		for col := range width {
-			topColor := c.pixelColor(float64(col), float64(topY), sky, highlight, body, shadow)
-			botColor := c.pixelColor(float64(col), float64(botY), sky, highlight, body, shadow)
-
-			style := lipgloss.NewStyle().
-				Foreground(topColor).
-				Background(botColor)
-			b.WriteString(style.Render("▀"))
-		}
-		if row < height-1 {
-			b.WriteString("\n")
-		}
-	}
-
-	result := b.String()
-
-	// Show speed indicator when not at default speed
-	if c.speedMult != 1.0 {
-		label := fmt.Sprintf(" %.0fx ", c.speedMult)
-		if c.speedMult != math.Trunc(c.speedMult) {
-			label = fmt.Sprintf(" %.2gx ", c.speedMult)
-		}
-		indicator := S.Muted.Render(label)
-		iw := lipgloss.Width(indicator)
-		ih := lipgloss.Height(indicator)
-		x := width - iw - 1
-		y := height - ih
-		if x > 0 && y > 0 {
-			comp := lipgloss.NewCompositor(
-				lipgloss.NewLayer(result).Z(0),
-				lipgloss.NewLayer(indicator).X(x).Y(y).Z(1),
-			)
-			result = comp.Render()
-		}
-	}
-
-	return result
+	frame := halfBlocks(width, height, func(x, y int) color.Color {
+		return c.pixelColor(float64(x), float64(y), sky, highlight, body, shadow)
+	})
+	return c.drawn.put(key, withSpeed(frame, width, height, c.speedMult))
 }
 
 // pixelColor determines the color for a single pixel coordinate.
@@ -329,7 +391,7 @@ type StormAnimation struct {
 	frame     int
 	rng       lcg
 	speedMult float64
-	w, h      int // last known pixel dimensions
+	drawn     frameCache
 }
 
 // NewStormAnimation creates a storm animation with the given random seed.
@@ -338,41 +400,15 @@ func NewStormAnimation(seed int64) *StormAnimation {
 	return &StormAnimation{rng: rng, speedMult: 1.0}
 }
 
-func (s *StormAnimation) Update() {
-	s.frame++
-}
-
-func (s *StormAnimation) SpeedUp() {
-	s.speedMult += speedStep
-	if s.speedMult > speedMax {
-		s.speedMult = speedMax
-	}
-}
-
-func (s *StormAnimation) SlowDown() {
-	s.speedMult -= speedStep
-	if s.speedMult < speedMin {
-		s.speedMult = speedMin
-	}
-}
-
-func (s *StormAnimation) View(width, height int) string {
+// Update moves the clouds and the rain by one frame, and starts or ends a
+// lightning bolt.
+func (s *StormAnimation) Update(width, height int) {
 	if width <= 0 || height <= 0 {
-		return ""
+		return
 	}
-
-	t := ActiveTheme
 	pixH := height * 2
-	s.w = width
-	s.h = height
+	s.ensure(width, pixH)
 
-	// Generate storm clouds on first render
-	if len(s.clouds) == 0 {
-		s.clouds = s.generateStormClouds(width, pixH)
-		s.rain = s.generateRain(width, pixH, 120+s.rng.intn(60))
-	}
-
-	// Advance clouds
 	for i := range s.clouds {
 		s.clouds[i].x -= s.clouds[i].speed * s.speedMult
 		if s.clouds[i].x+s.clouds[i].w < 0 {
@@ -381,7 +417,6 @@ func (s *StormAnimation) View(width, height int) string {
 		}
 	}
 
-	// Advance rain
 	for i := range s.rain {
 		s.rain[i].y += s.rain[i].speed * s.speedMult
 		if s.rain[i].y >= float64(pixH) {
@@ -405,6 +440,43 @@ func (s *StormAnimation) View(width, height int) string {
 	} else if s.rng.float() < 0.02 {
 		s.bolt = s.generateLightning(width, pixH)
 	}
+	s.frame++
+}
+
+// ensure makes the clouds and the rain on the first frame.
+func (s *StormAnimation) ensure(width, pixH int) {
+	if len(s.clouds) == 0 {
+		s.clouds = s.generateStormClouds(width, pixH)
+		s.rain = s.generateRain(width, pixH, 120+s.rng.intn(60))
+	}
+}
+
+func (s *StormAnimation) SpeedUp() {
+	s.speedMult += speedStep
+	if s.speedMult > speedMax {
+		s.speedMult = speedMax
+	}
+}
+
+func (s *StormAnimation) SlowDown() {
+	s.speedMult -= speedStep
+	if s.speedMult < speedMin {
+		s.speedMult = speedMin
+	}
+}
+
+func (s *StormAnimation) View(width, height int) string {
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+
+	t := ActiveTheme
+	key := frameKey{s.frame, width, height, t.Name, s.speedMult}
+	if text, ok := s.drawn.get(key); ok {
+		return text
+	}
+	pixH := height * 2
+	s.ensure(width, pixH)
 
 	// Storm uses darker shading
 	highlight := t.Muted
@@ -496,49 +568,8 @@ func (s *StormAnimation) View(width, height int) string {
 		return sky
 	}
 
-	// Render
-	var b strings.Builder
-	b.Grow(width * height * 20)
-	for row := range height {
-		topY := row * 2
-		botY := topY + 1
-		for col := range width {
-			topC := stormPixel(col, topY)
-			botC := stormPixel(col, botY)
-
-			style := lipgloss.NewStyle().
-				Foreground(topC).
-				Background(botC)
-			b.WriteString(style.Render("▀"))
-		}
-		if row < height-1 {
-			b.WriteString("\n")
-		}
-	}
-
-	result := b.String()
-
-	// Speed indicator
-	if s.speedMult != 1.0 {
-		label := fmt.Sprintf(" %.0fx ", s.speedMult)
-		if s.speedMult != math.Trunc(s.speedMult) {
-			label = fmt.Sprintf(" %.2gx ", s.speedMult)
-		}
-		indicator := S.Muted.Render(label)
-		iw := lipgloss.Width(indicator)
-		ih := lipgloss.Height(indicator)
-		x := width - iw - 1
-		y := height - ih
-		if x > 0 && y > 0 {
-			comp := lipgloss.NewCompositor(
-				lipgloss.NewLayer(result).Z(0),
-				lipgloss.NewLayer(indicator).X(x).Y(y).Z(1),
-			)
-			result = comp.Render()
-		}
-	}
-
-	return result
+	frame := halfBlocks(width, height, stormPixel)
+	return s.drawn.put(key, withSpeed(frame, width, height, s.speedMult))
 }
 
 func (s *StormAnimation) generateStormClouds(screenW, screenH int) []cloud {
