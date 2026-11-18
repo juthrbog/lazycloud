@@ -12,6 +12,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/aws/awstest"
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // TestRuntime_RoutedMessagesEndToEnd runs the full app in the real Bubble Tea
@@ -19,6 +20,9 @@ import (
 // runtime still executes tagged batches, delivers routed results, handles
 // clipboard writes, and quits.
 func TestRuntime_RoutedMessagesEndToEnd(t *testing.T) {
+	// The program sends the color profile of its output, which has no
+	// colors, so the app turns NoColor on. Turn it off for the next tests.
+	t.Cleanup(func() { ui.SetNoColor(false) })
 	ec2 := new(awstest.MockEC2Service)
 	ec2.On("ListInstancesPage", mock.Anything, (*string)(nil)).Return(&aws.InstancePage{
 		Instances: []aws.Instance{{ID: "i-runtime1", Name: "web-1", State: "running"}},

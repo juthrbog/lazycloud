@@ -6,8 +6,11 @@ import (
 	"testing"
 
 	"charm.land/bubbles/v2/table"
+	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
 // useTheme makes th active and puts the default theme back after the test.
@@ -95,4 +98,21 @@ func cellsOf(keys []string, tbl Table) []string {
 		out[i] = tbl.rows[tbl.index[k]].Cells[0]
 	}
 	return out
+}
+
+// A8: an open form draws its fields again with the new theme on Restyle.
+// huh keeps the drawn fields until the next update.
+func TestFormViewRestyle(t *testing.T) {
+	useTheme(t, Catppuccin)
+	f := NewFormView(msg.RequestFormMsg{ID: "a8", Title: "A8", Fields: []msg.FormField{{Key: "n", Title: "Name"}}})
+	f.Init()
+	f.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	require.Contains(t, f.View().Content, fg(Catppuccin.Primary))
+
+	useTheme(t, Nord)
+	require.Contains(t, f.View().Content, fg(Catppuccin.Primary), "the fields keep the old colors until Restyle")
+	f.Restyle()
+
+	assert.Contains(t, f.View().Content, fg(Nord.Primary))
+	assert.NotContains(t, f.View().Content, fg(Catppuccin.Primary))
 }

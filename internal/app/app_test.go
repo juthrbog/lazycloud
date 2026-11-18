@@ -273,6 +273,7 @@ func TestApplyProfileReturnsToDismissToast(t *testing.T) {
 }
 
 func TestApplyThemeReturnsToDismissToast(t *testing.T) {
+	a8Theme(t)
 	m := newTestModel(140, 40)
 	_, cmd := m.applyTheme("dracula")
 	assert.NotNil(t, cmd)

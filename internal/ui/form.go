@@ -184,6 +184,18 @@ func (f *FormView) askDiscard() tea.Cmd {
 	return func() tea.Msg { return req }
 }
 
+// restyleMsg makes the form draw its fields again. huh keeps the drawn
+// fields of a group and draws them again only on an update.
+type restyleMsg struct{}
+
+// Restyle draws the form again with the active theme (Restyler).
+func (f *FormView) Restyle() {
+	model, _ := f.form.Update(restyleMsg{})
+	if updated, ok := model.(*huh.Form); ok {
+		f.form = updated
+	}
+}
+
 func (f *FormView) View() tea.View {
 	return tea.NewView("\n" + f.form.View())
 }

@@ -393,20 +393,21 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.autoTheme {
 			return m, nil
 		}
-		// The terminal answers once, at start. Pick the theme only then: a
-		// switch later would rebuild the views that the user opened.
+		// The terminal answers once, at start. The answer can come after
+		// the user opened views. The switch keeps them (L34).
 		m.autoTheme = false
 		name := ui.AutoThemeName(m.isDark)
 		if ui.Themes[name].Name == ui.ActiveTheme.Name {
 			return m, nil
 		}
 		eventlog.Infof(eventlog.CatUI, "Theme auto → %s (dark background: %t)", name, m.isDark)
-		return m.setTheme(name)
+		return m.setTheme(name), nil
 
 	case tea.ColorProfileMsg:
-		// Bubble Tea sends this once at start, before any table exists.
-		// NO_COLOR gives the ASCII profile.
+		// Bubble Tea sends this once at start. NO_COLOR gives the ASCII
+		// profile. A view made before this message draws again.
 		ui.SetNoColor(msg.Profile == colorprofile.NoTTY || msg.Profile == colorprofile.ASCII)
+		m.restyle()
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -923,15 +924,7 @@ func (m *Model) showThemePicker() tea.Cmd {
 		}
 		options = append(options, ui.PickerOption{Label: label, Value: name})
 	}
-	return m.pick("Select Theme", options, currentIdx, onPicked(func(m Model, name string) (Model, tea.Cmd) {
-		if m.nav.Depth() == 1 {
-			return m.applyTheme(name)
-		}
-		// Below the home view, ask first: the switch resets the views.
-		cmd := m.askQuick("Switching themes resets the current view. Continue?",
-			func(m Model) (Model, tea.Cmd) { return m.applyTheme(name) }, nil)
-		return m, cmd
-	}))
+	return m.pick("Select Theme", options, currentIdx, onPicked(Model.applyTheme))
 }
 
 func (m *Model) showServicePicker() tea.Cmd {
@@ -1200,28 +1193,40 @@ func (m Model) applyRegion(region string) (Model, tea.Cmd) {
 	return m.requestSessionSwitch(sessionChange{m.config.AWS.Profile, region, "Region", region})
 }
 
+// applyTheme makes the theme that the user picked active. The pick ends the
+// auto setting, so a late answer of the terminal does not replace it (L34).
 func (m Model) applyTheme(name string) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatUI, "Theme changed → %s", name)
-	m, cmd := m.setTheme(name)
-	_, toastCmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
-	return m, tea.Batch(cmd, toastCmd)
+	m.autoTheme = false
+	m = m.setTheme(name)
+	_, cmd := m.toasts.Add("Theme: "+ui.ActiveTheme.Name, ui.ToastSuccess, 0)
+	return m, cmd
 }
 
-// setTheme makes a theme active. The views keep theme colors in their rows
-// (L17), so it builds the navigation and the overlays again.
-func (m Model) setTheme(name string) (Model, tea.Cmd) {
-	if t, ok := ui.Themes[name]; ok {
-		ui.ActiveTheme = t
-		ui.RebuildStyles()
+// setTheme makes a theme active and draws the open views again with it.
+// The views, the panel, the back history and the open prompts stay (L17).
+func (m Model) setTheme(name string) Model {
+	t, ok := ui.Themes[name]
+	if !ok {
+		return m
 	}
-	// Every open prompt gets a decline before its component goes away.
-	declines := m.closePrompts()
-	cmd := m.resetNav()
-	m.confirm = ui.NewConfirm()
-	m.picker = ui.NewPicker()
-	m.pruneOverlays()
-	m.resizeOverlays()
-	return m, tea.Batch(declines, cmd)
+	ui.ActiveTheme = t
+	ui.RebuildStyles()
+	m.restyle()
+	return m
+}
+
+// restyle draws the views on the stack and help again with the active
+// styles. The other parts of the screen read the styles each time they
+// draw. The panel needs no call: each ContentView draws again when the
+// theme changes, and the saved panels are the same panel values.
+func (m *Model) restyle() {
+	for _, v := range m.nav.Views() {
+		if r, ok := v.(ui.Restyler); ok {
+			r.Restyle()
+		}
+	}
+	m.refreshHelp()
 }
 
 func (m Model) View() tea.View {

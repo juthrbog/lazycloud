@@ -1,6 +1,8 @@
 # A8: switch the theme without a reset
 
-Status: approved on 2026-11-17, with all proposed answers. PR 0 (#292) adds the tests in `internal/app/a8_pins_test.go`.
+Status: done on 2026-11-17. The design was approved on 2026-11-17, with all proposed answers. PR 0 (#292) adds the tests in `internal/app/a8_pins_test.go`. PR 1 (#293) adds `ui.Restyler` and `Restyle` on the table and the views. PR 2 changes the app and fixes H1 to H5.
+
+The code differs from the design in two points. `ContentView` keeps its cache key, because its cached lines use no style that depends on NoColor. `FormView` also implements `Restyler`: a test of PR 2 showed that huh keeps the drawn fields of a group until the next update, so the fact about huh below was wrong. The app removes `closePrompts`, because no code calls it after the change.
 
 ## Summary
 
@@ -25,7 +27,7 @@ These facts were checked at `521e75d`:
 - The theme picker asks "Switching themes resets the current view. Continue?" when the stack is deeper than the home view.
 - `tea.BackgroundColorMsg` sets the auto theme only while `autoTheme` is true, and clears it. `applyTheme` does not clear `autoTheme`. So when the reply comes after the user picked a theme, the reply replaces that theme, and it resets the views.
 - These components read `ui.S` or `ui.ActiveTheme` each time they draw: the header, the status bar, the command bar, the toasts, the confirm, the picker, the filter, the spinner, the animations of the home view, the tab bar of the panel, `listcore_ui.go`, and the `View` functions of the event log and SQS messages.
-- `huh` forms call the theme function of `ui.HuhTheme` on each render (`field_input.go`, `Input.View`), so an open form takes the new colors without help.
+- `huh` fields call the theme function of `ui.HuhTheme` each time they draw (`field_input.go`, `Input.View`). (Found wrong in PR 2: a group keeps the drawn fields in a viewport and draws them again only on an update, `group.go`, `buildView`.)
 - `ContentView` caches its drawn lines with the theme name, and draws again when the name changes (`contentview.go`, `screen.theme`). The cache key does not hold the NoColor setting. It does not need it, because the cached lines use no style that depends on NoColor, and `paintHighlight` reads NoColor each time it draws.
 - `NewTable` sets the table styles once, from `tableStyles(ActiveTheme)`. `Table.showCells` runs the `Style` function of each column once per row, when the row is added, and keeps the result in `t.cells`. The `Style` functions are `ui.StateColor` and `ui.CountColor`, which read `ActiveTheme`. The cells of a `Row` hold plain text.
 - Four view types own a `ui.Table`: `listCore` (all seven resource lists), `S3Objects`, `S3Versions` and `SQSMessages`.

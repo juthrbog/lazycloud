@@ -61,55 +61,43 @@ func TestStrayRepliesRunNoAppCode(t *testing.T) {
 	m.ops.CancelAll()
 }
 
-// A theme switch throws the prompt components away. Each open prompt gets
-// exactly one decline first, so no handler waits for an answer.
-func TestThemeSwitchDeclinesOpenPrompts(t *testing.T) {
+// A8: a theme switch keeps an open prompt of the app, and its handler runs
+// on the answer of the user.
+func TestThemeSwitchKeepsOpenPrompts(t *testing.T) {
 	// Only one prompt can be open (D3), so each case opens one.
 	t.Run("confirm", func(t *testing.T) {
+		a8Theme(t)
 		m := newTestModel(140, 40)
 		var replies []string
 		m.askQuick("Sure?",
 			func(m Model) (Model, tea.Cmd) { replies = append(replies, "yes"); return m, nil },
 			func(m Model) (Model, tea.Cmd) { replies = append(replies, "no"); return m, nil })
+
+		m, cmd := m.applyTheme("nord")
+		m = pump(t, m, cmd)
 		require.True(t, m.confirm.Visible())
 		require.Empty(t, replies)
 
-		m, cmd := m.setTheme(ui.ThemeOrder[0])
-		assert.False(t, m.confirm.Visible())
-		assert.Empty(t, m.overlays)
-		pump(t, m, cmd)
-		assert.Equal(t, []string{"no"}, replies)
+		answer(t, m, press("y"))
+		assert.Equal(t, []string{"yes"}, replies)
 	})
 	t.Run("picker", func(t *testing.T) {
+		a8Theme(t)
 		m := newTestModel(140, 40)
 		var replies []string
 		m.pick("Pick", []ui.PickerOption{{Label: "a", Value: "a"}}, 0, func(m Model, r msg.PickerResultMsg) (Model, tea.Cmd) {
 			replies = append(replies, map[bool]string{true: "pick", false: "cancel"}[r.Picked()])
 			return m, nil
 		})
+
+		m, cmd := m.applyTheme("nord")
+		m = pump(t, m, cmd)
 		require.True(t, m.picker.Visible())
 		require.Empty(t, replies)
 
-		m, cmd := m.setTheme(ui.ThemeOrder[0])
-		assert.False(t, m.picker.Visible())
-		assert.Empty(t, m.overlays)
-		pump(t, m, cmd)
-		assert.Equal(t, []string{"cancel"}, replies)
+		answer(t, m, keyEnter)
+		assert.Equal(t, []string{"pick"}, replies)
 	})
-}
-
-// The decline of closePrompts for a view's prompt finds no view after the
-// reset, so it is dropped.
-func TestThemeSwitchDropsTheDeclineForAViewPrompt(t *testing.T) {
-	m := newTestModel(140, 40)
-	v := newReplyView()
-	m.pushView(v)
-	m, _ = update(t, m, nav.Routed{Origin: v, Msg: msg.RequestActionPickerMsg{Title: "Actions", Options: []string{"Stop"}}})
-	require.True(t, m.picker.Visible())
-
-	m, cmd := m.setTheme(ui.ThemeOrder[0])
-	pump(t, m, cmd)
-	assert.Empty(t, v.picks, "the view is gone, so it gets nothing")
 }
 
 // Only the quit confirm takes a second ctrl+c. ctrl+c on another confirm of
@@ -138,17 +126,9 @@ func typeInto(t *testing.T, m Model, text string) Model {
 	return m
 }
 
-// Help and the command bar have no route and send no reply that a decline
-// could stand for, so closePrompts skips them.
-func TestClosePromptsSkipsHelpAndTheCommandBar(t *testing.T) {
+// A reply without a route goes nowhere.
+func TestReplyWithoutARouteGoesNowhere(t *testing.T) {
 	m := newTestModel(140, 40)
-	m, _ = update(t, m, press(":"))
-	m.help.Show(nil, 140, 40)
-	m.openOverlay(ovHelp)
-	require.Len(t, m.overlays, 2)
-	assert.Nil(t, m.closePrompts())
-
-	// A reply without a route goes nowhere.
 	v := newReplyView()
 	m.pushView(v)
 	m, cmd := update(t, m, overlayReplyMsg{msg: msg.ConfirmResultMsg{}})
