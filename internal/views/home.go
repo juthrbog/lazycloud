@@ -58,7 +58,7 @@ func (h *Home) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Gen != h.tickGen {
 			return h, nil // frame of an older chain
 		}
-		h.animation.Update()
+		h.animation.Update(h.width, h.height)
 		return h, ui.AnimationTick(h.tickGen)
 	case tea.KeyPressMsg:
 		switch m.String() {

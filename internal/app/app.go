@@ -48,6 +48,9 @@ type Model struct {
 	// autoTheme is true until the terminal reports its background, when
 	// the theme setting is auto. Then the app picks the dark or light theme.
 	autoTheme bool
+	// blurred is true while the terminal does not have the focus. The home
+	// animation then pauses (P3).
+	blurred bool
 
 	keys ui.AppKeyMap
 
@@ -218,9 +221,10 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		return m.Update(inner)
 
 	case ui.AnimationFrameMsg:
-		// Animate only while visible. The app restarts the tick when the
-		// home view is shown again.
-		if !m.nav.IsCurrent(r.Origin) {
+		// Animate only while visible: the home view is on top and the
+		// terminal has the focus. The app restarts the tick when the home
+		// view is shown again or the terminal gets the focus back.
+		if !m.nav.IsCurrent(r.Origin) || m.blurred {
 			return m, nil
 		}
 	}
@@ -402,6 +406,18 @@ func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		eventlog.Infof(eventlog.CatUI, "Theme auto → %s (dark background: %t)", name, m.isDark)
 		return m.setTheme(name), nil
+
+	case tea.BlurMsg:
+		m.blurred = true
+		return m, nil
+
+	case tea.FocusMsg:
+		wasBlurred := m.blurred
+		m.blurred = false
+		if wasBlurred && m.nav.Depth() == 1 {
+			return m, m.nav.InitCurrent()
+		}
+		return m, nil
 
 	case tea.ColorProfileMsg:
 		// Bubble Tea sends this once at start. NO_COLOR gives the ASCII
@@ -1403,6 +1419,8 @@ func (m Model) View() tea.View {
 	// the renderer would pass on to the terminal, if a view missed it.
 	v := tea.NewView(ui.StripUnsafe(body))
 	v.AltScreen = true
+	// The home animation pauses while the terminal does not have the focus.
+	v.ReportFocus = true
 	return v
 }
 
