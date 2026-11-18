@@ -76,6 +76,16 @@ collectAllKeyHints()       --> help overlay (? key)
 
 `currentKeyHints()` is context-sensitive (panel focused vs main view). `collectAllKeyHints()` returns everything with categories for the help overlay.
 
+The help overlay shows the groups in this order: Current View, Navigation, Panel, Global. A group with another category comes after these, in the order of the names.
+
+Keys in the help overlay:
+
+| Key | Action |
+|-----|--------|
+| `j`/`k`, arrows, `f`/`b`, `d`/`u` | Scroll |
+| `/` | Start the filter. Then the printable keys type, `enter` keeps the text, and `esc` clears it. A paste also starts the filter. |
+| `?`, `esc`, `q` | Close help |
+
 ## Built-in Table Navigation
 
 These keys move the cursor in every table-based view. They come from `ui.DefaultTableKeyMap()`, which starts from the bubbles `table.DefaultKeyMap()`. A view can replace them with `Table.SetKeyMap`.

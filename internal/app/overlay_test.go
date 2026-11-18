@@ -186,6 +186,21 @@ func TestOverlayPin_HelpGetsTheNewSizeOnResize(t *testing.T) {
 	assert.LessOrEqual(t, lipgloss.Height(after), 20)
 }
 
+// L9: q and j go to open help. q closes help and does not leave the view.
+func TestHelpTakesQAndJ(t *testing.T) {
+	m := newTestModel(140, 40)
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = update(t, m, press("?"))
+	require.True(t, m.help.Visible())
+
+	m, _ = update(t, m, press("j"))
+	require.True(t, m.help.Visible())
+	m, _ = update(t, m, press("q"))
+
+	assert.False(t, m.help.Visible())
+	assert.Equal(t, "eventlog", m.nav.Current().ID())
+}
+
 // A reply goes to the view that asked, also when another view is on top
 // when the reply comes. Before PR 3, it went to the view on top.
 func TestOverlayPin_ReplyGoesToTheViewThatAsked(t *testing.T) {

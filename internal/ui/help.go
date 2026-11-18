@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
@@ -9,14 +10,17 @@ import (
 )
 
 // HelpOverlay is a scrollable, filterable overlay that displays keybindings
-// grouped by category.
+// grouped by category. The scroll keys of the viewport, such as j and k,
+// scroll it. / starts the filter, as in the lists: then printable keys type,
+// enter keeps the text, and esc clears it.
 type HelpOverlay struct {
-	viewport viewport.Model
-	visible  bool
-	filter   queryInput
-	hints    []HintBinding
-	width    int
-	height   int
+	viewport  viewport.Model
+	visible   bool
+	filter    queryInput
+	filtering bool // the keys go to the filter
+	hints     []HintBinding
+	width     int
+	height    int
 }
 
 // NewHelpOverlay creates a hidden help overlay.
@@ -30,6 +34,7 @@ func (h *HelpOverlay) Show(hints []HintBinding, width, height int) {
 	h.width = width
 	h.height = height
 	h.filter = queryInput{}
+	h.filtering = false
 	h.visible = true
 	h.viewport = viewport.New()
 	h.viewport.SetWidth(h.contentWidth())
@@ -80,29 +85,49 @@ func (h HelpOverlay) Update(msg tea.Msg) (HelpOverlay, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
-		key := msg.String()
-		switch key {
-		case "?", "esc":
+		if h.filtering {
+			return h.updateFilter(msg)
+		}
+		switch msg.String() {
+		case "?", "esc", "q":
 			h.visible = false
 			return h, nil
-		case "backspace":
-			h.typed(msg)
+		case "/":
+			h.filtering = true
 			return h, nil
-		default:
-			if h.typed(msg) {
-				return h, nil
-			}
 		}
-
-		// Forward scroll keys to viewport
 		var cmd tea.Cmd
 		h.viewport, cmd = h.viewport.Update(msg)
 		return h, cmd
 	case tea.PasteMsg:
+		// A paste starts the filter.
+		h.filtering = true
 		h.typed(msg)
 	}
 
 	return h, nil
+}
+
+// updateFilter handles a key while the filter takes the keys. A key that
+// does not change the text, such as an arrow, scrolls.
+func (h HelpOverlay) updateFilter(msg tea.KeyPressMsg) (HelpOverlay, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		h.filtering = false
+		return h, nil
+	case "esc":
+		h.filtering = false
+		h.filter = queryInput{}
+		h.viewport.SetContent(h.renderContent())
+		h.viewport.GotoTop()
+		return h, nil
+	}
+	if h.typed(msg) {
+		return h, nil
+	}
+	var cmd tea.Cmd
+	h.viewport, cmd = h.viewport.Update(msg)
+	return h, cmd
 }
 
 // typed applies typed or pasted text to the filter. It returns true when
@@ -126,16 +151,21 @@ func (h HelpOverlay) View() string {
 	var header strings.Builder
 	header.WriteString(s.Title.Render("Keybindings"))
 
-	if h.filter.String() != "" {
+	switch {
+	case h.filtering:
 		// The title, the gap, and "/ " come before the text.
 		room := h.contentWidth() - lipgloss.Width(header.String()) - 4
 		header.WriteString("  " + s.FilterPrompt.Render("/ "+h.filter.view(room)))
-	} else {
-		header.WriteString("  " + s.Muted.Render("type to filter"))
+	case h.filter.String() != "":
+		header.WriteString("  " + s.FilterPrompt.Render("/ "+h.filter.String()))
 	}
 	header.WriteString("\n\n")
 
-	footer := "\n" + s.Muted.Render("type to filter  ? close  esc close")
+	keys := "j/k scroll  / filter  ? close"
+	if h.filtering {
+		keys = "enter keep filter  esc clear filter"
+	}
+	footer := "\n" + s.Muted.Render(keys)
 
 	box := s.DialogBorder.Width(h.boxWidth())
 
@@ -196,23 +226,31 @@ func (h HelpOverlay) renderContent() string {
 		groups[hint.Category] = append(groups[hint.Category], hint)
 	}
 
-	// Sort groups by defined order
-	var orderedGroups []group
-	for i := 0; i <= 3; i++ {
-		for cat, hints := range groups {
-			if orderMap[cat] == i {
-				name := cat
-				if name == "" {
-					name = "Current View"
-				}
-				orderedGroups = append(orderedGroups, group{name: name, hints: hints})
-				delete(groups, cat)
-			}
-		}
+	// The known categories come first, in their order. Other categories
+	// follow in the order of their names.
+	cats := make([]string, 0, len(groups))
+	for cat := range groups {
+		cats = append(cats, cat)
 	}
-	// Any remaining unknown categories
-	for cat, hints := range groups {
-		orderedGroups = append(orderedGroups, group{name: cat, hints: hints})
+	rank := func(cat string) int {
+		if r, ok := orderMap[cat]; ok {
+			return r
+		}
+		return len(orderMap)
+	}
+	slices.SortFunc(cats, func(a, b string) int {
+		if ra, rb := rank(a), rank(b); ra != rb {
+			return ra - rb
+		}
+		return strings.Compare(a, b)
+	})
+	orderedGroups := make([]group, 0, len(cats))
+	for _, cat := range cats {
+		name := cat
+		if name == "" {
+			name = "Current View"
+		}
+		orderedGroups = append(orderedGroups, group{name: name, hints: groups[cat]})
 	}
 
 	var b strings.Builder

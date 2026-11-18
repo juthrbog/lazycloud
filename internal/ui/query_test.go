@@ -271,6 +271,7 @@ func TestCommandBarLongInputFitsTheLine(t *testing.T) {
 func TestHelpFilterTakesSpaceAndPaste(t *testing.T) {
 	h := NewHelpOverlay()
 	h.Show(testHints(), 120, 40)
+	h, _ = h.Update(slashKey)
 
 	for _, r := range "quit" {
 		h, _ = h.Update(textKey(string(r)))
