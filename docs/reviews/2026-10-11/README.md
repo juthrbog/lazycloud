@@ -240,7 +240,7 @@ Work through the phases in order. Phase 0 contains small fixes that do not depen
 - [x] L13. Fixed in #244: the fallback is `⛨`, as `THEMING.md` suggests for a shield, and a test checks that each fallback is one plain character. The fallback for `IconShield` was an emoji. `THEMING.md` says not to use emoji.
 - [x] L14. Fixed in #244: `detail.go` and its `DetailKey` and `DetailValue` styles are deleted. The `Detail` component was not used, and its `View()` drew h+1 lines.
 - [x] L15. Fixed in #244: deleted. `Client.ServiceEndpoint()` was not used.
-- [x] L16. Fixed: the preview of an empty object opens an empty content view without a GET, and `GetObjectContent` gives an empty string for `InvalidRange`. A `Range` request on an empty object returns 416, so the preview of an empty text file can fail. Evidence: plausible.
+- [x] L16. Fixed in #298: the preview of an empty object opens an empty content view without a GET, and `GetObjectContent` gives an empty string for `InvalidRange`. A `Range` request on an empty object returns 416, so the preview of an empty text file can fail. Evidence: plausible.
 - [x] L17. Fixed in A8 PR 2: a theme switch restyles the views in place and keeps the stack. A theme switch rebuilds the whole navigation stack (`app.go:995`) and loses loaded data. The cause is that `NewTable` and `StateColor` put theme colors into the row strings.
 - [ ] L18. `resizeViews` drops the commands that views return. All 13 views return nil on `WindowSizeMsg` today, so this has no effect yet.
 - [x] L19. Fixed in #226 (I5). `main` calls `run`, which returns the exit code, so the deferred close runs. `main.go:90` calls `os.Exit` after a `defer` (gocritic `exitAfterDefer`). The deferred close of the log file does not run.
