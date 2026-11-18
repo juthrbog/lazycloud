@@ -66,6 +66,9 @@ type Model struct {
 	// opsShown is true while the layout has the operations line. It
 	// changes only in syncOpsLine, which also resizes the views.
 	opsShown bool
+	// resizeCmds holds the commands that views returned for a resize in
+	// this update. Update sends them with its own command (L18).
+	resizeCmds []tea.Cmd
 }
 
 // sessionChange is a profile or region switch. kind and value name the
@@ -365,7 +368,21 @@ func (m Model) visibleErr() string {
 	return m.err
 }
 
+// Update handles one message. A resize can happen in many places in an
+// update, so resizeViews keeps the commands of the views, and Update sends
+// them with the command of the update (L18).
 func (m Model) Update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(teaMsg)
+	nm, ok := next.(Model)
+	if !ok || len(nm.resizeCmds) == 0 {
+		return next, cmd
+	}
+	cmd = tea.Batch(append(slices.Clip(nm.resizeCmds), cmd)...)
+	nm.resizeCmds = nil
+	return nm, cmd
+}
+
+func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	// Remove expired toasts as a fallback in case dismiss commands were dropped.
 	m.toasts.Cleanup()
 
@@ -922,7 +939,10 @@ func (m *Model) resizeViews() {
 		return
 	}
 	w, h := m.contentSize()
-	m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: w, Height: h})
+	if cmd := m.nav.UpdateCurrent(tea.WindowSizeMsg{Width: w, Height: h}); cmd != nil {
+		// Clip makes append copy, so copies of the model do not share it.
+		m.resizeCmds = append(slices.Clip(m.resizeCmds), cmd)
+	}
 	if p := m.panels.Panel(); p != nil {
 		p.SetSize(m.panelWidth()-2, h)
 	}
