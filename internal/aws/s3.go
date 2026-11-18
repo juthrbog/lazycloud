@@ -264,7 +264,9 @@ func (svc *S3ServiceImpl) HeadObject(ctx context.Context, bucket, key string) (*
 	return meta, nil
 }
 
-// GetObjectContent reads up to maxBytes of an S3 object and returns it as a string.
+// GetObjectContent reads up to maxBytes of an S3 object and returns it as a
+// string. An empty object gives an empty string: S3 answers the range
+// request for it with 416 InvalidRange (L16).
 func (svc *S3ServiceImpl) GetObjectContent(ctx context.Context, bucket, key string, maxBytes int64) (string, error) {
 	s3c, err := svc.s3ClientForBucket(ctx, bucket)
 	if err != nil {
@@ -276,6 +278,9 @@ func (svc *S3ServiceImpl) GetObjectContent(ctx context.Context, bucket, key stri
 		Key:    aws.String(key),
 		Range:  aws.String(rangeHeader),
 	})
+	if err != nil && ErrorCode(err) == "InvalidRange" {
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}

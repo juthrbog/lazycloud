@@ -735,6 +735,11 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+		if meta.Size == 0 {
+			// An empty object has no content to read (L16).
+			key := meta.Key
+			return s, func() tea.Msg { return s3ObjectContentMsg{key: key} }
+		}
 		return s, s.fetchObjectContent(meta.Key)
 
 	case s3ObjectContentMsg:
