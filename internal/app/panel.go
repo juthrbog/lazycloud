@@ -28,17 +28,28 @@ type panelController struct {
 	stash   *panelState    // the panel that a narrow terminal hides
 	history []historyEntry // back traversal, oldest first, at most historyMax
 
-	widthOverride int // 0 = 40% of the window
+	widthOverride int    // 0 = 40% of the window
+	gen           uint64 // counts the panels that opened
+}
+
+// panelRouted is the result of a command of the panel whose number is gen.
+// The app drops it when that panel is no longer on screen, so a late link
+// of a closed or older panel does nothing (H4).
+type panelRouted struct {
+	gen uint64
+	msg tea.Msg
 }
 
 // panelState is one panel and the view that showed it. A saved panel keeps
 // the panel itself, so a restore brings back its tab, its scroll position,
-// its cursor and its focus.
+// its cursor and its focus. gen is the number of the panel, which the
+// results of its commands carry.
 type panelState struct {
 	panel   *ui.TabbedPanel
 	title   string
 	owner   nav.View
 	focused bool
+	gen     uint64
 }
 
 // historyEntry is a panel that a link left. depth is the navigator depth of
@@ -71,9 +82,11 @@ func (p *panelController) Focused() bool { return p.open.panel != nil && p.open.
 // SetFocus gives the focus to the panel on screen, or takes it away.
 func (p *panelController) SetFocus(f bool) { p.open.focused = f && p.open.panel != nil }
 
-// Open shows a new panel for owner, with the focus. It drops the stash,
-// because the stash belongs to an older panel.
-func (p *panelController) Open(title string, tabs []appmsg.TabContent, owner nav.View) {
+// Open shows a new panel for owner. The panel gets the focus when focus is
+// true. The app passes false while the view takes text input, because the
+// keys go to the view then (H2). Open drops the stash, because the stash
+// belongs to an older panel.
+func (p *panelController) Open(title string, tabs []appmsg.TabContent, owner nav.View, focus bool) {
 	tabInputs := make([]ui.TabInput, len(tabs))
 	for i, t := range tabs {
 		var links map[int]ui.ContentLink
@@ -91,18 +104,45 @@ func (p *panelController) Open(title string, tabs []appmsg.TabContent, owner nav
 		}
 	}
 	tp := ui.NewTabbedPanel(title, tabInputs)
-	p.open = panelState{panel: &tp, title: title, owner: owner, focused: true}
+	p.gen++
+	p.open = panelState{panel: &tp, title: title, owner: owner, focused: focus, gen: p.gen}
 	p.stash = nil
 }
 
-// Update gives a message to the panel on screen.
+// Update gives a message to the panel on screen. The results of the command
+// arrive as panelRouted.
 func (p *panelController) Update(msg tea.Msg) tea.Cmd {
 	if p.open.panel == nil {
 		return nil
 	}
 	updated, cmd := p.open.panel.Update(msg)
 	p.open.panel = &updated
-	return cmd
+	return p.tag(cmd)
+}
+
+// EditorCmd opens the active tab of the panel on screen in $EDITOR.
+func (p *panelController) EditorCmd() tea.Cmd {
+	if p.open.panel == nil {
+		return nil
+	}
+	return p.tag(p.open.panel.OpenInEditorCmd())
+}
+
+// tag wraps cmd so that its results arrive as panelRouted with the number of
+// the panel on screen.
+func (p *panelController) tag(cmd tea.Cmd) tea.Cmd {
+	gen := p.open.gen
+	return nav.Wrap(cmd, func(m tea.Msg) tea.Msg {
+		if r, ok := m.(panelRouted); ok {
+			return r
+		}
+		return panelRouted{gen: gen, msg: m}
+	})
+}
+
+// IsCurrent reports whether gen is the number of the panel on screen.
+func (p *panelController) IsCurrent(gen uint64) bool {
+	return p.open.panel != nil && p.open.gen == gen
 }
 
 // Close closes the panel on screen. It keeps the stash and the history.
@@ -137,9 +177,10 @@ func (p *panelController) StashTitle() string {
 }
 
 // Unhide opens the stash again when its owner is top, and drops the stash.
-// A stash of another view is dropped and does not open. It reports whether a
-// panel opened.
-func (p *panelController) Unhide(top nav.View) bool {
+// A stash of another view is dropped and does not open. The panel keeps its
+// focus only when focus is true, as in Open. It reports whether a panel
+// opened.
+func (p *panelController) Unhide(top nav.View, focus bool) bool {
 	if p.open.panel != nil || p.stash == nil {
 		return false
 	}
@@ -148,6 +189,7 @@ func (p *panelController) Unhide(top nav.View) bool {
 	if top == nil || s.owner != top {
 		return false
 	}
+	s.focused = s.focused && focus
 	p.open = s
 	return true
 }
@@ -189,8 +231,10 @@ func (p *panelController) Back(views []nav.View) (historyEntry, bool) {
 	return historyEntry{}, false
 }
 
-// Restore opens a saved panel and drops the stash.
-func (p *panelController) Restore(s panelState) {
+// Restore opens a saved panel and drops the stash. The panel keeps its focus
+// only when focus is true, as in Open.
+func (p *panelController) Restore(s panelState, focus bool) {
+	s.focused = s.focused && focus
 	p.open = s
 	p.stash = nil
 }

@@ -75,35 +75,46 @@ type Routed struct {
 	Msg    tea.Msg
 }
 
-// Tag wraps cmd so that its result arrives as Routed{Origin: origin}.
+// Tag wraps cmd so that its result arrives as Routed{Origin: origin}. A
+// result that is already Routed keeps its route.
 //
 // Bubble Tea runtime messages (exec, clipboard, quit, sequences, and other
 // types from the tea package) pass through unwrapped, because the runtime
 // must see them. A tea.BatchMsg is rebuilt with each inner command tagged.
 func Tag(origin View, cmd tea.Cmd) tea.Cmd {
+	return Wrap(cmd, func(m tea.Msg) tea.Msg {
+		if r, ok := m.(Routed); ok {
+			return r
+		}
+		return Routed{Origin: origin, Msg: m}
+	})
+}
+
+// Wrap wraps cmd so that wrap gets its result. Runtime messages pass through
+// and a tea.BatchMsg is rebuilt with each inner command wrapped, as in Tag. A
+// nil result stays nil.
+func Wrap(cmd tea.Cmd, wrap func(tea.Msg) tea.Msg) tea.Cmd {
 	if cmd == nil {
 		return nil
 	}
-	return func() tea.Msg { return tagMsg(origin, cmd()) }
+	return func() tea.Msg { return wrapMsg(cmd(), wrap) }
 }
 
-func tagMsg(origin View, m tea.Msg) tea.Msg {
+func wrapMsg(m tea.Msg, wrap func(tea.Msg) tea.Msg) tea.Msg {
 	switch m := m.(type) {
 	case nil:
 		return nil
-	case Routed:
-		return m
 	case tea.BatchMsg:
 		out := make(tea.BatchMsg, len(m))
 		for i, c := range m {
-			out[i] = Tag(origin, c)
+			out[i] = Wrap(c, wrap)
 		}
 		return out
 	}
 	if isRuntimeMsg(m) {
 		return m
 	}
-	return Routed{Origin: origin, Msg: m}
+	return wrap(m)
 }
 
 var teaPkgPath = reflect.TypeFor[tea.BatchMsg]().PkgPath()

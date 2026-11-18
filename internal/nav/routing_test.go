@@ -264,3 +264,21 @@ func TestUpdateCurrentTagsCommand(t *testing.T) {
 	assert.Same(t, a, r.Origin)
 	assert.Equal(t, dataMsg{3}, r.Msg)
 }
+
+// Wrap gives each result to wrap, as Tag does with Routed. Runtime messages
+// and nil pass through, and a batch is rebuilt.
+func TestWrap(t *testing.T) {
+	type boxed struct{ m tea.Msg }
+	box := func(m tea.Msg) tea.Msg { return boxed{m} }
+	assert.Nil(t, Wrap(nil, box))
+	assert.Nil(t, Wrap(func() tea.Msg { return nil }, box)())
+	assert.Equal(t, boxed{dataMsg{1}}, Wrap(func() tea.Msg { return dataMsg{1} }, box)())
+
+	got := Wrap(tea.Batch(tea.SetClipboard("x"), func() tea.Msg { return dataMsg{2} }), box)()
+	b, ok := got.(tea.BatchMsg)
+	require.True(t, ok, "got %T", got)
+	require.Len(t, b, 2)
+	_, boxedClip := b[0]().(boxed)
+	assert.False(t, boxedClip, "the clipboard message goes to the runtime")
+	assert.Equal(t, boxed{dataMsg{2}}, b[1]())
+}

@@ -633,17 +633,10 @@ func TestTabbedContentMsgFallbackOnNarrow(t *testing.T) {
 		{Title: "JSON", Content: `{"a":1}`, Format: "json"},
 	}
 
-	result, cmd := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
+	result, _ := m.Update(msg.TabbedContentMsg{PanelTitle: "test", Tabs: tabs})
 	m = result.(Model)
 
 	assert.False(t, m.panels.IsOpen(), "panel should not open on narrow terminal")
-	assert.NotNil(t, cmd, "should return NavigateMsg for first tab")
-
-	// Execute the NavigateMsg
-	navMsg := cmd()
-	result, _ = m.Update(navMsg)
-	m = result.(Model)
-
 	assert.Greater(t, m.nav.Depth(), initialDepth, "should push content view")
 }
 
@@ -680,14 +673,14 @@ func TestContentLinkActivatedMsgClosesPanelAndNavigates(t *testing.T) {
 	openPanel(&m)
 	assert.True(t, m.panels.IsOpen())
 
-	result, cmd := m.Update(ui.ContentLinkActivatedMsg{
-		ViewID: "ami_list",
+	result, _ := m.Update(ui.ContentLinkActivatedMsg{
+		ViewID: "eventlog",
 		Params: map[string]string{"id": "ami-123"},
 	})
 	m = result.(Model)
 
 	assert.False(t, m.panels.IsOpen(), "panel should close on link activation")
-	assert.NotNil(t, cmd, "should return NavigateMsg cmd")
+	assert.Equal(t, "eventlog", m.nav.Current().ID(), "the link navigates at once")
 }
 
 // --- Cross-navigation history ---
@@ -729,18 +722,13 @@ func TestCrossNavBackRestoresPanel(t *testing.T) {
 
 	// Open panel and cross-nav
 	openTabbedPanel(&m, "test-resource")
-	result, cmd := m.Update(ui.ContentLinkActivatedMsg{
+	result, _ = m.Update(ui.ContentLinkActivatedMsg{
 		ViewID: "eventlog",
 		Params: map[string]string{},
 	})
 	m = result.(Model)
 	require.Len(t, m.panels.history, 1)
-
-	// Execute the NavigateMsg returned by link activation to push the target view
-	navMsg := cmd()
-	result, _ = m.Update(navMsg)
-	m = result.(Model)
-	assert.Equal(t, 3, m.nav.Depth())
+	assert.Equal(t, 3, m.nav.Depth(), "the link pushes the target view at once")
 
 	// Backspace restores panel and pops nav
 	result, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
@@ -768,7 +756,7 @@ func TestCrossNavHistoryBounded(t *testing.T) {
 
 	// Push more than max entries
 	for i := range historyMax + 5 {
-		m.panels.Open("entry", []msg.TabContent{{Title: "Info", Content: "x"}}, m.nav.Current())
+		m.panels.Open("entry", []msg.TabContent{{Title: "Info", Content: "x"}}, m.nav.Current(), true)
 		m.panels.Push(i + 1)
 	}
 

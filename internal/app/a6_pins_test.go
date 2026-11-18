@@ -16,23 +16,26 @@ import (
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
-// The tests in this file pin the side panel before A6
-// (docs/design/a6-panel-controller.md). A test named TestA6Hazard_... pins a
-// hazard as it is today. Its comment names the PR that changes it, and that PR
-// flips the test and renames it TestA6_<hazard>_<new behavior>. A test named
-// TestA6Keep_... pins behavior that A6 keeps.
+// The tests in this file pin the side panel through A6
+// (docs/design/a6-panel-controller.md). PR 0 pinned each hazard as a test
+// named TestA6Hazard_.... The PR that fixed a hazard flipped its test and
+// renamed it TestA6_<hazard>_<new behavior>. A6 fixed all of them. A test
+// named TestA6Keep_... pins behavior that A6 keeps.
 //
 // The helpers below are the only code here that reads the panel controller
 // (m.panels). A later PR that changes the controller changes only these
 // helpers.
 
-func panelShown(m Model) bool            { return m.panels.IsOpen() }
-func panelTitleOf(m Model) string        { return m.panels.Title() }
-func panelHasFocus(m Model) bool         { return m.panels.Focused() }
-func panelTabOf(m Model) int             { return m.panels.Panel().ActiveTab() }
-func stashTitleOf(m Model) string        { return m.panels.StashTitle() }
-func historyLenOf(m Model) int           { return len(m.panels.history) }
-func panelViewOf(m Model) string         { return m.panels.Panel().View() }
+func panelShown(m Model) bool     { return m.panels.IsOpen() }
+func panelTitleOf(m Model) string { return m.panels.Title() }
+func panelHasFocus(m Model) bool  { return m.panels.Focused() }
+func panelTabOf(m Model) int      { return m.panels.Panel().ActiveTab() }
+func stashTitleOf(m Model) string { return m.panels.StashTitle() }
+func historyLenOf(m Model) int    { return len(m.panels.history) }
+func panelViewOf(m Model) string  { return m.panels.Panel().View() }
+func fromPanel(m Model, inner tea.Msg) tea.Msg {
+	return panelRouted{gen: m.panels.open.gen, msg: inner}
+}
 func openA6Panel(m *Model, title string) { m.openTabbedPanel(title, a6Tabs(title)) }
 
 // a6Tabs gives two tabs. The second tab has a link to the event log on its
@@ -45,13 +48,12 @@ func a6Tabs(title string) []msg.TabContent {
 	}
 }
 
-// followLink sends a panel link as the panel sends it today, and then the
-// NavigateMsg that the handler returns.
+// followLink sends a link as the panel on screen sends it. The link
+// navigates at once.
 func followLink(t *testing.T, m Model, viewID string, params map[string]string) Model {
 	t.Helper()
-	m, cmd := update(t, m, ui.ContentLinkActivatedMsg{ViewID: viewID, Params: params})
-	require.NotNil(t, cmd)
-	m, _ = update(t, m, cmd())
+	require.True(t, panelShown(m), "a link comes from an open panel")
+	m, _ = update(t, m, fromPanel(m, ui.ContentLinkActivatedMsg{ViewID: viewID, Params: params}))
 	return m
 }
 
@@ -164,10 +166,9 @@ func TestA6_H1_RestoreKeepsTheScrollPosition(t *testing.T) {
 	assert.Contains(t, panelViewOf(m), "row Dv")
 }
 
-// H2. A panel that had the focus when the stash took it gets the focus back
-// while the filter takes the keys. PR 4 flips this: a panel that opens or
-// comes back while the view takes input has no focus.
-func TestA6Hazard_H2_RestoreFocusesThePanelDuringTheFilter(t *testing.T) {
+// H2. Fixed in PR 4: a panel that comes back while the filter takes the keys
+// has no focus. tab gives it the focus after the filter closes.
+func TestA6_H2_RestoreDuringTheFilterHasNoFocus(t *testing.T) {
 	m := panelOnEC2(t)
 	require.True(t, panelHasFocus(m))
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelNarrow, Height: 40})
@@ -177,12 +178,17 @@ func TestA6Hazard_H2_RestoreFocusesThePanelDuringTheFilter(t *testing.T) {
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
 
 	require.True(t, panelShown(m))
-	assert.True(t, panelHasFocus(m) && m.capturingInput(), "the panel looks focused, but the filter gets the keys")
+	assert.False(t, panelHasFocus(m), "the filter gets the keys, so the panel has no focus")
+
+	m, _ = update(t, m, keyEsc)
+	require.False(t, m.capturingInput())
+	m, _ = update(t, m, keyTab)
+	assert.True(t, panelHasFocus(m), "tab moves the focus after the filter closes")
 }
 
-// H2. A detail result that arrives while the filter is open gives the panel
-// the focus, and tab cannot move it. PR 4 flips this.
-func TestA6Hazard_H2_DetailDuringTheFilterLooksFocused(t *testing.T) {
+// H2. Fixed in PR 4: a detail result that arrives while the filter is open
+// opens the panel without the focus.
+func TestA6_H2_DetailDuringTheFilterHasNoFocus(t *testing.T) {
 	m := panelOnEC2(t)
 	m, _ = update(t, m, press("q"))
 	require.False(t, panelShown(m))
@@ -193,10 +199,23 @@ func TestA6Hazard_H2_DetailDuringTheFilterLooksFocused(t *testing.T) {
 		PanelTitle: "i-2", Tabs: a6Tabs("i-2"),
 	}})
 	require.True(t, panelShown(m))
-	assert.True(t, panelHasFocus(m))
+	assert.False(t, panelHasFocus(m))
 
 	m, _ = update(t, m, keyTab)
-	assert.True(t, panelHasFocus(m), "tab goes to the filter")
+	assert.False(t, panelHasFocus(m), "tab goes to the filter")
+
+	m, _ = update(t, m, keyEsc)
+	m, _ = update(t, m, keyTab)
+	assert.True(t, panelHasFocus(m), "tab moves the focus after the filter closes")
+}
+
+// H2. Fixed in PR 4: back traversal keeps the focus of the saved panel.
+func TestA6_H2_BackKeepsTheFocusWithoutAFilter(t *testing.T) {
+	m := panelOnEC2(t)
+	m = followLink(t, m, "eventlog", nil)
+	m, _ = update(t, m, keyBackspace)
+	require.True(t, panelShown(m))
+	assert.True(t, panelHasFocus(m))
 }
 
 // H3. Fixed in PR 3: a link to a row of the view on top adds no history
@@ -276,10 +295,9 @@ func TestA6Keep_BackSkipsAnEntryOfAReplacedView(t *testing.T) {
 	assert.Equal(t, 0, historyLenOf(m))
 }
 
-// H4. A link travels as a plain message. A key in between changes the stack,
-// and the link then pushes its view onto the wrong view. PR 4 flips this: a
-// link from a panel that closed does nothing.
-func TestA6Hazard_H4_LinkAfterQPushesOntoTheWrongView(t *testing.T) {
+// H4. Fixed in PR 4: a link from a panel that closed, or from an older
+// panel, does nothing.
+func TestA6_H4_LinkOfAClosedPanelDoesNothing(t *testing.T) {
 	m := panelOnEC2(t)
 	openA6Panel(&m, "i-1")
 	m, _ = update(t, m, press("2"))
@@ -290,55 +308,64 @@ func TestA6Hazard_H4_LinkAfterQPushesOntoTheWrongView(t *testing.T) {
 	require.Equal(t, "home", m.nav.Current().ID())
 
 	link := cmd()
-	require.IsType(t, ui.ContentLinkActivatedMsg{}, link)
-	m, cmd = update(t, m, link)
-	m, _ = update(t, m, cmd())
+	require.IsType(t, panelRouted{}, link)
+	require.IsType(t, ui.ContentLinkActivatedMsg{}, link.(panelRouted).msg)
+	m, _ = update(t, m, link)
 
-	assert.Equal(t, "eventlog", m.nav.Current().ID(), "the link of a closed panel pushed its view")
-	assert.Equal(t, 2, m.nav.Depth())
+	assert.Equal(t, "home", m.nav.Current().ID(), "the link of a closed panel does nothing")
+	assert.Equal(t, 1, m.nav.Depth())
+
+	m = panelOnEC2(t)
+	openA6Panel(&m, "i-1")
+	m, _ = update(t, m, press("2"))
+	m, cmd = update(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	openA6Panel(&m, "i-2")
+	m, _ = update(t, m, cmd())
+	assert.Equal(t, "ec2_list", m.nav.Current().ID(), "the link of an older panel does nothing")
+	assert.Equal(t, "i-2", panelTitleOf(m))
+	assert.Equal(t, 0, historyLenOf(m))
 }
 
-// H4. The NavigateMsg of a link comes in a second command. A back in between
-// restores the panel, and the NavigateMsg then drops it and the entry. PR 4
-// flips this: the link navigates at once.
-func TestA6Hazard_H4_BackBeforeTheNavigateLosesTheEntry(t *testing.T) {
+// H4. Fixed in PR 4: the link of the panel on screen navigates at once, so
+// no key can come between the link and the navigation.
+func TestA6_H4_LinkNavigatesAtOnce(t *testing.T) {
 	m := panelOnEC2(t)
-	m, cmd := update(t, m, ui.ContentLinkActivatedMsg{ViewID: "eventlog"})
+	openA6Panel(&m, "i-1")
+	m, _ = update(t, m, press("2"))
+	m, cmd := update(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.NotNil(t, cmd)
-	require.Equal(t, 1, historyLenOf(m))
-
-	m, _ = update(t, m, keyBackspace)
-	require.True(t, panelShown(m))
 	m, _ = update(t, m, cmd())
 
 	assert.Equal(t, "eventlog", m.nav.Current().ID())
 	assert.False(t, panelShown(m))
-	assert.Equal(t, 0, historyLenOf(m), "the panel and the entry are gone")
+	assert.Equal(t, 1, historyLenOf(m))
+
+	m, _ = update(t, m, keyBackspace)
+	assert.Equal(t, "ec2_list", m.nav.Current().ID())
+	require.True(t, panelShown(m), "back restores the panel")
+	assert.Equal(t, "i-1", panelTitleOf(m))
+	assert.Equal(t, 0, historyLenOf(m))
 }
 
-// H4. The narrow fallback of TabbedContentMsg sends its NavigateMsg in a
-// second command. A q in between pops the view, and the content then opens on
-// top of home. PR 4 flips this: the fallback navigates at once.
-func TestA6Hazard_H4_NarrowFallbackAfterQ(t *testing.T) {
+// H4. Fixed in PR 4: the narrow fallback of TabbedContentMsg pushes its first
+// tab at once, onto the view that asked.
+func TestA6_H4_NarrowFallbackNavigatesAtOnce(t *testing.T) {
 	m := newTestModel(panelNarrow, 40)
 	m.svc.EC2 = new(awstest.MockEC2Service)
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
-	m, cmd := update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.TabbedContentMsg{
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.TabbedContentMsg{
 		PanelTitle: "i-1", Tabs: a6Tabs("i-1"),
 	}})
-	require.NotNil(t, cmd)
+
+	assert.True(t, strings.HasPrefix(m.nav.Current().ID(), "content:"))
+	assert.Equal(t, 3, m.nav.Depth())
+
 	m, _ = update(t, m, press("q"))
-	require.Equal(t, "home", m.nav.Current().ID())
-
-	m, _ = update(t, m, cmd())
-
-	assert.True(t, strings.HasPrefix(m.nav.Current().ID(), "content:"), "the detail of the EC2 list opened over home")
-	assert.Equal(t, 2, m.nav.Depth())
+	assert.Equal(t, "ec2_list", m.nav.Current().ID())
 }
 
-// H5. Help keeps the panel keys after a resize hides the panel. PR 4 flips
-// this.
-func TestA6Hazard_H5_HelpKeepsPanelKeysAfterAStash(t *testing.T) {
+// H5. Fixed in PR 4: help drops the panel keys when a resize hides the panel.
+func TestA6_H5_HelpDropsPanelKeysAfterAStash(t *testing.T) {
 	m := panelOnEC2(t)
 	m, _ = update(t, m, press("q"))
 	m, _ = update(t, m, press("?"))
@@ -351,12 +378,12 @@ func TestA6Hazard_H5_HelpKeepsPanelKeysAfterAStash(t *testing.T) {
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelNarrow, Height: 40})
 
 	require.False(t, panelShown(m))
-	assert.Contains(t, ansi.Strip(m.help.View()), "Panel", "help still lists the panel keys")
+	assert.NotContains(t, ansi.Strip(m.help.View()), "Panel")
 }
 
-// H5. Help does not list the panel keys after a resize shows the stashed
-// panel again. PR 4 flips this.
-func TestA6Hazard_H5_HelpMissesPanelKeysAfterARestore(t *testing.T) {
+// H5. Fixed in PR 4: help gets the panel keys when a resize shows the stashed
+// panel again, or when a detail result opens a panel.
+func TestA6_H5_HelpGetsPanelKeysAfterARestore(t *testing.T) {
 	m := stashedOnEC2(t)
 	m, _ = update(t, m, press("?"))
 	require.NotContains(t, ansi.Strip(m.help.View()), "Panel")
@@ -364,20 +391,29 @@ func TestA6Hazard_H5_HelpMissesPanelKeysAfterARestore(t *testing.T) {
 	m, _ = update(t, m, tea.WindowSizeMsg{Width: panelWide, Height: 40})
 
 	require.True(t, panelShown(m))
-	assert.NotContains(t, ansi.Strip(m.help.View()), "Panel", "help does not list the panel keys")
+	assert.Contains(t, ansi.Strip(m.help.View()), "Panel")
+
+	m = panelOnEC2(t)
+	m, _ = update(t, m, press("q"))
+	m, _ = update(t, m, press("?"))
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.TabbedContentMsg{
+		PanelTitle: "i-2", Tabs: a6Tabs("i-2"),
+	}})
+	assert.Contains(t, ansi.Strip(m.help.View()), "Panel", "a detail result")
 }
 
-// H6. The header shows the back label while a form is on top, but the form
-// takes backspace. PR 4 flips this: the header hides the label.
-func TestA6Hazard_H6_BackLabelOverAForm(t *testing.T) {
+// H6. Fixed in PR 4: the header hides the back label while a form is on top,
+// because the form takes backspace. The label comes back after the form.
+func TestA6_H6_NoBackLabelOverAForm(t *testing.T) {
 	m := newTestModel(panelWide, 40)
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	openA6Panel(&m, "dlq")
 	m = followLink(t, m, "eventlog", nil)
 	require.Equal(t, 1, historyLenOf(m))
+	require.Contains(t, ansi.Strip(m.View().Content), "← bksp dlq")
 	m = openA6Form(t, m)
 
-	assert.Contains(t, ansi.Strip(m.View().Content), "← bksp dlq")
+	assert.NotContains(t, ansi.Strip(m.View().Content), "← bksp")
 	for _, h := range m.currentKeyHints() {
 		assert.NotEqual(t, "cross-nav back", h.Help().Desc, "the status bar hides the hint")
 	}
@@ -386,6 +422,136 @@ func TestA6Hazard_H6_BackLabelOverAForm(t *testing.T) {
 	m, _ = update(t, m, keyBackspace)
 	assert.Equal(t, depth, m.nav.Depth(), "the form took backspace")
 	assert.Equal(t, 1, historyLenOf(m))
+
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.FormResultMsg{}})
+	assert.Contains(t, ansi.Strip(m.View().Content), "← bksp dlq", "the label comes back")
+}
+
+// H6. Fixed in PR 4: the header also hides the back label while the filter
+// of the view on top takes the keys.
+func TestA6_H6_NoBackLabelDuringTheFilter(t *testing.T) {
+	m := panelOnEC2(t)
+	openA6Panel(&m, "dlq")
+	m.svc.SQS = new(awstest.MockSQSService)
+	m = followLink(t, m, "sqs_queues", nil)
+	require.Equal(t, 1, historyLenOf(m))
+	require.Contains(t, ansi.Strip(m.View().Content), "← bksp dlq")
+
+	m, _ = update(t, m, press("/"))
+	require.True(t, m.capturingInput())
+	assert.NotContains(t, ansi.Strip(m.View().Content), "← bksp")
+
+	m, _ = update(t, m, keyEsc)
+	require.False(t, m.capturingInput())
+	assert.Contains(t, ansi.Strip(m.View().Content), "← bksp dlq")
+}
+
+// H2. Fixed in PR 4: back traversal to a view whose filter is open restores
+// the panel without the focus, also when the panel had the focus.
+func TestA6_H2_BackToAFilterHasNoFocus(t *testing.T) {
+	m := panelOnEC2(t)
+	require.True(t, panelHasFocus(m))
+	list := m.nav.Current()
+	m = followLink(t, m, "eventlog", nil)
+	require.Equal(t, "eventlog", m.nav.Current().ID())
+	m.nav.UpdateView(list, press("/")) // the filter of the list below the top
+
+	m, _ = update(t, m, keyBackspace)
+
+	require.Equal(t, "ec2_list", m.nav.Current().ID())
+	require.True(t, m.capturingInput())
+	require.True(t, panelShown(m))
+	assert.False(t, panelHasFocus(m))
+}
+
+// H5. Fixed in PR 4: a link that arrives after help opened closes the panel,
+// and help drops the panel keys.
+func TestA6_H5_HelpDropsPanelKeysAfterALateLink(t *testing.T) {
+	m := panelOnEC2(t)
+	openA6Panel(&m, "i-1")
+	m, _ = update(t, m, press("2"))
+	m, cmd := update(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, ansi.Strip(m.help.View()), "Panel")
+
+	m, _ = update(t, m, cmd())
+
+	require.Equal(t, "eventlog", m.nav.Current().ID())
+	assert.NotContains(t, ansi.Strip(m.help.View()), "Panel")
+	assert.Contains(t, ansi.Strip(m.help.View()), "auto-scroll", "help lists the keys of the new view")
+}
+
+// H5. Fixed in PR 4: a view that sends a navigation while help is open
+// closes the panel, and help drops the panel keys.
+func TestA6_H5_HelpDropsPanelKeysAfterANavigation(t *testing.T) {
+	m := panelOnEC2(t)
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, ansi.Strip(m.help.View()), "Panel")
+
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.NavigateMsg{ViewID: "eventlog"}})
+
+	require.False(t, panelShown(m))
+	assert.NotContains(t, ansi.Strip(m.help.View()), "Panel")
+	assert.Contains(t, ansi.Strip(m.help.View()), "auto-scroll", "help lists the keys of the new view")
+}
+
+// H5. Fixed in PR 4: the narrow fallback of a detail result pushes a view
+// while help is open, and help lists the keys of that view.
+func TestA6_H5_HelpFollowsTheNarrowFallback(t *testing.T) {
+	m := newTestModel(panelNarrow, 40)
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, ansi.Strip(m.help.View()), "auto-scroll")
+
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.TabbedContentMsg{
+		PanelTitle: "i-1", Tabs: a6Tabs("i-1"),
+	}})
+
+	require.True(t, strings.HasPrefix(m.nav.Current().ID(), "content:"))
+	assert.NotContains(t, ansi.Strip(m.help.View()), "auto-scroll", "help drops the keys of the event log")
+}
+
+// H5. Fixed in PR 4: a late link to a row of the same view, or a focus
+// navigation of the view, closes the panel without a push, and help drops
+// the panel keys.
+func TestA6_H5_HelpDropsPanelKeysWithoutAPush(t *testing.T) {
+	m := sqsWithDLQPanel(t)
+	m, _ = update(t, m, press("2"))
+	m, cmd := update(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, ansi.Strip(m.help.View()), "Panel")
+	m, _ = update(t, m, cmd())
+	require.Equal(t, 2, m.nav.Depth(), "the link only moves the cursor")
+	require.False(t, panelShown(m))
+	assert.NotContains(t, ansi.Strip(m.help.View()), "Panel", "same-view link")
+
+	m = sqsWithDLQPanel(t)
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, ansi.Strip(m.help.View()), "Panel")
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.NavigateMsg{
+		ViewID: "sqs_queues", Params: map[string]string{"focus": "orders"},
+	}})
+	require.Equal(t, 2, m.nav.Depth())
+	require.False(t, panelShown(m))
+	assert.NotContains(t, ansi.Strip(m.help.View()), "Panel", "focus navigation")
+}
+
+// H5. Fixed in PR 4: a back from the view on top while help is open drops
+// the history entry, and help drops the back key.
+func TestA6_H5_HelpDropsTheBackKeyAfterATrim(t *testing.T) {
+	m := panelOnEC2(t)
+	m = followLink(t, m, "eventlog", nil)
+	require.Equal(t, 1, historyLenOf(m))
+	m, _ = update(t, m, press("?"))
+	require.Contains(t, ansi.Strip(m.help.View()), "cross-nav back")
+
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.NavigateBackMsg{}})
+
+	require.Equal(t, "ec2_list", m.nav.Current().ID())
+	require.Equal(t, 0, historyLenOf(m))
+	assert.NotContains(t, ansi.Strip(m.help.View()), "cross-nav back")
 }
 
 // H7 (L7). Fixed in PR 1: a tab that was shown before gets the new width when
@@ -627,11 +793,9 @@ func TestA6Keep_NarrowFallbackShowsTheFirstTab(t *testing.T) {
 	m := newTestModel(panelNarrow, 40)
 	m.svc.EC2 = new(awstest.MockEC2Service)
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "ec2_list"})
-	m, cmd := update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.TabbedContentMsg{
+	m, _ = update(t, m, nav.Routed{Origin: m.nav.Current(), Msg: msg.TabbedContentMsg{
 		PanelTitle: "i-1", Tabs: a6Tabs("i-1"),
 	}})
-	require.NotNil(t, cmd)
-	m, _ = update(t, m, cmd())
 
 	assert.True(t, strings.HasPrefix(m.nav.Current().ID(), "content:"))
 	assert.Contains(t, ansi.Strip(m.View().Content), "info for i-1")

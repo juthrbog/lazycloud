@@ -126,3 +126,20 @@ func TestHelpOverlaySetSizeResetsTheSideScroll(t *testing.T) {
 	assert.Zero(t, h.viewport.XOffset())
 	assert.Contains(t, ansi.Strip(h.View()), "ctrl+x")
 }
+
+// SetHints replaces the keys of an open help overlay and keeps the filter.
+func TestHelpOverlaySetHints(t *testing.T) {
+	h := NewHelpOverlay()
+	h.SetHints(testHints())
+	assert.False(t, h.Visible(), "SetHints does not open help")
+
+	h.Show(testHints(), 120, 40)
+	h, _ = h.Update(tea.KeyPressMsg{Code: 's', Text: "s"})
+	require.Contains(t, ansi.Strip(h.View()), "scroll")
+
+	h.SetHints(testHints()[:5])
+
+	assert.Equal(t, "s", h.filter.String(), "the filter stays")
+	assert.NotContains(t, ansi.Strip(h.View()), "scroll")
+	assert.Contains(t, ansi.Strip(h.View()), "select")
+}
