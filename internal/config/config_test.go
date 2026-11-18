@@ -43,6 +43,6 @@ func TestApplyFlagsRegionWinsOverEnv(t *testing.T) {
 	t.Setenv("AWS_REGION", "us-west-2")
 	c := DefaultConfig()
 	c.ApplyEnv()
-	c.ApplyFlags("", "eu-central-1", "", "", "", false)
+	c.ApplyFlags("", "eu-central-1", "", "", "", nil)
 	assert.Equal(t, "eu-central-1", c.AWS.Region)
 }

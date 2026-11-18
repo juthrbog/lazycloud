@@ -93,8 +93,11 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 		opts = append(opts, config.WithRegion(region))
 	}
 
-	// For LocalStack, use dummy credentials
-	if endpoint != "" {
+	// With an endpoint, use the usual credentials when the user has any,
+	// because AWS_ENDPOINT_URL can name a real endpoint, such as a VPC
+	// endpoint. Without credentials, use the dummy credentials that
+	// LocalStack accepts.
+	if endpoint != "" && !hasCredentials(context.Background(), profile) {
 		opts = append(opts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider("test", "test", ""),
 		))
@@ -117,6 +120,43 @@ func NewClient(profile, region, endpoint string) (*Client, error) {
 		Endpoint: endpoint,
 		copyHTTP: copyClient(cfg.HTTPClient),
 	}, nil
+}
+
+// hasCredentials reports whether the environment or the shared AWS files
+// give credentials for profile: keys, SSO, a role, a credential process, a
+// web identity token, or container credentials. It makes no network call,
+// so it does not ask the EC2 instance metadata service. An empty profile
+// means AWS_PROFILE, then "default".
+func hasCredentials(ctx context.Context, profile string) bool {
+	env, err := config.NewEnvConfig()
+	if err != nil {
+		return false
+	}
+	if env.Credentials.HasKeys() || env.WebIdentityTokenFilePath != "" ||
+		env.ContainerCredentialsEndpoint != "" || env.ContainerCredentialsRelativePath != "" {
+		return true
+	}
+	if profile == "" {
+		profile = env.SharedConfigProfile
+	}
+	if profile == "" {
+		profile = "default"
+	}
+	// Read the same files as the SDK: AWS_CONFIG_FILE and
+	// AWS_SHARED_CREDENTIALS_FILE when they are set.
+	sc, err := config.LoadSharedConfigProfile(ctx, profile, func(o *config.LoadSharedConfigOptions) {
+		if env.SharedConfigFile != "" {
+			o.ConfigFiles = []string{env.SharedConfigFile}
+		}
+		if env.SharedCredentialsFile != "" {
+			o.CredentialsFiles = []string{env.SharedCredentialsFile}
+		}
+	})
+	if err != nil {
+		return false
+	}
+	return sc.Credentials.HasKeys() || sc.SSOSessionName != "" || sc.SSOStartURL != "" ||
+		sc.RoleARN != "" || sc.CredentialProcess != "" || sc.WebIdentityTokenFile != ""
 }
 
 // SQSClient returns an SQS service client configured for the current profile/region/endpoint.
