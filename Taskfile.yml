@@ -76,6 +76,7 @@ tasks:
     cmds:
       - go run ./cmd/seed/ -size small
       - go test -tags smoke -count=1 ./internal/smoke/ {{.CLI_ARGS}}
+    env: *localstack-env
 
   cover:
     desc: Run all tests and show the coverage per function

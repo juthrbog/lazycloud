@@ -115,13 +115,13 @@ task dev               # run against LocalStack
 |------|-------------|
 | `--profile` | AWS profile (falls back to `AWS_PROFILE`) |
 | `--region` | AWS region (falls back to `AWS_REGION`) |
-| `--endpoint` | Endpoint override for LocalStack (falls back to `AWS_ENDPOINT_URL`) |
+| `--endpoint` | Endpoint override, for example for LocalStack (falls back to `AWS_ENDPOINT_URL`). The app uses your AWS credentials, or the dummy credentials `test` when you have none set up |
 | `--theme` | Color theme: `auto` (default), `catppuccin`, `catppuccin-latte`, `dracula`, `nord`, `tokyonight`, `tokyonight-day` |
-| `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs |
-| `--config` | Path to config file (default: `~/.config/lazycloud/config.toml`) |
+| `--no-nerd-fonts` | Use plain Unicode icons instead of Nerd Font glyphs. `--no-nerd-fonts=false` turns the glyphs on when the config file turns them off |
+| `--config` | Path to config file (default: `~/.config/lazycloud/config.toml`). The file must exist |
 | `--log` | Path to debug log file |
 | `--read-write` | Start in ReadWrite mode (default: ReadOnly) |
-| `--init-config` | Write default config file and exit |
+| `--init-config` | Write default config file and exit. A file that exists is not changed |
 | `--version` | Print version and exit |
 
 ## Keybindings
@@ -174,6 +174,10 @@ nerd_fonts = true       # false for plain Unicode fallbacks
 ```
 
 Precedence: **config file < env vars < CLI flags**.
+
+At start, the app prints a warning for each key in the file that it does not know, for example `nerd_font` in place of `nerd_fonts`. The event log (`L`) shows the warnings too.
+
+The app always starts in ReadOnly mode. The config file cannot change this. Use `--read-write`, or the mode picker (`W`) in the app.
 
 ## Tech Stack
 

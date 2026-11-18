@@ -1,8 +1,12 @@
 package config
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	toml "github.com/pelletier/go-toml/v2"
 )
@@ -59,43 +63,65 @@ func DefaultPath() string {
 	return filepath.Join(dir, "lazycloud", "config.toml")
 }
 
-// Load reads the config file at path and returns the merged config.
-// Missing file is not an error — defaults are returned.
-func Load(path string) (Config, error) {
-	cfg := DefaultConfig()
+// Load reads the config file at path and returns the merged config. An
+// empty path means DefaultPath, and then a missing file gives the defaults.
+// A path that the user named, with --config, must exist.
+//
+// The warnings name each key in the file that the config does not know,
+// for example "nerd_font" in place of "nerd_fonts". The other keys still
+// apply.
+func Load(path string) (cfg Config, warnings []string, err error) {
+	cfg = DefaultConfig()
 
-	if path == "" {
+	named := path != ""
+	if !named {
 		path = DefaultPath()
 	}
 
 	data, err := os.ReadFile(path) //nolint:gosec // config path is from DefaultPath() or CLI flag, not user input
 	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
+		if errors.Is(err, os.ErrNotExist) && !named {
+			return cfg, nil, nil
 		}
-		return cfg, err
+		return cfg, nil, err
 	}
 
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return cfg, err
+		return cfg, nil, err
 	}
+	return cfg, unknownKeys(data, path), nil
+}
 
-	return cfg, nil
+// unknownKeys returns a warning for each key in data that Config does not
+// have.
+func unknownKeys(data []byte, path string) []string {
+	var strict Config
+	err := toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&strict)
+	var missing *toml.StrictMissingError
+	if !errors.As(err, &missing) {
+		return nil
+	}
+	warnings := make([]string, 0, len(missing.Errors))
+	for _, e := range missing.Errors {
+		warnings = append(warnings, fmt.Sprintf("unknown key %q in %s", strings.Join(e.Key(), "."), path))
+	}
+	return warnings
 }
 
 // WriteDefault writes a default config file with comments to the given path.
-// Creates parent directories as needed. Does not overwrite existing files.
-func WriteDefault(path string) error {
+// Creates parent directories as needed. It does not change a file that
+// exists, and then returns false.
+func WriteDefault(path string) (written bool, err error) {
 	if path == "" {
 		path = DefaultPath()
 	}
 
 	if _, err := os.Stat(path); err == nil {
-		return nil // file exists, don't overwrite
+		return false, nil
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return false, err
 	}
 
 	contents := `# LazyCloud Configuration
@@ -109,7 +135,9 @@ func WriteDefault(path string) error {
 # env vars). Leave unset to use the region of the active profile in ~/.aws/config.
 # region = "us-east-1"
 
-# Endpoint override for LocalStack (overridden by --endpoint flag or AWS_ENDPOINT_URL env var)
+# Endpoint override, for example for LocalStack (overridden by --endpoint flag
+# or AWS_ENDPOINT_URL env var). With an endpoint, the app uses your usual AWS
+# credentials, or the dummy credentials "test" when you have none set up.
 # endpoint = ""
 
 [display]
@@ -124,8 +152,14 @@ nerd_fonts = true
 [log]
 # Path to debug log file (empty = no logging)
 # file = "/tmp/lazycloud.log"
+
+# The app always starts in ReadOnly mode. Use the --read-write flag, or the
+# mode picker (W) in the app, to allow changes to AWS resources.
 `
-	return os.WriteFile(path, []byte(contents), 0o600)
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ApplyEnv overlays environment variables onto the config.
@@ -146,8 +180,9 @@ func (c *Config) ApplyEnv() {
 }
 
 // ApplyFlags overlays CLI flag values onto the config.
-// Empty strings are treated as "not set" and don't override.
-func (c *Config) ApplyFlags(profile, region, endpoint, logFile, theme string, noNerdFonts bool) {
+// Empty strings and a nil nerdFonts are treated as "not set" and don't
+// override.
+func (c *Config) ApplyFlags(profile, region, endpoint, logFile, theme string, nerdFonts *bool) {
 	if profile != "" {
 		c.AWS.Profile = profile
 	}
@@ -163,7 +198,7 @@ func (c *Config) ApplyFlags(profile, region, endpoint, logFile, theme string, no
 	if theme != "" {
 		c.Display.Theme = theme
 	}
-	if noNerdFonts {
-		c.Display.NerdFonts = false
+	if nerdFonts != nil {
+		c.Display.NerdFonts = *nerdFonts
 	}
 }
