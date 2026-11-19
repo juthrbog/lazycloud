@@ -100,9 +100,16 @@ func New(cfg config.Config) Model {
 		autoTheme:  strings.EqualFold(cfg.Display.Theme, ui.AutoTheme),
 		ops:        ops.NewRegistry(),
 	}
+	// The first session gets its own mode. main asks for ReadWrite with
+	// --read-write through the mode that exists before any session.
+	mode := ui.NewSessionMode()
+	if !ui.IsReadOnly() {
+		_ = mode.SetReadWrite()
+	}
+	ui.SetCurrentMode(mode)
 	// Without a session, the app still starts. It shows the error on Home and
 	// opens no AWS view until a profile or region switch succeeds.
-	m.svc, m.svcErr = aws.NewServices(cfg.AWS.Profile, cfg.AWS.Region, cfg.AWS.Endpoint, ui.IsReadOnly)
+	m.svc, m.svcErr = aws.NewServices(cfg.AWS.Profile, cfg.AWS.Region, cfg.AWS.Endpoint, mode.ReadOnly)
 	if m.svcErr != nil {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", m.svcErr)
 		m.err = noSessionText(m.svcErr)
@@ -1136,25 +1143,41 @@ func itOrThem(n int) string {
 // switchSession builds the AWS services for profile and region. kind and
 // value name the change for the toast, for example "Region" and "eu-west-1".
 //
-// If the build fails, nothing changes: the current session, the views, and
-// the configuration stay, and the user sees the error. If it succeeds, the
-// app resets the navigation and opens the service view that was on top
-// again, now with the new session.
+// If the build fails, nothing changes: the current session, the views, the
+// mode, and the configuration stay, and the user sees the error. If it
+// succeeds, the app resets the navigation and opens the service view that
+// was on top again, now with the new session.
+//
+// The new session gets its own mode, so the guards of the old session keep
+// the old mode for the operations that it still runs. A new profile starts
+// in ReadOnly. A new region of the same profile keeps the mode, because the
+// account is the same.
 func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cmd) {
-	svc, err := aws.NewServices(profile, region, m.config.AWS.Endpoint, ui.IsReadOnly)
+	old := ui.CurrentMode()
+	mode := ui.NewSessionMode()
+	if profile == m.config.AWS.Profile && !old.ReadOnly() {
+		_ = mode.SetReadWrite()
+	}
+	svc, err := aws.NewServices(profile, region, m.config.AWS.Endpoint, mode.ReadOnly)
 	if err != nil {
 		eventlog.Errorf(eventlog.CatAWS, "Cannot switch %s to %s: %v", strings.ToLower(kind), value, err)
 		_, cmd := m.toasts.Add(fmt.Sprintf("Cannot switch %s to %s: %s", strings.ToLower(kind), value, aws.ErrorText(err)), ui.ToastError, 0)
 		return m, cmd
 	}
 	eventlog.Infof(eventlog.CatConfig, "%s changed → %s", kind, value)
+	ui.SetCurrentMode(mode)
+	toast := kind + ": " + value
+	if !old.ReadOnly() && mode.ReadOnly() {
+		eventlog.Infof(eventlog.CatApp, "Mode changed → ReadOnly (new profile)")
+		toast += " · ReadOnly"
+	}
 	m.config.AWS.Profile = profile
 	m.config.AWS.Region = region
 	m.svc, m.svcErr = svc, nil
 
 	returnTo := m.topLevelViewID()
 	cmds := []tea.Cmd{m.resetNav()}
-	_, toastCmd := m.toasts.Add(kind+": "+value, ui.ToastSuccess, 0)
+	_, toastCmd := m.toasts.Add(toast, ui.ToastSuccess, 0)
 	cmds = append(cmds, toastCmd)
 	if returnTo != "" {
 		cmds = append(cmds, func() tea.Msg {
