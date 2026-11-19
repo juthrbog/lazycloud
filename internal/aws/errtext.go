@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
@@ -88,6 +89,9 @@ func ErrorText(err error) string {
 		return fmt.Sprintf("the %s has expired or is not signed in. Sign in with: %s", what, loginCommand(err, kind))
 	}
 
+	if _, ok := errors.AsType[config.AssumeRoleTokenProviderNotSetError](err); ok {
+		return MFANotSupported
+	}
 	if noProfile, ok := errors.AsType[config.SharedConfigProfileNotExistError](err); ok {
 		return fmt.Sprintf("the profile %q is not in the AWS config files", noProfile.Profile)
 	}
@@ -177,6 +181,10 @@ func ssoLoginNeeded(err error) bool {
 	return strings.Contains(err.Error(), "SSO token")
 }
 
+// MFANotSupported is the text for a role profile with mfa_serial. The app
+// cannot ask for the MFA code, so the SDK refuses to build its session.
+const MFANotSupported = "the profile needs an MFA code, which LazyCloud does not support yet"
+
 // loginKind names the sign-in that an error asks for.
 type loginKind int
 
@@ -211,7 +219,7 @@ func loginNeeded(err error) (loginKind, bool) {
 func loginCommand(err error, kind loginKind) string {
 	pe, hasProfile := errors.AsType[*ProfileError](err)
 	if hasProfile {
-		if info := ClassifyProfile(pe.Profile); info.Kind != KindInvalid {
+		if info := ClassifyProfile(pe.Profile, time.Now()); info.Kind != KindInvalid {
 			return info.SignInCommand()
 		}
 	}

@@ -251,7 +251,7 @@ func TestOverlayPin_EscAndClearOnAppPickers(t *testing.T) {
 		{"region", false, func(t *testing.T, m Model) Model { m, _ = update(t, m, press("R")); return m }},
 		{"profile", false, func(t *testing.T, m Model) Model {
 			awsConfigEnv(t, "dev", "prod")
-			m, _ = update(t, m, press("P"))
+			m = openProfiles(t, m)
 			return m
 		}},
 		{"mode", false, func(t *testing.T, m Model) Model { m, _ = update(t, m, press("W")); return m }},

@@ -138,7 +138,7 @@ task dev               # run against LocalStack
 | `tab` | Move the focus between the list and the side panel |
 | `backspace` | Go back to the view where you followed a link, with its panel |
 | `W` | Open the mode picker (ReadOnly or ReadWrite) |
-| `P` | Open the profile picker |
+| `P` | Open the profile picker. Each row shows the credential type, the account from the config, the sign-in state (for example `valid 3h12m` or `not signed in`), and the label and lock of the rules |
 | `R` | Open the region picker |
 | `T` | Open the theme picker |
 | `L` | Open the event log |
@@ -197,7 +197,16 @@ label = "PROD"                         # at most 8 characters
 - `--read-write` on a locked profile starts in ReadOnly and prints a warning.
 - The app warns about a bad glob, an account that is not 12 digits, a label longer than 8 characters, and a rule that matches nothing. It drops the bad entry and keeps the rest of the rule.
 
-A rule can also list `accounts`. Rules by account are not active yet: the app does not know the account of a session before a later release.
+A rule can also list `accounts`, 12-digit account IDs:
+
+```toml
+[[rules]]
+name = "prod-account"
+accounts = ["123456789012"]
+read_only = true
+```
+
+A rule by account matches the account that the AWS config names for the profile: the account of its `role_arn`, its `sso_account_id`, or the account of its `aws login` token. For a profile with keys, the config names no account, so only a rule by profile name can lock it.
 
 ## Tech Stack
 

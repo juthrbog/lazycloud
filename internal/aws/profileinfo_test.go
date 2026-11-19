@@ -115,7 +115,7 @@ func TestClassifyProfile(t *testing.T) {
 		{name: "empty", kind: KindDefault, root: "empty"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			info := ClassifyProfile(tc.name)
+			info := ClassifyProfile(tc.name, p9Now)
 			require.NoError(t, info.Err)
 			assert.Equal(t, tc.name, info.Name)
 			assert.Equal(t, tc.kind, info.Kind, info.Kind.String())
@@ -146,7 +146,7 @@ func TestClassifyProfileThatDoesNotLoad(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			info := ClassifyProfile(name)
+			info := ClassifyProfile(name, p9Now)
 			assert.Equal(t, KindInvalid, info.Kind)
 			assert.Equal(t, name, info.Root)
 			check(t, info.Err)
@@ -158,12 +158,12 @@ func TestClassifyProfileThatDoesNotLoad(t *testing.T) {
 func TestClassifyProfileWithoutAName(t *testing.T) {
 	p9Env(t, p9Profiles+"\n[default]\nsso_session = corp\n")
 
-	info := ClassifyProfile("")
+	info := ClassifyProfile("", p9Now)
 	assert.Equal(t, "default", info.Name)
 	assert.Equal(t, KindSSO, info.Kind)
 
 	t.Setenv("AWS_PROFILE", "login")
-	info = ClassifyProfile("")
+	info = ClassifyProfile("", p9Now)
 	assert.Equal(t, "login", info.Name)
 	assert.Equal(t, KindLogin, info.Kind)
 }

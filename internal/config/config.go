@@ -169,6 +169,10 @@ nerd_fonts = true
 # profiles = ["prod-*", "*-production"]
 # read_only = true
 # label = "PROD"                         # at most 8 characters
+#
+## A rule can also match 12-digit account IDs. The account comes from the
+## role_arn, the sso_account_id, or the aws login token of the profile.
+# accounts = ["123456789012"]
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		return false, err
