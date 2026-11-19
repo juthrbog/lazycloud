@@ -63,41 +63,43 @@ func TestP9Hazard_H4_SwitchToASignedOutSSOProfileSucceeds(t *testing.T) {
 	assert.Contains(t, ErrorText(err), "aws sso login")
 }
 
-// H5, case 1: a missing login token gives the raw SDK text, with no
-// sign-in hint.
-func TestP9Hazard_H5_LoginTokenErrorHasNoHint(t *testing.T) {
+// H5, fixed in PR 1: a missing login token is "login needed", and the
+// hint names aws login. The error of a real call names the profile.
+func TestP9_H5_LoginTokenErrorNamesAWSLogin(t *testing.T) {
 	p9Env(t, p9LoginConfig)
 
 	c, err := NewClient("web", "", "")
 	require.NoError(t, err)
 	_, err = c.Config.Credentials.Retrieve(t.Context())
 	require.Error(t, err)
+	assert.Equal(t, "the aws login session has expired or is not signed in. Sign in with: aws login", ErrorText(err))
 
-	assert.Contains(t, err.Error(), "reauthenticate")
-	assert.Equal(t, err.Error(), ErrorText(err), "no hint")
+	_, err = NewS3Service(c).ListBuckets(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, "the aws login session has expired or is not signed in. Sign in with: aws login --profile web", ErrorText(err))
 }
 
-// H5, case 2: an expired-token error from AWS on a login profile names
-// the SSO command.
-func TestP9Hazard_H5_ExpiredLoginProfileGetsTheSSOHint(t *testing.T) {
+// H5, fixed in PR 1: an expired-token error from AWS on a login profile
+// names aws login.
+func TestP9_H5_ExpiredLoginProfileGetsTheLoginHint(t *testing.T) {
 	p9Env(t, p9LoginConfig)
 	err := &ProfileError{Profile: "web", Err: &smithy.GenericAPIError{Code: "ExpiredToken", Message: "expired"}}
 
-	assert.Contains(t, ErrorText(err), "aws sso login --profile web")
+	assert.Equal(t, "the AWS credentials have expired (ExpiredToken). Get new ones, for example with: aws login --profile web", ErrorText(err))
 }
 
-// H6: with an endpoint, a profile that has only login_session counts as a
-// profile without credentials, so it gets the dummy keys.
-func TestP9Hazard_H6_LoginProfileGetsTheDummyKeys(t *testing.T) {
+// H6, fixed in PR 1: with an endpoint, a profile that has only
+// login_session has credentials, so it does not get the dummy keys.
+func TestP9_H6_LoginProfileKeepsItsCredentials(t *testing.T) {
 	p9Env(t, p9LoginConfig)
 
-	assert.False(t, hasCredentials(t.Context(), "web"))
+	assert.True(t, hasCredentials(t.Context(), "web"))
 
 	c, err := NewClient("web", "", "http://127.0.0.1:1")
 	require.NoError(t, err)
-	creds, err := c.Config.Credentials.Retrieve(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, "test", creds.AccessKeyID)
+	_, err = c.Config.Credentials.Retrieve(t.Context())
+	require.Error(t, err, "the login provider runs, and it has no token")
+	assert.Contains(t, err.Error(), "please reauthenticate")
 }
 
 // The design reads the token caches at the paths of the SDK helpers. This

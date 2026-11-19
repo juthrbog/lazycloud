@@ -65,8 +65,9 @@ func codeSet(codes ...string) map[string]bool {
 // example in a toast or an error line. The SDK text of an error is long
 // and names transport details, such as the request ID and the HTTP status.
 // ErrorText keeps the AWS error code and message, names the call, and adds
-// a hint for common problems: an SSO session that has expired, missing or
-// bad credentials, a denied call, throttling, and network errors.
+// a hint for common problems: an SSO or aws login session that has
+// expired, missing or bad credentials, a denied call, throttling, and
+// network errors.
 //
 // Log the full error as well, because ErrorText leaves details out.
 func ErrorText(err error) string {
@@ -78,8 +79,13 @@ func ErrorText(err error) string {
 		return "cancelled"
 	case IsTimeout(err):
 		return "no answer from AWS in time"
-	case ssoLoginNeeded(err):
-		return "the SSO session has expired or is not signed in. Sign in with: " + loginCommand(err)
+	}
+	if kind, ok := loginNeeded(err); ok {
+		what := "SSO session"
+		if kind == loginAWS {
+			what = "aws login session"
+		}
+		return fmt.Sprintf("the %s has expired or is not signed in. Sign in with: %s", what, loginCommand(err, kind))
 	}
 
 	if noProfile, ok := errors.AsType[config.SharedConfigProfileNotExistError](err); ok {
@@ -118,7 +124,10 @@ func apiErrorText(err error, apiErr smithy.APIError) string {
 	case accessDeniedCodes[code]:
 		return fmt.Sprintf("%saccess denied (%s). The credentials of this profile do not allow this call", where, code)
 	case expiredCodes[code]:
-		return fmt.Sprintf("the AWS credentials have expired (%s). Get new ones, for example with: %s", code, loginCommand(err))
+		if cmd := loginCommand(err, loginUnknown); cmd != "" {
+			return fmt.Sprintf("the AWS credentials have expired (%s). Get new ones, for example with: %s", code, cmd)
+		}
+		return fmt.Sprintf("the AWS credentials have expired (%s). Get new credentials for profile %s", code, errProfile(err))
 	case badCredentialCodes[code]:
 		return fmt.Sprintf("AWS does not accept the credentials (%s). Check the profile", code)
 	case throttleCodes[code]:
@@ -168,11 +177,58 @@ func ssoLoginNeeded(err error) bool {
 	return strings.Contains(err.Error(), "SSO token")
 }
 
-// loginCommand returns the AWS CLI command that signs in to the profile of
-// the session whose call failed.
-func loginCommand(err error) string {
-	if pe, ok := errors.AsType[*ProfileError](err); ok && pe.Profile != "" {
-		return "aws sso login --profile " + pe.Profile
+// loginKind names the sign-in that an error asks for.
+type loginKind int
+
+const (
+	loginUnknown loginKind = iota // the error does not say, for example an expired-token code
+	loginSSO                      // aws sso login
+	loginAWS                      // aws login
+)
+
+// loginNeeded reports whether err means that the user must sign in again,
+// and with which command.
+func loginNeeded(err error) (loginKind, bool) {
+	if ssoLoginNeeded(err) {
+		return loginSSO, true
 	}
-	return "aws sso login"
+	// The login provider returns plain errors: a missing or bad token
+	// file, or a session that has expired or whose password changed.
+	text := err.Error()
+	if strings.Contains(text, "please reauthenticate") ||
+		strings.Contains(text, "load login token: ") || strings.Contains(text, "validate login token: ") {
+		return loginAWS, true
+	}
+	return loginUnknown, false
+}
+
+// loginCommand returns the AWS CLI command that signs in to the profile of
+// the session whose call failed. It reads the profile from the shared AWS
+// files and names the profile that signs in, at the end of its
+// source_profile chain. It returns "" for a profile that does not sign in,
+// such as one with keys. Without a profile that loads, it falls back to
+// the command that kind names, and to aws sso login.
+func loginCommand(err error, kind loginKind) string {
+	pe, hasProfile := errors.AsType[*ProfileError](err)
+	if hasProfile {
+		if info := ClassifyProfile(pe.Profile); info.Kind != KindInvalid {
+			return info.SignInCommand()
+		}
+	}
+	cmd := "aws sso login"
+	if kind == loginAWS {
+		cmd = "aws login"
+	}
+	if hasProfile && pe.Profile != "" {
+		cmd += " --profile " + pe.Profile
+	}
+	return cmd
+}
+
+// errProfile names the profile of the session whose call failed.
+func errProfile(err error) string {
+	if pe, ok := errors.AsType[*ProfileError](err); ok && pe.Profile != "" {
+		return pe.Profile
+	}
+	return "default"
 }
