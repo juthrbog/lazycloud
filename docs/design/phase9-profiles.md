@@ -1,6 +1,6 @@
 # P9.1: profiles that know their credentials, sign-in from the app, and ReadOnly locks
 
-Status: Approved on 2026-11-18 with all proposed answers. The facts below were checked at `1377e9c`.
+Status: Approved on 2026-11-18 with all proposed answers. Done: PR 0 to PR 6 are in #300 to #306. The facts below were checked at `1377e9c`.
 
 ## Summary
 

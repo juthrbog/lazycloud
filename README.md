@@ -214,7 +214,23 @@ accounts = ["123456789012"]
 read_only = true
 ```
 
-A rule by account matches the account that the AWS config names for the profile: the account of its `role_arn`, its `sso_account_id`, or the account of its `aws login` token. For a profile with keys, the config names no account, so only a rule by profile name can lock it.
+A rule by account matches the account of the session in two steps:
+
+1. When the session starts, the rule matches the account that the AWS config names for the profile: the account of its `role_arn`, its `sso_account_id`, or the account of its `aws login` token.
+2. When STS answers, the rule matches the account that STS names. This also covers a profile with keys. STS can only add a lock. It never removes a lock that the profile name or the config set.
+
+While STS has not answered, `W` and `--read-write` wait: `W` says "Checking the account, try again in a moment", and `--read-write` applies when STS answers, if no rule locks the session. When STS cannot answer, for example on a network error, `W` asks before it switches, because the rules by account cannot apply. Without rules by account, the app does not wait for STS.
+
+### Account and identity
+
+After each session starts, the app asks STS `GetCallerIdentity` for the account and the principal of the credentials. The call needs no permission. The header shows the account, the principal (the role or the user name) and the region on a terminal 120 columns wide or more. An SSO role shows as the name of its permission set, so `AWSReservedSSO_ReadOnlyAccess_0123456789abcdef` shows as `ReadOnlyAccess`. From 80 to 119 columns, the header shows the account but not the principal.
+
+- `123456789012?` means that STS has not answered yet. The number is the account from the config.
+- `login needed` means that the credentials have expired. `W` refuses ReadWrite until you sign in with `:login`.
+- `account unknown` means that STS did not answer. The event log (`L`) has the reason.
+- `endpoint` means that an endpoint override is set, for example LocalStack. The rules apply as usual.
+
+`:whoami` shows the profile, the credential type, the account, the full ARN, the user ID, the region, the endpoint, the mode and the token expiry.
 
 ## Tech Stack
 

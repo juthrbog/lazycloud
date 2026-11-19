@@ -72,6 +72,14 @@ type Model struct {
 	// startWarnings are the problems at start that main prints on stderr,
 	// for example a --read-write that a rule refused.
 	startWarnings []string
+	// sessionGen numbers the sessions. An STS answer for an older session
+	// is dropped (see identityMsg).
+	sessionGen int
+	// ident is what the app knows about the account of the session.
+	ident sessionIdentity
+	// pendingRW is true while a --read-write waits for the account check
+	// of the first session.
+	pendingRW bool
 	// resizeCmds holds the commands that views returned for a resize in
 	// this update. Update sends them with its own command (L18).
 	resizeCmds []tea.Cmd
@@ -113,9 +121,14 @@ func New(cfg config.Config) Model {
 	// --read-write through the mode that exists before any session.
 	startRW := !ui.IsReadOnly()
 	var mode *ui.SessionMode
-	mode, m.match = m.newSessionMode(cfg.AWS.Profile)
+	mode, m.match, m.ident = m.newSessionMode(cfg.AWS.Profile)
+	m.sessionGen = 1
 	if startRW {
-		if err := mode.SetReadWrite(); err != nil {
+		// With rules by account, the request waits for the account check.
+		if err := mode.SetReadWrite(); errors.Is(err, ui.ErrNotChecked) {
+			eventlog.Infof(eventlog.CatApp, "--read-write waits for the account check")
+			m.pendingRW = true
+		} else if err != nil {
 			w := fmt.Sprintf("--read-write ignored: profile %s is %s", displayProfile(cfg.AWS.Profile), err)
 			eventlog.Warnf(eventlog.CatApp, "%s", w)
 			m.startWarnings = append(m.startWarnings, w)
@@ -130,6 +143,13 @@ func New(cfg config.Config) Model {
 		eventlog.Errorf(eventlog.CatAWS, "Failed to create AWS client: %v", m.svcErr)
 		m.err = noSessionText(m.svcErr)
 		m.errView = home
+		m.ident.state, m.ident.err = ui.AccountUnknown, m.svcErr
+		if m.pendingRW {
+			m.pendingRW = false
+			w := "--read-write ignored: no AWS session"
+			eventlog.Warnf(eventlog.CatApp, "%s", w)
+			m.startWarnings = append(m.startWarnings, w)
+		}
 	}
 	eventlog.Infof(eventlog.CatApp, "LazyCloud started (theme=%s, region=%s)", cfg.Display.Theme, m.activeRegion())
 	return m
@@ -142,18 +162,23 @@ func (m Model) StartWarnings() []string {
 }
 
 // newSessionMode returns a ReadOnly mode for a new session of profile,
-// locked when a rule of the config locks the profile, and the result of
-// the rules.
-func (m Model) newSessionMode(profile string) (*ui.SessionMode, config.Match) {
+// locked when a rule of the config locks the profile, the result of the
+// rules, and the identity of the session before STS answers. With rules by
+// account, the account of the session is not checked until STS answers.
+func (m Model) newSessionMode(profile string) (*ui.SessionMode, config.Match, sessionIdentity) {
 	mode := ui.NewSessionMode()
 	// The account from the config lets a rule by account lock the session
 	// before any call to AWS.
-	match := m.config.MatchSession(profile, aws.ClassifyProfile(profile, time.Now()).Account)
+	account := aws.ClassifyProfile(profile, time.Now()).Account
+	match := m.config.MatchSession(profile, account)
 	if match.Lock != "" {
 		mode.Lock(match.Lock)
 		eventlog.Infof(eventlog.CatConfig, "Profile %s is locked to ReadOnly by rule %s", displayProfile(profile), match.Lock)
 	}
-	return mode, match
+	if m.config.HasAccountRules() {
+		mode.SetChecked(false)
+	}
+	return mode, match, sessionIdentity{state: ui.AccountChecking, configAccount: account}
 }
 
 // displayProfile names a profile for the user. The empty profile is the
@@ -186,6 +211,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.nav.InitCurrent(),
 		tea.RequestBackgroundColor,
+		m.identityCmd(),
 	)
 }
 
@@ -525,6 +551,9 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case signInDoneMsg:
 		return m.signInDone(msg)
 
+	case identityMsg:
+		return m.identityDone(msg)
+
 	case appmsg.NavigateBackMsg:
 		m.dismissPanel()
 		if m.nav.Depth() > 1 {
@@ -837,6 +866,8 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 		return m, cmd
 	case "login":
 		return m.loginCommand(arg)
+	case "whoami":
+		return m.whoamiCommand()
 	case "theme":
 		cmd := m.showThemePicker()
 		return m, cmd
@@ -1191,8 +1222,18 @@ func itOrThem(n int) string {
 func (m Model) switchSession(c sessionChange) (Model, tea.Cmd) {
 	profile, region, kind, value := c.profile, c.region, c.kind, c.value
 	old := ui.CurrentMode()
-	mode, match := m.newSessionMode(profile)
-	if profile == m.config.AWS.Profile && !c.signIn && !old.ReadOnly() {
+	mode, match, ident := m.newSessionMode(profile)
+	// A new region of the same profile has the same credentials, so the
+	// same account: the answer of STS still applies, and so does the check.
+	sameProfile := profile == m.config.AWS.Profile && !c.signIn
+	if sameProfile && m.ident.state == ui.AccountKnown {
+		ident = m.ident
+		accountMatch(m.config, profile, ident.id.Account, mode, &match)
+	}
+	if sameProfile && old.Checked() {
+		mode.SetChecked(true)
+	}
+	if sameProfile && !old.ReadOnly() {
 		_ = mode.SetReadWrite()
 	}
 	svc, err := aws.NewServices(profile, region, m.config.AWS.Endpoint, mode.ReadOnly)
@@ -1204,6 +1245,9 @@ func (m Model) switchSession(c sessionChange) (Model, tea.Cmd) {
 	eventlog.Infof(eventlog.CatConfig, "%s changed → %s", kind, value)
 	ui.SetCurrentMode(mode)
 	m.match = match
+	m.ident = ident
+	m.sessionGen++
+	m.pendingRW = false
 	toast := kind + ": " + value
 	if c.signIn {
 		toast += " (signed in)"
@@ -1219,7 +1263,7 @@ func (m Model) switchSession(c sessionChange) (Model, tea.Cmd) {
 	m.svc, m.svcErr = svc, nil
 
 	returnTo := m.topLevelViewID()
-	cmds := []tea.Cmd{m.resetNav()}
+	cmds := []tea.Cmd{m.resetNav(), m.identityCmd()}
 	_, toastCmd := m.toasts.Add(toast, ui.ToastSuccess, 0)
 	cmds = append(cmds, toastCmd)
 	if returnTo != "" {
@@ -1263,6 +1307,8 @@ func (m *Model) showModePicker() tea.Cmd {
 }
 
 func (m Model) applyMode(mode string) (Model, tea.Cmd) {
+	// A choice of the user ends a --read-write that waits for the check.
+	m.pendingRW = false
 	switch mode {
 	case "readonly":
 		ui.SetReadOnly(true)
@@ -1270,7 +1316,14 @@ func (m Model) applyMode(mode string) (Model, tea.Cmd) {
 		_, cmd := m.toasts.Add("Mode: ReadOnly", ui.ToastInfo, 0)
 		return m, cmd
 	case "readwrite":
-		if err := ui.CurrentMode().SetReadWrite(); err != nil {
+		if m.ident.state == ui.AccountLoginNeeded {
+			// No call can work until a sign-in.
+			_, cmd := m.toasts.Add(fmt.Sprintf("Profile %s needs a sign-in first (:login)", displayProfile(m.config.AWS.Profile)), ui.ToastError, 0)
+			return m, cmd
+		}
+		if err := ui.CurrentMode().SetReadWrite(); errors.Is(err, ui.ErrNotChecked) {
+			return m.refuseUnchecked()
+		} else if err != nil {
 			text := fmt.Sprintf("%s is %s", displayProfile(m.config.AWS.Profile), err)
 			eventlog.Warnf(eventlog.CatApp, "Mode not changed: %s", text)
 			_, cmd := m.toasts.Add(text, ui.ToastError, 0)
@@ -1364,6 +1417,10 @@ func (m Model) View() tea.View {
 		Locked:            locked,
 		Label:             m.match.Label,
 		LabelLocks:        m.match.LabelLocks,
+		Account:           m.headerAccount(),
+		AccountState:      m.ident.state,
+		Principal:         m.headerPrincipal(),
+		Endpoint:          m.config.AWS.Endpoint != "",
 		Breadcrumbs:       crumbs,
 		CrossNavBackLabel: crossNavLabel,
 		Width:             m.width,

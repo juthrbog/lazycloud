@@ -67,6 +67,7 @@ var Commands = []Command{
 	{Name: "region", Description: "Switch region"},
 	{Name: "profile", Description: "Switch profile"},
 	{Name: "login", Description: "Sign in to the profile (:login NAME for another one)"},
+	{Name: "whoami", Description: "Show the account and the identity of the session"},
 }
 
 // CommandBarEntries builds entries for the command bar component.

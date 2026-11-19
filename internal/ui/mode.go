@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"sync/atomic"
 )
@@ -13,14 +14,31 @@ import (
 type SessionMode struct {
 	readOnly atomic.Bool
 	lock     atomic.Pointer[string] // the rule that locks the session, nil when none does
+	// unchecked is true while the app waits for STS to name the account of
+	// the session. Only a config with rules by account needs the check.
+	unchecked atomic.Bool
 }
 
-// NewSessionMode returns a mode that starts in ReadOnly.
+// ErrNotChecked is the error of SetReadWrite while the account of the
+// session is not checked.
+var ErrNotChecked = errors.New("the account is not checked yet")
+
+// NewSessionMode returns a mode that starts in ReadOnly, with its account
+// checked.
 func NewSessionMode() *SessionMode {
 	m := &SessionMode{}
 	m.readOnly.Store(true)
 	return m
 }
+
+// Checked reports whether the account of the session is checked, or
+// needs no check.
+func (m *SessionMode) Checked() bool { return !m.unchecked.Load() }
+
+// SetChecked records whether the account of the session is checked. While
+// it is not, SetReadWrite refuses, so a rule by account can lock the
+// session before the user can change resources.
+func (m *SessionMode) SetChecked(v bool) { m.unchecked.Store(!v) }
 
 // ReadOnly reports whether the session refuses changes to AWS resources.
 func (m *SessionMode) ReadOnly() bool { return m.readOnly.Load() }
@@ -44,10 +62,14 @@ func (m *SessionMode) Locked() (bool, string) {
 }
 
 // SetReadWrite switches the session to ReadWrite. It returns an error and
-// changes nothing when a rule locks the session.
+// changes nothing when a rule locks the session, or ErrNotChecked when the
+// account of the session is not checked.
 func (m *SessionMode) SetReadWrite() error {
 	if locked, rule := m.Locked(); locked {
 		return fmt.Errorf("locked to ReadOnly by rule %s", rule)
+	}
+	if !m.Checked() {
+		return ErrNotChecked
 	}
 	m.readOnly.Store(false)
 	return nil

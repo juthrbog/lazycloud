@@ -66,6 +66,31 @@ func TestLockRefusesReadWrite(t *testing.T) {
 	assert.True(t, IsReadOnly(), "the wrapper cannot pass the lock")
 }
 
+// An unchecked account refuses ReadWrite until the check ends. A lock
+// names the rule first.
+func TestUncheckedRefusesReadWrite(t *testing.T) {
+	m := NewSessionMode()
+	assert.True(t, m.Checked(), "a new mode needs no check")
+
+	m.SetChecked(false)
+
+	assert.False(t, m.Checked())
+	require.ErrorIs(t, m.SetReadWrite(), ErrNotChecked)
+	assert.True(t, m.ReadOnly())
+	useMode(t, m)
+	SetReadOnly(false)
+	assert.True(t, IsReadOnly(), "the wrapper cannot pass the check")
+
+	m.Lock("prod")
+	require.EqualError(t, m.SetReadWrite(), "locked to ReadOnly by rule prod")
+
+	n := NewSessionMode()
+	n.SetChecked(false)
+	n.SetChecked(true)
+	require.NoError(t, n.SetReadWrite())
+	assert.False(t, n.ReadOnly())
+}
+
 // The guards read the mode from command goroutines while the app changes
 // it. Run with -race.
 func TestSessionModeIsSafeForConcurrentUse(t *testing.T) {
@@ -77,9 +102,11 @@ func TestSessionModeIsSafeForConcurrentUse(t *testing.T) {
 			for range 100 {
 				if i%2 == 0 {
 					_ = m.SetReadWrite()
+					m.SetChecked(i%4 == 0)
 					SetReadOnly(true)
 				} else {
 					_ = IsReadOnly()
+					_ = m.Checked()
 					SetCurrentMode(m)
 				}
 			}
