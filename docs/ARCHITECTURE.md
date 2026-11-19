@@ -184,6 +184,8 @@ LazyCloud starts in **ReadOnly** mode by default. In ReadOnly mode, LazyCloud bl
 
 Each session has its own mode, a `ui.SessionMode`. `ui.IsReadOnly()` reads the mode of the session on screen, and `ui.SetReadOnly()` changes it. The guards of a session read only the mode of that session. So an operation that an old session still runs in the background keeps the mode of that session after a switch. A switch to another profile starts in ReadOnly, and the toast says so. A switch to another region of the same profile keeps the mode. `--read-write` asks for ReadWrite before the first session exists, and the first session takes it over.
 
+A rule of the config (`[[rules]]`, `config.Rule`) can lock a session to ReadOnly. When the app builds a session, `newSessionMode` matches the rules with `config.MatchSession` and calls `SessionMode.Lock` for a match. Then `SetReadWrite` returns an error, so `W`, `:mode`, `--read-write` and the `ui.SetReadOnly(false)` wrapper cannot pass the lock. The header shows the label of the rule and `RO` with a lock. When the app hides the header on a short terminal, the status bar starts with the label and the mode. `Model.StartWarnings` gives main the `--read-write` that a rule refused, and main prints it on stderr.
+
 Three checks enforce ReadOnly mode:
 
 1. When the user presses a key, the app looks for it in the `KeyMap()` of the view on top. If a binding with `ui.ModeReadWrite` has that key, the app shows the toast "ReadOnly mode — press W to switch", and the view does not get the key.

@@ -45,6 +45,27 @@ func TestReadOnlyActsOnTheCurrentMode(t *testing.T) {
 	assert.False(t, a.ReadOnly(), "the old session keeps its mode")
 }
 
+// A lock refuses ReadWrite, also through the SetReadOnly wrapper.
+func TestLockRefusesReadWrite(t *testing.T) {
+	m := NewSessionMode()
+	require.NoError(t, m.SetReadWrite())
+	locked, _ := m.Locked()
+	require.False(t, locked)
+
+	m.Lock("prod")
+
+	assert.True(t, m.ReadOnly(), "a lock sets ReadOnly")
+	locked, rule := m.Locked()
+	assert.True(t, locked)
+	assert.Equal(t, "prod", rule)
+	require.EqualError(t, m.SetReadWrite(), "locked to ReadOnly by rule prod")
+	assert.True(t, m.ReadOnly())
+
+	useMode(t, m)
+	SetReadOnly(false)
+	assert.True(t, IsReadOnly(), "the wrapper cannot pass the lock")
+}
+
 // The guards read the mode from command goroutines while the app changes
 // it. Run with -race.
 func TestSessionModeIsSafeForConcurrentUse(t *testing.T) {

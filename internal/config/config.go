@@ -17,6 +17,7 @@ type Config struct {
 	AWS     AWSConfig     `toml:"aws"`
 	Display DisplayConfig `toml:"display"`
 	Log     LogConfig     `toml:"log"`
+	Rules   []Rule        `toml:"rules"` // see rules.go
 }
 
 // AWSConfig holds AWS-related settings.
@@ -89,7 +90,8 @@ func Load(path string) (cfg Config, warnings []string, err error) {
 	if err := toml.Unmarshal(data, &cfg); err != nil {
 		return cfg, nil, err
 	}
-	return cfg, unknownKeys(data, path), nil
+	warnings = unknownKeys(data, path)
+	return cfg, append(warnings, cfg.checkRules(path)...), nil
 }
 
 // unknownKeys returns a warning for each key in data that Config does not
@@ -155,6 +157,18 @@ nerd_fonts = true
 
 # The app always starts in ReadOnly mode. Use the --read-write flag, or the
 # mode picker (W) in the app, to allow changes to AWS resources.
+
+# Rules lock profiles to ReadOnly, so W and --read-write cannot switch them
+# to ReadWrite. A session is locked when any matching rule has
+# read_only = true. The first matching rule with a label sets the label in
+# the header. profiles are globs: * matches any text. "default" also
+# matches the default profile.
+#
+# [[rules]]
+# name = "prod"                          # shown in messages
+# profiles = ["prod-*", "*-production"]
+# read_only = true
+# label = "PROD"                         # at most 8 characters
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		return false, err

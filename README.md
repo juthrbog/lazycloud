@@ -179,6 +179,26 @@ At start, the app prints a warning for each key in the file that it does not kno
 
 The app always starts in ReadOnly mode. The config file cannot change this. Use `--read-write`, or the mode picker (`W`) in the app.
 
+### Rules
+
+A rule locks profiles to ReadOnly, so `W` and `--read-write` cannot switch them to ReadWrite. A rule can also give the profiles a label in the header:
+
+```toml
+[[rules]]
+name = "prod"                          # shown in messages: locked by rule prod
+profiles = ["prod-*", "*-production"]  # globs: * matches any text
+read_only = true
+label = "PROD"                         # at most 8 characters
+```
+
+- A session is locked when any matching rule has `read_only = true`. The first matching rule with a label sets the label.
+- The profile `default` also matches the default profile.
+- A locked session shows `RO` with a lock (`RO*` without Nerd Fonts). A switch to a locked profile says so in its toast.
+- `--read-write` on a locked profile starts in ReadOnly and prints a warning.
+- The app warns about a bad glob, an account that is not 12 digits, a label longer than 8 characters, and a rule that matches nothing. It drops the bad entry and keeps the rest of the rule.
+
+A rule can also list `accounts`. Rules by account are not active yet: the app does not know the account of a session before a later release.
+
 ## Tech Stack
 
 [Bubble Tea v2](https://github.com/charmbracelet/bubbletea) | [Lip Gloss v2](https://github.com/charmbracelet/lipgloss) | [Bubbles v2](https://github.com/charmbracelet/bubbles) | [Huh v2](https://github.com/charmbracelet/huh) | [Chroma](https://github.com/alecthomas/chroma) | [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2) | [testify](https://github.com/stretchr/testify) | [Taskfile](https://taskfile.dev) | [LocalStack](https://github.com/localstack/localstack)

@@ -155,6 +155,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	rootModel := app.New(cfg)
+	for _, w := range rootModel.StartWarnings() {
+		printf(stderr, "Warning: %s\n", w)
+	}
 	p := tea.NewProgram(rootModel)
 	_, runErr := p.Run()
 	// On every way out, also a signal or an error, stop the background

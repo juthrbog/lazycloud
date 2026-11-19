@@ -323,11 +323,11 @@ When STS or a view fails with "login needed" on the current session, the banner 
 - Wide (120 and up): title, label, profile, account, principal, region, mode.
 - Medium (80 to 119): label, profile, account, region, mode.
 - 60 to 79: label, profile, mode.
-- Below 60: label and mode, then breadcrumbs (fixes H3).
+- Below 60: label and mode, then breadcrumbs (fixes H3). The title goes, so that the mode fits.
 
 The Medium tier gets the same budget, because a profile name can have any length.
 
-A locked session shows the mode badge as `RO` with the lock icon, or `RO*` without nerd fonts. When the app hides the header on a short terminal, the status bar starts with a short session badge, for example `PROD RO*` or `RW`. It takes at most 10 columns from the hints. The badge is also drawn on the error path of `RenderStatusBar`. The app hides the status bar last. So the mode is on screen at every size, except on a terminal so short that the app hides the status bar too (shorter than `MinTableRows` plus 3 lines plus the footer).
+A locked session shows the mode badge as `RO` with the lock icon, or `RO*` without nerd fonts. When the app hides the header on a short terminal, the status bar starts with a short session badge, for example `PROD RO*` or `RW`. It is the label badge and the mode badge of the header, so it takes at most 16 columns from the hints. The badge is also drawn on the error path of `RenderStatusBar`. The app hides the status bar last. So the mode is on screen at every size, except on a terminal so short that the app hides the status bar too (shorter than `MinTableRows` plus 3 lines plus the footer).
 
 The header gets a width budget, because `RenderHeader` truncates only the breadcrumbs today. The profile and the principal are truncated with an ellipsis. For display, the principal drops the `AWSReservedSSO_` prefix and the `_<16 hex>` suffix of an SSO role name, so `AWSReservedSSO_ReadOnlyAccess_0123456789abcdef` shows as `ReadOnlyAccess`. `:whoami` shows the full name. The region also goes through `Sanitize`.
 

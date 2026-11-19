@@ -1,6 +1,9 @@
 package ui
 
-import "sync/atomic"
+import (
+	"fmt"
+	"sync/atomic"
+)
 
 // SessionMode is the access mode of one session (a profile and a region).
 // Each session has its own mode, so the guards of a session that runs an
@@ -9,6 +12,7 @@ import "sync/atomic"
 // it is safe for concurrent use.
 type SessionMode struct {
 	readOnly atomic.Bool
+	lock     atomic.Pointer[string] // the rule that locks the session, nil when none does
 }
 
 // NewSessionMode returns a mode that starts in ReadOnly.
@@ -24,10 +28,27 @@ func (m *SessionMode) ReadOnly() bool { return m.readOnly.Load() }
 // SetReadOnly switches the session to ReadOnly.
 func (m *SessionMode) SetReadOnly() { m.readOnly.Store(true) }
 
+// Lock locks the session to ReadOnly. rule names the rule of the config
+// that locks it. A lock stays for the life of the session.
+func (m *SessionMode) Lock(rule string) {
+	m.lock.Store(&rule)
+	m.readOnly.Store(true)
+}
+
+// Locked reports whether a rule locks the session, and which rule.
+func (m *SessionMode) Locked() (bool, string) {
+	if r := m.lock.Load(); r != nil {
+		return true, *r
+	}
+	return false, ""
+}
+
 // SetReadWrite switches the session to ReadWrite. It returns an error and
-// changes nothing when the session cannot go to ReadWrite. Today no
-// session refuses. The locks of docs/design/phase9-profiles.md come here.
+// changes nothing when a rule locks the session.
 func (m *SessionMode) SetReadWrite() error {
+	if locked, rule := m.Locked(); locked {
+		return fmt.Errorf("locked to ReadOnly by rule %s", rule)
+	}
 	m.readOnly.Store(false)
 	return nil
 }
@@ -51,7 +72,7 @@ func IsReadOnly() bool { return CurrentMode().ReadOnly() }
 
 // SetReadOnly switches the session on screen between ReadOnly (true) and
 // ReadWrite (false). A switch to ReadWrite goes through SetReadWrite, so it
-// cannot pass a refusal of the session.
+// cannot pass a lock.
 func SetReadOnly(v bool) {
 	if v {
 		CurrentMode().SetReadOnly()

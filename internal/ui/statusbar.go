@@ -20,6 +20,10 @@ type StatusBarData struct {
 	Keys  []HintBinding
 	Error string
 	Width int
+	// Session is a badge with the label and the mode of the session, made
+	// with LabelBadge and ModeBadge. The app sets it when it hides the
+	// header on a short terminal, so the mode stays on screen.
+	Session string
 }
 
 // RenderStatusBar renders the bottom bar with contextual keybindings.
@@ -28,11 +32,16 @@ type StatusBarData struct {
 // first and global hints last.
 func RenderStatusBar(data StatusBarData) string {
 	s := S
+	prefix := ""
+	if data.Session != "" {
+		prefix = data.Session + " "
+		data.Width -= lipgloss.Width(prefix)
+	}
 
 	if data.Error != "" {
 		// The error often names AWS text, for example a key.
-		errMsg := s.Error.Render(" " + Sanitize(data.Error) + " ")
-		errWidth := lipgloss.Width(errMsg)
+		errMsg := prefix + s.Error.Render(" "+Sanitize(data.Error)+" ")
+		errWidth := lipgloss.Width(errMsg) - lipgloss.Width(prefix)
 		if data.Width > errWidth {
 			padding := s.StatusBarBase.Width(data.Width - errWidth).Render("")
 			errMsg += padding
@@ -53,9 +62,9 @@ func RenderStatusBar(data StatusBarData) string {
 	}
 
 	// Progressively drop hints from the right until they fit
-	bar := renderHints(s, filtered, data.Width)
+	bar := prefix + renderHints(s, filtered, data.Width)
 
-	barWidth := lipgloss.Width(bar)
+	barWidth := lipgloss.Width(bar) - lipgloss.Width(prefix)
 	if data.Width > barWidth {
 		padding := s.StatusBarBase.Width(data.Width - barWidth).Render("")
 		bar += padding
