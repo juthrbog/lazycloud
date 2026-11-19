@@ -86,7 +86,7 @@ func ErrorText(err error) string {
 		if kind == loginAWS {
 			what = "aws login session"
 		}
-		return fmt.Sprintf("the %s has expired or is not signed in. Sign in with: %s", what, loginCommand(err, kind))
+		return fmt.Sprintf("the %s has expired or is not signed in. Sign in with: %s (or :login)", what, loginCommand(err, kind))
 	}
 
 	if _, ok := errors.AsType[config.AssumeRoleTokenProviderNotSetError](err); ok {
@@ -129,7 +129,7 @@ func apiErrorText(err error, apiErr smithy.APIError) string {
 		return fmt.Sprintf("%saccess denied (%s). The credentials of this profile do not allow this call", where, code)
 	case expiredCodes[code]:
 		if cmd := loginCommand(err, loginUnknown); cmd != "" {
-			return fmt.Sprintf("the AWS credentials have expired (%s). Get new ones, for example with: %s", code, cmd)
+			return fmt.Sprintf("the AWS credentials have expired (%s). Get new ones, for example with: %s (or :login)", code, cmd)
 		}
 		return fmt.Sprintf("the AWS credentials have expired (%s). Get new credentials for profile %s", code, errProfile(err))
 	case badCredentialCodes[code]:

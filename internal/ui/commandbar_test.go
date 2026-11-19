@@ -224,3 +224,26 @@ func TestCommandBarViewSuggestionsNotVisibleReturnsEmpty(t *testing.T) {
 	c := NewCommandBar()
 	assert.Empty(t, c.ViewSuggestions())
 }
+
+// Text with an argument goes as typed, also when it matches a suggestion,
+// so :login NAME keeps its NAME.
+func TestCommandBarKeepsAnArgument(t *testing.T) {
+	cmds := append(testCommands(), CommandEntry{Name: "login", Description: "Sign in to the profile (:login NAME for another one)"})
+	for _, input := range []string{"login aero", "login a", "login dev"} {
+		c := NewCommandBar()
+		c.Show(cmds, 120)
+		for _, r := range input {
+			c, _ = c.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+		}
+		_, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		assert.Equal(t, CommandBarResultMsg{Value: input}, cmd(), input)
+	}
+
+	c := NewCommandBar()
+	c.Show(cmds, 120)
+	for _, r := range "logi" {
+		c, _ = c.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	_, cmd := c.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, CommandBarResultMsg{Value: "login"}, cmd(), "a word with no argument still takes the suggestion")
+}

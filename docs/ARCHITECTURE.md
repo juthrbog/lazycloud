@@ -192,6 +192,8 @@ A rule by account matches the account that the config names for the profile. `aw
 
 `P` and `:profile` read every profile with `aws.DescribeProfiles` in a command, because it reads the AWS files and the token caches. The picker opens when `profilesMsg` comes, unless a prompt opened in the meantime. Each row shows the kind of credential (`role>sso` for a role over SSO), the account from the config, the token state, and the label and lock of the rules. The token state is a hint: the SDK checks the expiry with no grace time, and a refresh can still fail. A pick of a profile that does not load, or that needs an MFA code, keeps the session and shows the reason.
 
+A pick of a profile whose token is missing or has expired offers a sign-in. `startSignIn` runs `aws.LoginCmd` with `tea.Exec`, the same way as an SSM session (`aws.CLIExec`). The CLI gets no keys and no `AWS_PROFILE` from the environment of the app, and the profile is one argv element (`--profile=NAME`). After a failed exit, `CLIExec` waits for Enter, so the user can read the error, and it keeps the last 4 KiB of the error output for the app. After a good sign-in, `signInDone` builds the session again through `requestSessionSwitch` with `signIn` set, so the new session starts in ReadOnly, also for the current profile. `:login [NAME]` starts the same sign-in.
+
 Three checks enforce ReadOnly mode:
 
 1. When the user presses a key, the app looks for it in the `KeyMap()` of the view on top. If a binding with `ui.ModeReadWrite` has that key, the app shows the toast "ReadOnly mode — press W to switch", and the view does not get the key.

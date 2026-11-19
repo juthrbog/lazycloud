@@ -51,8 +51,10 @@ region = us-east-1
 `
 
 // H4: a client for a profile without an SSO token builds without an error.
-// The error comes only when a call needs the credentials.
-func TestP9Hazard_H4_SwitchToASignedOutSSOProfileSucceeds(t *testing.T) {
+// The error comes only when a call needs the credentials. This stays true.
+// Since PR 5, the app offers a sign-in before such a switch
+// (TestP9_H4_PickOfASignedOutProfileOffersASignIn).
+func TestP9Fact_H4_SignedOutSSOProfileBuilds(t *testing.T) {
 	p9Env(t, p9SSOConfig)
 
 	c, err := NewClient("sso-dev", "", "")
@@ -72,11 +74,11 @@ func TestP9_H5_LoginTokenErrorNamesAWSLogin(t *testing.T) {
 	require.NoError(t, err)
 	_, err = c.Config.Credentials.Retrieve(t.Context())
 	require.Error(t, err)
-	assert.Equal(t, "the aws login session has expired or is not signed in. Sign in with: aws login", ErrorText(err))
+	assert.Equal(t, "the aws login session has expired or is not signed in. Sign in with: aws login (or :login)", ErrorText(err))
 
 	_, err = NewS3Service(c).ListBuckets(t.Context())
 	require.Error(t, err)
-	assert.Equal(t, "the aws login session has expired or is not signed in. Sign in with: aws login --profile web", ErrorText(err))
+	assert.Equal(t, "the aws login session has expired or is not signed in. Sign in with: aws login --profile web (or :login)", ErrorText(err))
 }
 
 // H5, fixed in PR 1: an expired-token error from AWS on a login profile
@@ -85,7 +87,7 @@ func TestP9_H5_ExpiredLoginProfileGetsTheLoginHint(t *testing.T) {
 	p9Env(t, p9LoginConfig)
 	err := &ProfileError{Profile: "web", Err: &smithy.GenericAPIError{Code: "ExpiredToken", Message: "expired"}}
 
-	assert.Equal(t, "the AWS credentials have expired (ExpiredToken). Get new ones, for example with: aws login --profile web", ErrorText(err))
+	assert.Equal(t, "the AWS credentials have expired (ExpiredToken). Get new ones, for example with: aws login --profile web (or :login)", ErrorText(err))
 }
 
 // H6, fixed in PR 1: with an endpoint, a profile that has only

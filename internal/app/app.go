@@ -81,6 +81,9 @@ type Model struct {
 // change for the toast, for example "Region" and "eu-west-1".
 type sessionChange struct {
 	profile, region, kind, value string
+	// signIn is true for the session after a sign-in. It starts in
+	// ReadOnly, also for the current profile.
+	signIn bool
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -519,6 +522,9 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case profilesMsg:
 		return m.openProfilePicker(msg)
 
+	case signInDoneMsg:
+		return m.signInDone(msg)
+
 	case appmsg.NavigateBackMsg:
 		m.dismissPanel()
 		if m.nav.Depth() > 1 {
@@ -802,8 +808,11 @@ func readWriteKey(hints []ui.HintBinding, k tea.KeyPressMsg) bool {
 }
 
 func (m Model) executeCommand(input string) (Model, tea.Cmd) {
-	cmd := registry.LookupCommand(input)
-	if cmd == nil {
+	// Only :login takes an argument, the profile to sign in.
+	name, arg, _ := strings.Cut(strings.TrimSpace(input), " ")
+	arg = strings.TrimSpace(arg)
+	cmd := registry.LookupCommand(name)
+	if cmd == nil || (arg != "" && cmd.Name != "login") {
 		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
 	}
@@ -826,6 +835,8 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 	case "mode":
 		cmd := m.showModePicker()
 		return m, cmd
+	case "login":
+		return m.loginCommand(arg)
 	case "theme":
 		cmd := m.showThemePicker()
 		return m, cmd
@@ -1089,7 +1100,7 @@ var awsRegions = []string{
 }
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
-	return m.requestSessionSwitch(sessionChange{profile, m.config.AWS.Region, "Profile", profile})
+	return m.requestSessionSwitch(sessionChange{profile: profile, region: m.config.AWS.Region, kind: "Profile", value: profile})
 }
 
 // requestSessionSwitch switches the session at once when no operation runs.
@@ -1098,12 +1109,12 @@ func (m Model) applyProfile(profile string) (Model, tea.Cmd) {
 func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 	n := m.ops.Count()
 	if n == 0 {
-		return m.switchSession(c.profile, c.region, c.kind, c.value)
+		return m.switchSession(c)
 	}
 	cmd := m.askQuick(fmt.Sprintf(
 		"%s running on %s. %s in the background. Switch the %s to %s?",
 		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value),
-		func(m Model) (Model, tea.Cmd) { return m.switchSession(c.profile, c.region, c.kind, c.value) },
+		func(m Model) (Model, tea.Cmd) { return m.switchSession(c) },
 		func(m Model) (Model, tea.Cmd) {
 			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", c.kind, c.value)
 			return m, nil
@@ -1177,10 +1188,11 @@ func itOrThem(n int) string {
 // the old mode for the operations that it still runs. A new profile starts
 // in ReadOnly. A new region of the same profile keeps the mode, because the
 // account is the same.
-func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cmd) {
+func (m Model) switchSession(c sessionChange) (Model, tea.Cmd) {
+	profile, region, kind, value := c.profile, c.region, c.kind, c.value
 	old := ui.CurrentMode()
 	mode, match := m.newSessionMode(profile)
-	if profile == m.config.AWS.Profile && !old.ReadOnly() {
+	if profile == m.config.AWS.Profile && !c.signIn && !old.ReadOnly() {
 		_ = mode.SetReadWrite()
 	}
 	svc, err := aws.NewServices(profile, region, m.config.AWS.Endpoint, mode.ReadOnly)
@@ -1193,6 +1205,9 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 	ui.SetCurrentMode(mode)
 	m.match = match
 	toast := kind + ": " + value
+	if c.signIn {
+		toast += " (signed in)"
+	}
 	if locked, rule := mode.Locked(); locked {
 		toast += " · ReadOnly (locked by rule " + rule + ")"
 	} else if !old.ReadOnly() && mode.ReadOnly() {
@@ -1285,7 +1300,7 @@ func (m *Model) showRegionPicker() tea.Cmd {
 }
 
 func (m Model) applyRegion(region string) (Model, tea.Cmd) {
-	return m.requestSessionSwitch(sessionChange{m.config.AWS.Profile, region, "Region", region})
+	return m.requestSessionSwitch(sessionChange{profile: m.config.AWS.Profile, region: region, kind: "Region", value: region})
 }
 
 // applyTheme makes the theme that the user picked active. The pick ends the

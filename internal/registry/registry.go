@@ -66,6 +66,7 @@ var Commands = []Command{
 	{Name: "theme", Description: "Switch theme"},
 	{Name: "region", Description: "Switch region"},
 	{Name: "profile", Description: "Switch profile"},
+	{Name: "login", Description: "Sign in to the profile (:login NAME for another one)"},
 }
 
 // CommandBarEntries builds entries for the command bar component.

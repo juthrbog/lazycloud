@@ -147,6 +147,14 @@ task dev               # run against LocalStack
 | `ctrl+x` | Cancel a running operation, such as a download |
 | `q` | Go back. On Home, quit |
 
+### Sign-in
+
+When you pick a profile that is not signed in, or whose token has expired, the app offers to sign in first. It runs `aws sso login` or `aws login` for the profile in the terminal, like an SSM session, and then builds the session again. The new session starts in ReadOnly. You can also type `:login` to sign in to the current profile, or `:login NAME` to sign in to another profile and switch to it.
+
+- The sign-in needs the AWS CLI. `aws login` needs AWS CLI 2.32 or later.
+- Over SSH, the app adds `--use-device-code` (SSO) or `--remote` (`aws login`), because no browser opens on your machine.
+- Ctrl+C cancels the sign-in. After a failed sign-in, the error of the CLI stays on screen until you press Enter.
+
 Press `?` in-app for the complete list including view-specific and panel keybindings. See [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md) for the keybinding system architecture.
 
 ## Configuration
