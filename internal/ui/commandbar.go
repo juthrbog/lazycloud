@@ -114,7 +114,9 @@ func (c CommandBar) Update(msg tea.Msg) (CommandBar, tea.Cmd) {
 			}
 			c.visible = false
 			value := c.query()
-			if len(c.filtered) > 0 {
+			// Text with an argument, such as "login prod", goes as typed.
+			// A suggestion would drop the argument.
+			if len(c.filtered) > 0 && !strings.Contains(strings.TrimSpace(value), " ") {
 				idx := 0
 				if c.selected >= 0 && c.selected < len(c.filtered) {
 					idx = c.selected

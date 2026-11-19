@@ -205,15 +205,15 @@ func TestLoginHintsByProfile(t *testing.T) {
 	}
 	const prefix = "the AWS credentials have expired (ExpiredToken). "
 
-	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login --profile sso", ErrorText(expired("role-sso")),
+	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login --profile sso (or :login)", ErrorText(expired("role-sso")),
 		"a role names the profile at the end of its chain")
-	assert.Equal(t, prefix+"Get new ones, for example with: aws login --profile role-login", ErrorText(expired("role-login")))
+	assert.Equal(t, prefix+"Get new ones, for example with: aws login --profile role-login (or :login)", ErrorText(expired("role-login")))
 	assert.Equal(t, prefix+"Get new credentials for profile keys", ErrorText(expired("keys")))
-	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login --profile nope", ErrorText(expired("nope")),
+	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login --profile nope (or :login)", ErrorText(expired("nope")),
 		"a profile that does not load keeps the old hint")
-	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login", ErrorText(expired("")),
+	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login (or :login)", ErrorText(expired("")),
 		"no default profile in the files: the old hint, with no --profile")
-	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login",
+	assert.Equal(t, prefix+"Get new ones, for example with: aws sso login (or :login)",
 		ErrorText(&smithy.GenericAPIError{Code: "ExpiredToken", Message: "expired"}), "no profile in the error")
 }
 

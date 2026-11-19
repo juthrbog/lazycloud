@@ -61,7 +61,8 @@ func (m Model) openProfilePicker(msg profilesMsg) (Model, tea.Cmd) {
 
 // pickProfile switches to the profile that the user picked. A profile that
 // does not load, or that needs an MFA code, cannot give a session, so the
-// app says why and keeps the session.
+// app says why and keeps the session. For a profile that is not signed in,
+// the app offers a sign-in first.
 func (m Model) pickProfile(info aws.ProfileInfo) (Model, tea.Cmd) {
 	var text string
 	switch {
@@ -69,6 +70,8 @@ func (m Model) pickProfile(info aws.ProfileInfo) (Model, tea.Cmd) {
 		text = fmt.Sprintf("Cannot use profile %s: %s", info.Name, aws.ErrorText(info.Err))
 	case info.MFA:
 		text = fmt.Sprintf("Cannot use profile %s: %s", info.Name, aws.MFANotSupported)
+	case needsSignIn(info):
+		return m.offerSignIn(info)
 	default:
 		return m.applyProfile(info.Name)
 	}

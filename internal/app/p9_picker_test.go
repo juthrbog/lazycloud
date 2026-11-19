@@ -41,6 +41,9 @@ sso_session = missing
 aws_access_key_id = AKIAEXAMPLE
 aws_secret_access_key = secret
 
+[profile web]
+login_session = arn:aws:iam::222222222222:user/me
+
 [sso-session corp]
 sso_start_url = https://corp.example.com/start
 sso_region = us-east-1
