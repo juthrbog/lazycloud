@@ -1,6 +1,9 @@
 package app
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
@@ -24,17 +27,21 @@ func readWrite(t *testing.T) {
 	t.Cleanup(func() { ui.SetReadOnly(true) })
 }
 
-// H1: ReadWrite stays on when the user switches to another profile.
-func TestP9Hazard_H1_ReadWriteStaysOnOverAProfileSwitch(t *testing.T) {
+// H1, fixed in PR 2: a switch to another profile starts in ReadOnly, and
+// the toast says so.
+func TestP9_H1_ProfileSwitchStartsReadOnly(t *testing.T) {
 	awsConfigEnv(t, "prod")
 	readWrite(t)
 	m := modelWithProfile("")
+	require.False(t, ui.IsReadOnly())
 
 	m, _ = m.applyProfile("prod")
 	require.NoError(t, m.svcErr)
 	require.Equal(t, "prod", m.config.AWS.Profile)
 
-	assert.False(t, ui.IsReadOnly(), "the new profile is in ReadWrite")
+	assert.True(t, ui.IsReadOnly(), "the new profile is in ReadOnly")
+	assert.Contains(t, rendered(m), "Profile: prod · ReadOnly")
+	assert.ErrorIs(t, m.svc.S3.DeleteBucket(t.Context(), "b"), aws.ErrReadOnly)
 }
 
 // H2: the mode picker turns ReadWrite on for any profile.
@@ -60,21 +67,94 @@ func TestP9Hazard_H3_NoModeBadgeOnSmallTerminals(t *testing.T) {
 	assert.NotContains(t, rendered(m), "LazyCloud")
 }
 
-// H7: every session reads the one global mode. A reset of the mode after a
-// switch also changes the mode of the old session, so a batch that the old
-// session runs in the background stops.
-func TestP9Hazard_H7_SessionsShareOneMode(t *testing.T) {
-	awsConfigEnv(t, "prod")
+// H7, fixed in PR 2: each session has its own mode. After a switch to a
+// profile in ReadOnly, the old session can still finish a batch that it
+// runs in the background.
+func TestP9_H7_EachSessionHasItsOwnMode(t *testing.T) {
+	awsConfigEnv(t, "prod", "prod2")
 	readWrite(t)
-	m := modelWithProfile("")
+	var deletes atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			deletes.Add(1)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := config.DefaultConfig()
+	cfg.AWS.Endpoint = srv.URL
+	m := New(cfg)
 	require.NoError(t, m.svcErr)
-	old := m.svc
+	old, oldMode := m.svc, ui.CurrentMode()
 
 	m, _ = m.applyProfile("prod")
 	require.NotSame(t, old.Client, m.svc.Client)
-	ui.SetReadOnly(true)
+	require.NotSame(t, oldMode, ui.CurrentMode())
 
-	assert.ErrorIs(t, old.S3.DeleteBucket(t.Context(), "b"), aws.ErrReadOnly, "the old session follows the new mode")
+	require.ErrorIs(t, m.svc.S3.DeleteBucket(t.Context(), "b"), aws.ErrReadOnly, "the new session is in ReadOnly")
+	require.NoError(t, old.S3.DeleteBucket(t.Context(), "b"), "the old session keeps ReadWrite")
+	assert.Equal(t, int32(1), deletes.Load())
+	assert.False(t, oldMode.ReadOnly())
+
+	// The second session also keeps its own mode after the next switch.
+	ui.SetReadOnly(false)
+	second := m.svc
+	m, _ = m.applyProfile("prod2")
+	require.Equal(t, "prod2", m.config.AWS.Profile)
+	require.NoError(t, second.S3.DeleteBucket(t.Context(), "b"), "the second session keeps ReadWrite")
+	require.ErrorIs(t, m.svc.S3.DeleteBucket(t.Context(), "b"), aws.ErrReadOnly)
+	assert.Equal(t, int32(2), deletes.Load())
+}
+
+// PR 2: a switch to another region of the same profile keeps the mode,
+// because the account is the same.
+func TestP9_RegionSwitchKeepsTheMode(t *testing.T) {
+	for name, rw := range map[string]bool{"ReadWrite": true, "ReadOnly": false} {
+		t.Run(name, func(t *testing.T) {
+			awsConfigEnv(t, "prod")
+			t.Cleanup(func() { ui.SetReadOnly(true) })
+			ui.SetReadOnly(!rw)
+			m := modelWithProfile("prod")
+			oldMode := ui.CurrentMode()
+
+			m, _ = m.applyRegion("eu-west-1")
+			require.Equal(t, "eu-west-1", m.activeRegion())
+
+			assert.NotSame(t, oldMode, ui.CurrentMode(), "the new session has its own mode")
+			assert.Equal(t, !rw, ui.IsReadOnly())
+			assert.Contains(t, rendered(m), "Region: eu-west-1")
+			assert.NotContains(t, rendered(m), "· ReadOnly")
+		})
+	}
+}
+
+// PR 2: a failed switch keeps the session and its mode.
+func TestP9_FailedSwitchKeepsTheMode(t *testing.T) {
+	awsConfigEnv(t)
+	readWrite(t)
+	m := modelWithProfile("")
+	oldMode := ui.CurrentMode()
+
+	m, _ = m.applyProfile("typo")
+	require.Contains(t, rendered(m), "Cannot switch profile to typo")
+
+	assert.Same(t, oldMode, ui.CurrentMode())
+	assert.False(t, ui.IsReadOnly())
+}
+
+// PR 2: --read-write asks for ReadWrite before the first session exists.
+// The first session gets its own mode in ReadWrite.
+func TestP9_StartRequestGoesToTheFirstSession(t *testing.T) {
+	awsConfigEnv(t)
+	ui.SetCurrentMode(ui.NewSessionMode())
+	readWrite(t)
+	before := ui.CurrentMode()
+
+	m := modelWithProfile("")
+	require.NoError(t, m.svcErr)
+
+	assert.NotSame(t, before, ui.CurrentMode())
+	assert.False(t, ui.IsReadOnly())
 }
 
 // The app starts in ReadOnly mode.

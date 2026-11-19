@@ -180,7 +180,9 @@ Transient feedback (copy, download, delete) uses auto-dismissing toasts rendered
 
 ### Access Mode
 
-LazyCloud starts in **ReadOnly** mode by default. In ReadOnly mode, LazyCloud blocks all mutating operations (create, delete, copy, move), whatever your AWS IAM permissions allow. Press `W` to switch to ReadWrite mode. Then only IAM limits what you can do. The header shows the mode as an `RO` or `RW` badge. `ui.IsReadOnly()` reads the mode, and `ui.SetReadOnly()` changes it.
+LazyCloud starts in **ReadOnly** mode by default. In ReadOnly mode, LazyCloud blocks all mutating operations (create, delete, copy, move), whatever your AWS IAM permissions allow. Press `W` to switch to ReadWrite mode. Then only IAM limits what you can do. The header shows the mode as an `RO` or `RW` badge.
+
+Each session has its own mode, a `ui.SessionMode`. `ui.IsReadOnly()` reads the mode of the session on screen, and `ui.SetReadOnly()` changes it. The guards of a session read only the mode of that session. So an operation that an old session still runs in the background keeps the mode of that session after a switch. A switch to another profile starts in ReadOnly, and the toast says so. A switch to another region of the same profile keeps the mode. `--read-write` asks for ReadWrite before the first session exists, and the first session takes it over.
 
 Three checks enforce ReadOnly mode:
 
@@ -201,7 +203,8 @@ A session is one profile and one region. `aws.NewServices` builds its client and
 
 - If the client cannot be built at startup, for example because the profile does not exist, the app starts without a session. Home shows the error, and the app opens no AWS view until a switch succeeds. The event log still opens.
 - If background operations run, the app asks before it switches. They keep running with the old session after the switch.
-- If a switch fails, nothing changes. The old session, the views, and the configuration stay, and a toast shows the error.
+- If a switch fails, nothing changes. The old session, its mode, the views, and the configuration stay, and a toast shows the error.
+- A new session gets a new `ui.SessionMode` (see Access Mode above). The app passes `mode.ReadOnly` to `aws.NewServices`, so the guards of the session read its own mode.
 - If a switch succeeds, `resetNav()` cancels the contexts of the old views and builds a new navigator with a new home view. It closes the panel and clears the stashed panel, the cross-navigation history, and the error. Then the app opens the service view that was on top again. `topLevelViewID()` finds it: the nearest view under the top of the stack that is a service view in the registry.
 
 An S3 call must go to the region of its bucket. The S3 service of a session keeps the region of each bucket that it knows, and one client for each region (`internal/aws/s3_region.go`). `ListBuckets` reads pages with `MaxBuckets`, so S3 returns the region of each bucket, and the service remembers them. A bucket that the service does not know is looked up once with `HeadBucket`, which gives the region also in the `x-amz-bucket-region` header of a redirect or a denied call. `GetBucketLocation` is only the last resort, and its old value `EU` means `eu-west-1`. Creating a bucket adds its region, and deleting it removes the region. A new session starts with an empty cache. With an endpoint override (LocalStack), every bucket is in the region of the session, and nothing is looked up.
