@@ -143,7 +143,9 @@ func (m Model) StartWarnings() []string {
 // the rules.
 func (m Model) newSessionMode(profile string) (*ui.SessionMode, config.Match) {
 	mode := ui.NewSessionMode()
-	match := m.config.MatchSession(profile, "")
+	// The account from the config lets a rule by account lock the session
+	// before any call to AWS.
+	match := m.config.MatchSession(profile, aws.ClassifyProfile(profile, time.Now()).Account)
 	if match.Lock != "" {
 		mode.Lock(match.Lock)
 		eventlog.Infof(eventlog.CatConfig, "Profile %s is locked to ReadOnly by rule %s", displayProfile(profile), match.Lock)
@@ -513,6 +515,9 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.NavigateMsg:
 		return m.navigate(msg)
+
+	case profilesMsg:
+		return m.openProfilePicker(msg)
 
 	case appmsg.NavigateBackMsg:
 		m.dismissPanel()
@@ -1081,27 +1086,6 @@ var awsRegions = []string{
 	"sa-east-1",
 	"me-south-1",
 	"af-south-1",
-}
-
-func (m *Model) showProfilePicker() tea.Cmd {
-	profiles := aws.ListProfiles()
-	if len(profiles) == 0 {
-		_, cmd := m.toasts.Add("No profiles found in ~/.aws/config", ui.ToastError, 0)
-		return cmd
-	}
-
-	current := m.config.AWS.Profile
-	var options []ui.PickerOption
-	currentIdx := 0
-	for i, p := range profiles {
-		label := p
-		if p == current {
-			label += " ●"
-			currentIdx = i
-		}
-		options = append(options, ui.PickerOption{Label: label, Value: p})
-	}
-	return m.pick("Select Profile", options, currentIdx, onPicked(Model.applyProfile))
 }
 
 func (m Model) applyProfile(profile string) (Model, tea.Cmd) {

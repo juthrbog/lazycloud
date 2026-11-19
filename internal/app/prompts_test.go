@@ -149,7 +149,7 @@ func TestAppPickersApplyThePick(t *testing.T) {
 	t.Run("profile", func(t *testing.T) {
 		awsConfigEnv(t, "dev", "prod")
 		m := newTestModel(140, 40)
-		m, _ = update(t, m, press("P"))
+		m = openProfiles(t, m)
 		m = typeInto(t, m, "prod")
 		m = answer(t, m, keyEnter)
 		assert.Equal(t, "prod", m.config.AWS.Profile)

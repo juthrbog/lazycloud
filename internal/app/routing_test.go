@@ -125,6 +125,17 @@ func update(t *testing.T, m Model, in tea.Msg) (Model, tea.Cmd) {
 	return r.(Model), c
 }
 
+// openProfiles presses P and delivers the profiles that its command reads,
+// as the runtime would. The picker then shows them.
+func openProfiles(t *testing.T, m Model) Model {
+	t.Helper()
+	m, cmd := update(t, m, press("P"))
+	got := findOf[profilesMsg](collectMsgs(cmd))
+	require.NotNil(t, got, "P reads the profiles in a command")
+	m, _ = update(t, m, got)
+	return m
+}
+
 // runOp delivers the StartOpMsg that cmd produces, as the runtime would. It
 // returns the model, with the operation registered, and the command that
 // runs the operation.

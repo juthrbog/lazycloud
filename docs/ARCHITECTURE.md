@@ -186,6 +186,12 @@ Each session has its own mode, a `ui.SessionMode`. `ui.IsReadOnly()` reads the m
 
 A rule of the config (`[[rules]]`, `config.Rule`) can lock a session to ReadOnly. When the app builds a session, `newSessionMode` matches the rules with `config.MatchSession` and calls `SessionMode.Lock` for a match. Then `SetReadWrite` returns an error, so `W`, `:mode`, `--read-write` and the `ui.SetReadOnly(false)` wrapper cannot pass the lock. The header shows the label of the rule and `RO` with a lock. When the app hides the header on a short terminal, the status bar starts with the label and the mode. `Model.StartWarnings` gives main the `--read-write` that a rule refused, and main prints it on stderr.
 
+A rule by account matches the account that the config names for the profile. `aws.ClassifyProfile` reads it from the shared AWS files and the token caches, with no network call: the account of the `role_arn` that the session ends in, the `sso_account_id`, or the account of the `aws login` token.
+
+### Profile Picker
+
+`P` and `:profile` read every profile with `aws.DescribeProfiles` in a command, because it reads the AWS files and the token caches. The picker opens when `profilesMsg` comes, unless a prompt opened in the meantime. Each row shows the kind of credential (`role>sso` for a role over SSO), the account from the config, the token state, and the label and lock of the rules. The token state is a hint: the SDK checks the expiry with no grace time, and a refresh can still fail. A pick of a profile that does not load, or that needs an MFA code, keeps the session and shows the reason.
+
 Three checks enforce ReadOnly mode:
 
 1. When the user presses a key, the app looks for it in the `KeyMap()` of the view on top. If a binding with `ui.ModeReadWrite` has that key, the app shows the toast "ReadOnly mode — press W to switch", and the view does not get the key.
