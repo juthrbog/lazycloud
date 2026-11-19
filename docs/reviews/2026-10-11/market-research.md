@@ -83,8 +83,8 @@ Do these sooner: Homebrew (#41), and the demo GIF in the README.
 
 These ideas are in order of value:
 
-1. A profile picker that knows SSO. It finds expired tokens and runs `aws sso login` or `aws login`. It supports `login_session` and `credential_process`. This is the largest pain point in competitor trackers. Do it before any new service.
-2. An account banner and safety rules per profile. Show the account ID, alias, and role from STS. Lock production profiles to ReadOnly, as k9s does. This builds on the `W` mode switch.
+1. A profile picker that knows SSO. It finds expired tokens and runs `aws sso login` or `aws login`. It supports `login_session` and `credential_process`. This is the largest pain point in competitor trackers. Do it before any new service. Done in Phase 9 (#300 to #305).
+2. An account banner and safety rules per profile. Show the account ID, alias, and role from STS. Lock production profiles to ReadOnly, as k9s does. This builds on the `W` mode switch. Done in Phase 9 (#302, #303, #306), without the account alias: the design left out the IAM module (decision D8).
 3. Jump to a resource. The user pastes an ID, an ARN, or a name and goes to the resource. This is the main pitch of neboto. Add tag filters with Resource Explorer or the Resource Groups Tagging API.
 4. A CloudTrail "who changed this" tab in the detail panel. The research did not find out if claws has this.
 5. A view across regions, then across accounts, with parallel queries as in claws. Start with EC2 in all regions.

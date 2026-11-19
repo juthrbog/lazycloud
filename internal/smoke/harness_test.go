@@ -159,19 +159,32 @@ type harness struct {
 // the endpoint, for example with a proxy. The app quits when the test ends.
 func start(t *testing.T, ep string) *harness {
 	t.Helper()
+	return startWith(t, ep, nil, "RW")
+}
+
+// startWith runs the app like start, after edit changes the config. It
+// waits for mode, the mode badge that the session starts with.
+func startWith(t *testing.T, ep string, edit func(*config.Config), mode string) *harness {
+	t.Helper()
 	if ep == "" {
 		ep = endpoint()
 		requireLocalStack(t, ep)
 	}
 	isolateEnv(t)
 
+	// A fresh mode, as main has before the first session, so no lock of
+	// an earlier test stays.
+	ui.SetCurrentMode(ui.NewSessionMode())
 	ui.SetReadOnly(false)
-	t.Cleanup(func() { ui.SetReadOnly(true) })
+	t.Cleanup(func() { ui.SetCurrentMode(ui.NewSessionMode()) })
 
 	cfg := config.DefaultConfig()
 	cfg.Display.Theme = "catppuccin" // not auto, so the theme does not switch
 	cfg.AWS.Region = region
 	cfg.AWS.Endpoint = ep
+	if edit != nil {
+		edit(&cfg)
+	}
 
 	root := app.New(cfg)
 	scr := &screen{inner: root}
@@ -182,7 +195,7 @@ func start(t *testing.T, ep string) *harness {
 		ops: root.Ops(),
 	}
 	t.Cleanup(h.quit)
-	h.waitFor("LazyCloud", "RW", ": command")
+	h.waitFor("LazyCloud", mode, ": command")
 	return h
 }
 
