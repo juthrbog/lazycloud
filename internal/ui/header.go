@@ -11,6 +11,9 @@ type HeaderData struct {
 	Profile           string
 	Region            string
 	Mode              string // "RO" or "RW"
+	Locked            bool   // a rule locks the session to ReadOnly
+	Label             string // the label of a rule, "" for none
+	LabelLocks        bool   // the rule of the label locks the session
 	Breadcrumbs       []string
 	CrossNavBackLabel string // non-empty: show right-aligned back indicator with this label
 	Width             int
@@ -46,16 +49,11 @@ func RenderHeader(data HeaderData) string {
 	profileBadge := s.HeaderStyle.Render(" " + profile + " ")
 	regionBadge := s.HeaderAccent.Render(" " + region + " ")
 
-	var modeBadge string
-	if data.Mode == "RW" {
-		modeBadge = lipgloss.NewStyle().
-			Foreground(t.Base).
-			Background(t.Warning).
-			Bold(true).
-			Padding(0, 1).
-			Render("RW")
-	} else {
-		modeBadge = s.HeaderStyle.Render(" RO ")
+	modeBadge := ModeBadge(data.Mode, data.Locked)
+	// The label badge comes first, with its own space after it.
+	labelBadge := LabelBadge(data.Label, data.LabelLocks)
+	if labelBadge != "" {
+		labelBadge += " "
 	}
 
 	// Build the fixed portion (title + badges) and measure remaining space
@@ -75,18 +73,21 @@ func RenderHeader(data HeaderData) string {
 	var bar string
 	switch {
 	case data.Width < 60:
-		// Minimal: title + breadcrumbs only
-		crumbs := renderBreadcrumbs(data.Breadcrumbs, sep, t)
-		bar = titleRendered + "  " + crumbs
+		// Minimal: the label and the mode, then the breadcrumbs. The mode
+		// stays on screen at every width.
+		fixed := labelBadge + modeBadge + "  "
+		remaining := data.Width - lipgloss.Width(fixed) - backWidth
+		crumbs := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
+		bar = fixed + crumbs
 	case data.Width < 80:
 		// Compact: drop region badge
-		fixed := titleRendered + " " + profileBadge + " " + modeBadge + "  "
+		fixed := titleRendered + " " + labelBadge + profileBadge + " " + modeBadge + "  "
 		remaining := data.Width - lipgloss.Width(fixed) - backWidth
 		crumbs := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
 		bar = fixed + crumbs
 	default:
 		// Full: all badges + breadcrumbs
-		fixed := titleRendered + " " + profileBadge + " " + regionBadge + " " + modeBadge + "  "
+		fixed := titleRendered + " " + labelBadge + profileBadge + " " + regionBadge + " " + modeBadge + "  "
 		remaining := data.Width - lipgloss.Width(fixed) - backWidth
 		crumbs := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
 		bar = fixed + crumbs
@@ -108,6 +109,44 @@ func RenderHeader(data HeaderData) string {
 	gradLine := RenderGradientLine(data.Width)
 
 	return bar + "\n" + gradLine
+}
+
+// ModeBadge renders the mode of a session: RW, RO, or RO with a lock when a
+// rule locks the session.
+func ModeBadge(mode string, locked bool) string {
+	if mode == "RW" {
+		return lipgloss.NewStyle().
+			Foreground(ActiveTheme.Base).
+			Background(ActiveTheme.Warning).
+			Bold(true).
+			Padding(0, 1).
+			Render("RW")
+	}
+	text := "RO"
+	if locked {
+		text += IconLock.Icon()
+	}
+	return S.HeaderStyle.Render(" " + text + " ")
+}
+
+// LabelBadge renders the label of a rule, on the error color when its rule
+// locks the session and on the accent color otherwise. It returns "" for
+// no label.
+func LabelBadge(label string, locks bool) string {
+	label = Sanitize(label)
+	if label == "" {
+		return ""
+	}
+	bg := ActiveTheme.Accent
+	if locks {
+		bg = ActiveTheme.Error
+	}
+	return lipgloss.NewStyle().
+		Foreground(ActiveTheme.Base).
+		Background(bg).
+		Bold(true).
+		Padding(0, 1).
+		Render(label)
 }
 
 // renderBreadcrumbs renders the full breadcrumb trail.

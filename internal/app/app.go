@@ -66,6 +66,12 @@ type Model struct {
 	// opsShown is true while the layout has the operations line. It
 	// changes only in syncOpsLine, which also resizes the views.
 	opsShown bool
+	// match is the result of the rules of the config for the current
+	// session: its lock and its label (see config.Rule).
+	match config.Match
+	// startWarnings are the problems at start that main prints on stderr,
+	// for example a --read-write that a rule refused.
+	startWarnings []string
 	// resizeCmds holds the commands that views returned for a resize in
 	// this update. Update sends them with its own command (L18).
 	resizeCmds []tea.Cmd
@@ -102,9 +108,16 @@ func New(cfg config.Config) Model {
 	}
 	// The first session gets its own mode. main asks for ReadWrite with
 	// --read-write through the mode that exists before any session.
-	mode := ui.NewSessionMode()
-	if !ui.IsReadOnly() {
-		_ = mode.SetReadWrite()
+	startRW := !ui.IsReadOnly()
+	var mode *ui.SessionMode
+	mode, m.match = m.newSessionMode(cfg.AWS.Profile)
+	if startRW {
+		if err := mode.SetReadWrite(); err != nil {
+			w := fmt.Sprintf("--read-write ignored: profile %s is %s", displayProfile(cfg.AWS.Profile), err)
+			eventlog.Warnf(eventlog.CatApp, "%s", w)
+			m.startWarnings = append(m.startWarnings, w)
+			m.toasts.Add(w, ui.ToastError, 0)
+		}
 	}
 	ui.SetCurrentMode(mode)
 	// Without a session, the app still starts. It shows the error on Home and
@@ -119,6 +132,34 @@ func New(cfg config.Config) Model {
 	return m
 }
 
+// StartWarnings returns the problems at start that main prints on stderr
+// before the screen of the app covers it.
+func (m Model) StartWarnings() []string {
+	return m.startWarnings
+}
+
+// newSessionMode returns a ReadOnly mode for a new session of profile,
+// locked when a rule of the config locks the profile, and the result of
+// the rules.
+func (m Model) newSessionMode(profile string) (*ui.SessionMode, config.Match) {
+	mode := ui.NewSessionMode()
+	match := m.config.MatchSession(profile, "")
+	if match.Lock != "" {
+		mode.Lock(match.Lock)
+		eventlog.Infof(eventlog.CatConfig, "Profile %s is locked to ReadOnly by rule %s", displayProfile(profile), match.Lock)
+	}
+	return mode, match
+}
+
+// displayProfile names a profile for the user. The empty profile is the
+// default profile.
+func displayProfile(profile string) string {
+	if profile == "" {
+		return "default"
+	}
+	return profile
+}
+
 // Ops returns the registry of background operations. main cancels them and
 // waits for them after the program ends, so a cancelled download can remove
 // its partial file.
@@ -128,11 +169,7 @@ func (m Model) Ops() *ops.Registry {
 
 // sessionLabel names the current session, for example "default/us-east-1".
 func (m Model) sessionLabel() string {
-	profile := m.config.AWS.Profile
-	if profile == "" {
-		profile = "default"
-	}
-	return profile + "/" + m.activeRegion()
+	return displayProfile(m.config.AWS.Profile) + "/" + m.activeRegion()
 }
 
 // noSessionText explains why the app has no AWS session and how to fix it.
@@ -690,7 +727,11 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		// view gets the key. The guarded AWS services check again when the
 		// action runs.
 		if ui.IsReadOnly() && readWriteKey(m.nav.Current().KeyMap(), msg) {
-			_, cmd := m.toasts.Add("ReadOnly mode — press W to switch", ui.ToastError, 0)
+			text := "ReadOnly mode — press W to switch"
+			if locked, rule := ui.CurrentMode().Locked(); locked {
+				text = "ReadOnly mode (locked by rule " + rule + ")"
+			}
+			_, cmd := m.toasts.Add(text, ui.ToastError, 0)
 			return m, cmd
 		}
 	}
@@ -1154,7 +1195,7 @@ func itOrThem(n int) string {
 // account is the same.
 func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cmd) {
 	old := ui.CurrentMode()
-	mode := ui.NewSessionMode()
+	mode, match := m.newSessionMode(profile)
 	if profile == m.config.AWS.Profile && !old.ReadOnly() {
 		_ = mode.SetReadWrite()
 	}
@@ -1166,8 +1207,11 @@ func (m Model) switchSession(profile, region, kind, value string) (Model, tea.Cm
 	}
 	eventlog.Infof(eventlog.CatConfig, "%s changed → %s", kind, value)
 	ui.SetCurrentMode(mode)
+	m.match = match
 	toast := kind + ": " + value
-	if !old.ReadOnly() && mode.ReadOnly() {
+	if locked, rule := mode.Locked(); locked {
+		toast += " · ReadOnly (locked by rule " + rule + ")"
+	} else if !old.ReadOnly() && mode.ReadOnly() {
 		eventlog.Infof(eventlog.CatApp, "Mode changed → ReadOnly (new profile)")
 		toast += " · ReadOnly"
 	}
@@ -1209,6 +1253,9 @@ func (m *Model) showModePicker() tea.Cmd {
 		{Label: "ReadOnly    Browse only, no mutations", Value: "readonly"},
 		{Label: "ReadWrite   Allow create/delete/copy/move", Value: "readwrite"},
 	}
+	if locked, rule := ui.CurrentMode().Locked(); locked {
+		options[1].Label = "ReadWrite   (locked by rule " + ui.Sanitize(rule) + ")"
+	}
 	currentIdx := 0
 	if !ui.IsReadOnly() {
 		currentIdx = 1
@@ -1224,7 +1271,12 @@ func (m Model) applyMode(mode string) (Model, tea.Cmd) {
 		_, cmd := m.toasts.Add("Mode: ReadOnly", ui.ToastInfo, 0)
 		return m, cmd
 	case "readwrite":
-		ui.SetReadOnly(false)
+		if err := ui.CurrentMode().SetReadWrite(); err != nil {
+			text := fmt.Sprintf("%s is %s", displayProfile(m.config.AWS.Profile), err)
+			eventlog.Warnf(eventlog.CatApp, "Mode not changed: %s", text)
+			_, cmd := m.toasts.Add(text, ui.ToastError, 0)
+			return m, cmd
+		}
 		eventlog.Warnf(eventlog.CatApp, "Mode changed → ReadWrite")
 		_, cmd := m.toasts.Add("Mode: ReadWrite", ui.ToastSuccess, 0)
 		return m, cmd
@@ -1305,26 +1357,36 @@ func (m Model) View() tea.View {
 	if !m.capturingInput() {
 		crossNavLabel = m.panels.BackTitle()
 	}
+	locked, _ := ui.CurrentMode().Locked()
 	header := ui.RenderHeader(ui.HeaderData{
 		Profile:           m.config.AWS.Profile,
 		Region:            m.activeRegion(),
 		Mode:              mode,
+		Locked:            locked,
+		Label:             m.match.Label,
+		LabelLocks:        m.match.LabelLocks,
 		Breadcrumbs:       crumbs,
 		CrossNavBackLabel: crossNavLabel,
 		Width:             m.width,
 	})
 
-	var statusBar string
-	if m.commandBar.Visible() {
-		statusBar = m.commandBar.ViewInput(m.width)
-	} else {
-		keys := m.currentKeyHints()
-		statusBar = ui.RenderStatusBar(ui.StatusBarData{
-			Keys:  keys,
-			Error: m.visibleErr(),
-			Width: m.width,
-		})
+	// statusFor draws the status bar. With session, it starts with the
+	// label and the mode, for a terminal too short for the header.
+	statusFor := func(session bool) string {
+		if m.commandBar.Visible() {
+			return m.commandBar.ViewInput(m.width)
+		}
+		data := ui.StatusBarData{Keys: m.currentKeyHints(), Error: m.visibleErr(), Width: m.width}
+		if session {
+			data.Session = ui.LabelBadge(m.match.Label, m.match.LabelLocks)
+			if data.Session != "" {
+				data.Session += " "
+			}
+			data.Session += ui.ModeBadge(mode, locked)
+		}
+		return ui.RenderStatusBar(data)
 	}
+	statusBar := statusFor(false)
 
 	// Build footer line (gradient + resource count)
 	footerText := m.nav.Current().Footer()
@@ -1359,6 +1421,8 @@ func (m Model) View() tea.View {
 	if contentHeight < minContent && headerHeight > 0 {
 		header = ""
 		contentHeight = m.height - statusHeight - footerHeight - opsHeight
+		// The status bar shows the mode in place of the header.
+		statusBar = statusFor(true)
 	}
 	if contentHeight < minContent && opsHeight > 0 {
 		opsLine = ""

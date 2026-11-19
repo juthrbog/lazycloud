@@ -34,6 +34,10 @@ var (
 	IconSQS     = ServiceIcon{Nerd: "\U000f01ee", Fallback: "≡"} // nf-md-message_text
 	IconNetwork = ServiceIcon{Nerd: "\U000f0317", Fallback: "⊞"} // nf-md-lan
 
+	// IconLock marks a session that a rule locks to ReadOnly. Its fallback
+	// makes the mode badge read RO*.
+	IconLock = ServiceIcon{Nerd: " \U000f033e", Fallback: "*"} // nf-md-lock
+
 	// State indicators
 	IconRunning = ServiceIcon{Nerd: "\U000f012c", Fallback: "●"} // nf-md-check_circle
 	IconStopped = ServiceIcon{Nerd: "\U000f0156", Fallback: "○"} // nf-md-close_circle
