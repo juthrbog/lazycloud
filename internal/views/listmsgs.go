@@ -8,6 +8,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
+	"github.com/juthrbog/lazycloud/internal/msg"
 )
 
 // Messages and adapters of the shared list core (see listcore.go).
@@ -22,6 +23,7 @@ type listPageMsg[T any] struct {
 	items []T
 	next  *string
 	page  int
+	token *string // the token of the request; a next equal to it ends the load
 }
 
 // listCompleteMsg carries the result of the second load phase
@@ -39,6 +41,12 @@ type listFailedMsg struct {
 	gen     int
 	err     error
 	context string // msg.ErrorMsg.Context of the load that failed
+}
+
+// listDetailMsg carries the panel that listConfig.FetchDetail built.
+type listDetailMsg struct {
+	panel msg.TabbedContentMsg
+	err   error
 }
 
 // loadError marks the msg.ErrorMsg that the core emits for a failure of

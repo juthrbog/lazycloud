@@ -15,13 +15,14 @@ import (
 // Pin tests for the CloudWatch Logs design (docs/design/cwlogs.md). They
 // pin the hazards of the list core as they are today (TestLogsHazard_*)
 // and the behavior that must stay (TestLogsKeep_*). The PR that fixes a
-// hazard flips its test. H5 (the host prefix of StartLiveTail) needs the
+// hazard flips its test (TestLogsH1_*). H2 and H3 stay for a list without
+// PageBudget and MoreKey; the log lists set both in PR 4. H5 (the host prefix of StartLiveTail) needs the
 // cloudwatchlogs module, so PR 2 pins it.
 
-// H1: a page whose next token equals its request token makes the core
-// fetch the same page again. GetLogEvents does this at the end of each
-// stream, so the load never ends.
-func TestLogsHazard_RepeatedTokenFetchesAgain(t *testing.T) {
+// H1, fixed in PR 1: a page whose next token equals its request token
+// ends the load. GetLogEvents returns the token it got at the end of each
+// stream. Before PR 1, the core fetched the same page again without end.
+func TestLogsH1_RepeatedTokenEndsLoad(t *testing.T) {
 	var tokens []string
 	c := newFakeCore(t, func(_ context.Context, tok *string) ([]fakeItem, *string, error) {
 		k := "end"
@@ -31,15 +32,11 @@ func TestLogsHazard_RepeatedTokenFetchesAgain(t *testing.T) {
 		tokens = append(tokens, k)
 		return []fakeItem{fakeA}, &k, nil // the same token, as GetLogEvents does at the end
 	})
-	cmd := c.init()
-	for range 4 {
-		var ok bool
-		cmd, ok = c.handle(loadMsg(t, cmd))
-		require.True(t, ok)
-		require.NotNil(t, cmd, "the core asks for the next page")
-	}
-	assert.Equal(t, []string{"end", "end", "end", "end"}, tokens, "the same token again and again")
-	assert.True(t, c.loading, "the load does not end")
+	cmd, _ := c.handle(loadMsg(t, c.init())) // page 1 has a nil request token, so "end" is new
+	cmd, _ = c.handle(loadMsg(t, cmd))       // page 2 asked with "end" and got "end" back
+	assert.Equal(t, []tea.Msg{msg.LoadedMsg{}}, collectMsgs(cmd), "the repeated token ends the load")
+	assert.Equal(t, []string{"end", "end"}, tokens)
+	assert.False(t, c.loading)
 }
 
 // H2: the core has no page budget. It loads every page of a long list.

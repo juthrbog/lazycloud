@@ -24,6 +24,7 @@ var listKeys = struct {
 	SortReverse ui.HintBinding
 	Filter      ui.HintBinding
 	Refresh     ui.HintBinding
+	More        ui.HintBinding
 }{
 	Esc:         ui.NewHintBinding([]string{"esc"}, "esc", "back"),
 	Details:     ui.NewHintBinding([]string{"enter"}, "enter/d", "details"),
@@ -34,6 +35,7 @@ var listKeys = struct {
 	SortReverse: ui.NewHintBinding([]string{"S"}, "S", "reverse sort"),
 	Filter:      ui.NewHintBinding([]string{"/"}, "/", "filter"),
 	Refresh:     ui.NewHintBinding([]string{"r"}, "r", "refresh"),
+	More:        ui.NewHintBinding([]string{"l"}, "l", "load more"),
 }
 
 // CapturingInput implements nav.InputCapturer: true while the filter is open.
@@ -63,6 +65,9 @@ func (c *listCore[T]) footerWith(base string) string {
 	s := base
 	if c.loading && c.pages > 0 && c.cfg.Complete == nil {
 		s += fmt.Sprintf("  (loading... %d so far)", len(c.items))
+	}
+	if c.cfg.MoreKey && c.more != nil && !c.running {
+		s += " · l for more"
 	}
 	if n := c.table.SelectionCount(); n > 0 {
 		s += fmt.Sprintf("  (%d selected)", n)
@@ -144,6 +149,15 @@ func (c *listCore[T]) handleKey(m tea.KeyPressMsg) (tea.Cmd, bool) {
 			return nil, false
 		}
 		return c.cfg.OpenDetail(*it), true
+	case c.cfg.FetchDetail != nil && key.Matches(m, listKeys.Describe.Binding):
+		// enter goes to the view (the log groups open their events).
+		it := c.cursorItem()
+		if it == nil {
+			return nil, false
+		}
+		return c.detailFetch(*it), true
+	case c.cfg.MoreKey && key.Matches(m, listKeys.More.Binding):
+		return c.loadMore(), true
 	}
 	return nil, false
 }

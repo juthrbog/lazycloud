@@ -366,7 +366,19 @@ These configuration fields are required. `newListCore` panics when one is missin
 - `Columns` and `Row`: the columns and the row of an item for each width tier. `Row.Key` must be equal to `Key(item)`.
 - `Fetch`: the default load. Build it with an adapter (see below).
 
-`FetchTimeout` is the time limit of each page: `callTimeout` for a paged call, `listTimeout` for a call that reads the whole list. The optional fields are documented on `listConfig` in `listcore.go`: `Refresh`, `OpenDetail`, `FocusMissing`, `FocusKey`, `OnLoaded`, `MultiSelect`, `Copy`, `CopyNoun`, `Complete` and `Derive`.
+`FetchTimeout` is the time limit of each page: `callTimeout` for a paged call, `listTimeout` for a call that reads the whole list. The optional fields are documented on `listConfig` in `listcore.go`: `Refresh`, `OpenDetail`, `FetchDetail`, `FocusMissing`, `FocusKey`, `OnLoaded`, `MultiSelect`, `Copy`, `CopyNoun`, `Complete`, `Derive`, `PageBudget` and `MoreKey`.
+
+A load ends when a page has no next token, or when its next token is equal to the token of its request. `GetLogEvents` of CloudWatch Logs returns the token it got at the end of a stream.
+
+A list that can be very long sets `PageBudget` and `MoreKey`:
+
+- `PageBudget` stops a load after that many pages and keeps the next token. The footer then adds "· l for more".
+- `MoreKey` makes `l` load the next `PageBudget` pages, with the same load generation, so the pages append. `l` does nothing while a load runs. `r` starts again from page 1.
+- With `MoreKey`, a failed later page keeps the rows. The error goes to the status bar, and `l` asks for the failed page again. A failed first page shows the error screen, as in every list. A list without `MoreKey` shows the error screen for any failed page.
+- A kept token that is more than 23 hours old is not sent, because CloudWatch Logs tokens expire after 24 hours. `l` then says to press `r`.
+- `PageBudget` needs `MoreKey`, and neither works with `Complete`, which needs all pages. `newListCore` panics on these mistakes.
+
+`FetchDetail` builds the detail panel with AWS calls, in a command with `callTimeout`. `d` and a focus open it. Enter goes to the view, so a list can use enter for another action, as the log groups do. An error gives a toast, and the list stays. A list sets `OpenDetail` or `FetchDetail`, not both.
 
 The adapters in `internal/views/listmsgs.go` turn a service method into a `Fetch`:
 
