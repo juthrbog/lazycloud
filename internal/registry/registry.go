@@ -64,7 +64,7 @@ var Commands = []Command{
 	{Name: "ec2/subnets", Aliases: []string{"subnets"}, Description: "EC2 Subnets", ViewID: "subnet_list"},
 	{Name: "s3", Aliases: []string{"buckets"}, Description: "S3 buckets", ViewID: "s3_list"},
 	{Name: "sqs", Aliases: []string{"queues"}, Description: "SQS queues", ViewID: "sqs_queues"},
-	{Name: "logs", Aliases: []string{"log"}, Description: "CloudWatch log groups", ViewID: "logs_groups"},
+	{Name: "logs", Aliases: []string{"log"}, Description: "CloudWatch log groups (:logs NAME for the events of a group)", ViewID: "logs_groups"},
 	{Name: "eventlog", Description: "Event log of the app", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},
 	{Name: "theme", Description: "Switch theme"},

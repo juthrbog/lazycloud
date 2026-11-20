@@ -2,7 +2,9 @@ package views
 
 import (
 	"context"
+	"strconv"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
@@ -58,12 +60,23 @@ func (s *LogStreams) Footer() string {
 }
 
 func (s *LogStreams) KeyMap() []ui.HintBinding {
-	return s.hints(listKeys.Details, logsKeys.CopyName, listKeys.More,
+	return s.hints(logsKeys.Events, listKeys.Describe, logsKeys.CopyName, listKeys.More,
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
 // Update returns the view itself, so the navigator keeps its identity.
+// Enter opens the events of the stream; d opens its detail.
 func (s *LogStreams) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	if k, ok := m.(tea.KeyPressMsg); ok && !s.filter.Active() && s.err == nil &&
+		key.Matches(k, logsKeys.Events.Binding) {
+		if it := s.cursorItem(); it != nil {
+			p := map[string]string{"log_group": s.group, "log_stream": it.Name}
+			if !it.FirstEvent.IsZero() {
+				p["stream_first"] = strconv.FormatInt(it.FirstEvent.UnixMilli(), 10)
+			}
+			return s, navigate("logs_events", p)
+		}
+	}
 	return s, s.update(m)
 }
 

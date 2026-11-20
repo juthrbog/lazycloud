@@ -26,18 +26,16 @@ const (
 
 // logsKeys are the keys of the log lists that the core does not have.
 var logsKeys = struct {
+	Events   ui.HintBinding
 	Streams  ui.HintBinding
 	Details  ui.HintBinding
 	CopyName ui.HintBinding
 }{
-	Streams:  ui.NewHintBinding([]string{"v"}, "enter/v", "streams"),
+	Events:   ui.NewHintBinding([]string{"enter"}, "enter", "events"),
+	Streams:  ui.NewHintBinding([]string{"v"}, "v", "streams"),
 	Details:  ui.NewHintBinding([]string{"d"}, "d", "details"),
 	CopyName: ui.NewHintBinding([]string{"y"}, "y", "copy name"),
 }
-
-// logGroupEnter opens the streams of the cursor group. PR 5 of the design
-// moves enter to the events of the group, and v keeps the streams.
-var logGroupEnter = key.NewBinding(key.WithKeys("enter"))
 
 // LogGroups displays the CloudWatch Logs log groups.
 type LogGroups struct {
@@ -69,16 +67,21 @@ func (g *LogGroups) Footer() string { return g.footer() }
 func (g *LogGroups) View() tea.View { return tea.NewView(g.render("", "")) }
 
 func (g *LogGroups) KeyMap() []ui.HintBinding {
-	return g.hints(logsKeys.Streams, logsKeys.Details, logsKeys.CopyName, listKeys.More,
+	return g.hints(logsKeys.Events, logsKeys.Streams, logsKeys.Details, logsKeys.CopyName, listKeys.More,
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
 // Update returns the view itself, so the navigator keeps its identity.
+// Enter opens the events of the whole group (decision D1), and v opens its
+// streams. The events get the group record, so they need no lookup.
 func (g *LogGroups) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := m.(tea.KeyPressMsg); ok && !g.filter.Active() && g.err == nil &&
-		key.Matches(k, logGroupEnter, logsKeys.Streams.Binding) {
-		if name := g.table.CursorKey(); name != "" {
-			return g, navigate("logs_streams", map[string]string{"log_group": name})
+	if k, ok := m.(tea.KeyPressMsg); ok && !g.filter.Active() && g.err == nil {
+		switch it := g.cursorItem(); {
+		case it == nil:
+		case key.Matches(k, logsKeys.Events.Binding):
+			return g, navigate("logs_events", logGroupParams(*it))
+		case key.Matches(k, logsKeys.Streams.Binding):
+			return g, navigate("logs_streams", map[string]string{"log_group": it.Name})
 		}
 	}
 	return g, g.update(m)

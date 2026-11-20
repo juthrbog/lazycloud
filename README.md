@@ -38,7 +38,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 | [S3](services/aws/s3.md) | Buckets, objects, versions, presigned URLs, copy/move, create/delete |
 | [EC2](services/aws/ec2.md) | Instances, AMIs, security groups, VPCs, subnets, start/stop/reboot/terminate, SSM connect, public AMI search |
 | [SQS](services/aws/sqs.md) | Queues, message peek, send, purge, delete, DLQ redrive |
-| [CloudWatch Logs](services/aws/logs.md) | Log groups and log streams (read only) |
+| [CloudWatch Logs](services/aws/logs.md) | Log groups, log streams, and an event viewer with filter patterns and time ranges (read only) |
 
 ## Getting Started
 

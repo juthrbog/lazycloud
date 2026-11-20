@@ -237,15 +237,57 @@ func TestLogGroups_RetentionSortsAsNumbers(t *testing.T) {
 	assert.Less(t, size(900), size(2048))
 }
 
-// Enter and v open the streams of the cursor group. PR 5 moves enter to
-// the events of the group.
-func TestLogGroups_EnterAndVOpenStreams(t *testing.T) {
+// v opens the streams of the cursor group.
+func TestLogGroups_VOpensStreams(t *testing.T) {
 	want := msg.NavigateMsg{ViewID: "logs_streams", Params: map[string]string{"log_group": "/aws/lambda/orders"}}
-	for _, k := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, keyPress('v')} {
-		v := testLogGroups(t, nil, testGroupOrders, testGroupWeb)
-		_, cmd := v.Update(k)
-		assert.Equal(t, []tea.Msg{want}, collectMsgs(cmd), "key %q", k.String())
-	}
+	v := testLogGroups(t, nil, testGroupOrders, testGroupWeb)
+	_, cmd := v.Update(keyPress('v'))
+	assert.Equal(t, []tea.Msg{want}, collectMsgs(cmd))
+}
+
+// Enter opens the events of the whole group (decision D1). The viewer gets
+// the group record, so it needs no lookup.
+func TestLogGroups_EnterOpensEventsWithTheRecord(t *testing.T) {
+	v := testLogGroups(t, nil, testGroupOrders, testGroupWeb)
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, []tea.Msg{msg.NavigateMsg{ViewID: "logs_events", Params: map[string]string{
+		"log_group":     "/aws/lambda/orders",
+		"log_group_arn": testGroupOrders.ARN,
+		"log_class":     "STANDARD",
+		"log_retention": "14",
+		"log_created":   strconv.FormatInt(testGroupOrders.Created.UnixMilli(), 10),
+	}}}, collectMsgs(cmd))
+
+	ev := NewLogEvents(nil, logGroupParams(testGroupOrders))
+	require.NotNil(t, ev.group, "the viewer builds the record from the parameters")
+	assert.Equal(t, testGroupOrders.ARN, ev.group.ARN)
+	assert.Equal(t, 14, ev.group.RetentionDays)
+	assert.True(t, testGroupOrders.Created.Equal(ev.group.Created))
+
+	// A zero creation time sends no parameter.
+	assert.NotContains(t, logGroupParams(testGroupWeb), "log_created")
+}
+
+// Enter on a stream opens its events, with the time of its first event.
+func TestLogStreams_EnterOpensEvents(t *testing.T) {
+	s := NewLogStreams(nil, "g")
+	s.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+	deliverItems(s, &s.listCore, []aws.LogStream{testStream, {Name: "new"}})
+	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, []tea.Msg{msg.NavigateMsg{ViewID: "logs_events", Params: map[string]string{
+		"log_group": "g", "log_stream": "web/abc",
+		"stream_first": strconv.FormatInt(testStream.FirstEvent.UnixMilli(), 10),
+	}}}, collectMsgs(cmd))
+
+	s.Update(keyPress('j'))
+	_, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Equal(t, []tea.Msg{msg.NavigateMsg{ViewID: "logs_events", Params: map[string]string{
+		"log_group": "g", "log_stream": "new",
+	}}}, collectMsgs(cmd), "a stream with no events sends no first time")
+
+	s.Update(msg.ErrorMsg{Err: errors.New("denied")})
+	_, cmd = s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	assert.Empty(t, navigations(collectMsgs(cmd)), "the error screen hides the rows")
 }
 
 // The keys do nothing while the filter is open, on the error screen, or
@@ -358,8 +400,8 @@ func TestLogLists_KeyMaps(t *testing.T) {
 		}
 		return out
 	}
-	assert.Equal(t, []string{"enter/v", "d", "y", "l", "s/S", "/", "r"}, keys(NewLogGroups(nil).KeyMap()))
-	assert.Equal(t, []string{"enter/d", "y", "l", "s/S", "/", "r"}, keys(NewLogStreams(nil, "g").KeyMap()))
+	assert.Equal(t, []string{"enter", "v", "d", "y", "l", "s/S", "/", "r"}, keys(NewLogGroups(nil).KeyMap()))
+	assert.Equal(t, []string{"enter", "d", "y", "l", "s/S", "/", "r"}, keys(NewLogStreams(nil, "g").KeyMap()))
 }
 
 var testStream = aws.LogStream{
@@ -388,13 +430,13 @@ func TestLogStreams_Rows(t *testing.T) {
 	assert.NotContains(t, out, "2026-11-01 09:00:01")
 }
 
-// Enter and d open the detail of a stream, which says that the last event
-// time can be late.
+// d opens the detail of a stream, which says that the last event time can
+// be late.
 func TestLogStreams_DetailNotesTheLag(t *testing.T) {
 	s := NewLogStreams(nil, "g")
 	s.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	deliverItems(s, &s.listCore, []aws.LogStream{testStream})
-	_, cmd := s.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	_, cmd := s.Update(keyPress('d'))
 	panel := detailPanel(t, s, cmd)
 	assert.Equal(t, "web/abc", panel.PanelTitle)
 	info := panel.Tabs[0].Content

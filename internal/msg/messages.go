@@ -140,6 +140,9 @@ type TabContent struct {
 type TabbedContentMsg struct {
 	PanelTitle string       // overall title for logging/breadcrumbs
 	Tabs       []TabContent // one or more tabs to display
+	// NoFocus opens the panel without the focus, so the keys still go to
+	// the view. The log event viewer uses it: l and f must reach it.
+	NoFocus bool
 }
 
 // ─── Background operations ──────────────────────────────────────────────────
