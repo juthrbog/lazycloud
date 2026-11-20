@@ -1,6 +1,6 @@
 # CloudWatch Logs: log groups, streams, events and live tail
 
-Status: Proposed on 2026-11-20. The facts below were checked at `62bf329`.
+Status: Approved on 2026-11-20 with all proposed answers. PR 0 is the design and its pin tests. The facts below were checked at `62bf329`.
 
 ## Summary
 
@@ -261,9 +261,9 @@ With an endpoint override (decision D5):
 
 Each PR keeps `go test ./...` green and runs golangci-lint with gosec.
 
-- PR 0. This design, and pin tests: `TestLogsHazard_*` pins H1 (a repeated token loads the same page again), H2 (no budget), H3 (a later failure hides the rows) and H5 (the host prefix with an endpoint, against the SDK). `TestLogsKeep_*` pins what stays: a nil token ends a load, `r` starts from page 1, a first-page failure shows the error screen, and enter and `d` open `OpenDetail`.
+- PR 0. This design, and pin tests in `internal/views/cwlogs_pins_test.go`: `TestLogsHazard_*` pins H1 (a repeated token loads the same page again), H2 (no budget) and H3 (a later failure hides the rows). `TestLogsKeep_*` pins what stays: a nil token ends a load, `r` starts from page 1, a first-page failure shows the error screen, and enter and `d` open `OpenDetail`.
 - PR 1. The list core: the repeated-token stop, `PageBudget`, `MoreKey` with `l` and its footer hint, rows kept on a later failure for `MoreKey` lists, the token age, the panic with `Complete`, and `FetchDetail` on `d`. Conformance tests for each. H1 flips for all lists. The list view guide in `docs/ARCHITECTURE.md` changes.
-- PR 2. The AWS layer: the `cloudwatchlogs` module, `LogsService` (groups, streams, events of a stream, events of a group, one group by name, tags), the repeated-token rule in the events of a stream, `GuardLogs`, `LogsClient`, the mock, and `httptest` fakes. The seeder for logs.
+- PR 2. The AWS layer: the `cloudwatchlogs` module and the pin of H5 (the host prefix with an endpoint, against the SDK), `LogsService` (groups, streams, events of a stream, events of a group, one group by name, tags), the repeated-token rule in the events of a stream, `GuardLogs`, `LogsClient`, the mock, and `httptest` fakes. The seeder for logs.
 - PR 3. `ui.LogView` with its tests: the ring with both caps, `Append` and `Prepend`, follow, wrap, the local filter, visual select, styles drawn on screen only, `Restyle`, and the look without colors. H4 flips.
 - PR 4. The group and stream lists, the registry entry and the `logs` command, the routes, the icon, the smoke case, `services/aws/logs.md`, and the docs. `TestServiceWordsAreFree` keeps only `events`. H2 and H3 flip for these two lists.
 - PR 5. The event viewer: the group and stream modes, `l` with the walk-back limits, `f`, `t` with the time rules, `/`, the event detail, and `:logs NAME` with the change in `executeCommand`. A smoke test pages a stream and sets a filter.
