@@ -197,6 +197,34 @@ seed_messages = 4
 name = "audit-log.fifo"
 fifo = true
 
+# CloudWatch Logs. One stream has 2,500 events, so the event viewer must
+# page back. One group has no streams. The events cover the 50 minutes
+# before the seed run.
+
+[[base.logs.groups]]
+name = "/aws/lambda/orders-api"
+retention_days = 30
+tags = { team = "orders", env = "dev" }
+streams = [
+  { name = "2026/11/20/[$LATEST]a1b2c3", events = 2500 },
+  { name = "2026/11/20/[$LATEST]d4e5f6", events = 120 },
+]
+
+[[base.logs.groups]]
+name = "/ecs/web"
+retention_days = 7
+streams = [
+  { name = "web/app/1", events = 300 },
+  { name = "web/app/2", events = 300 },
+]
+
+[[base.logs.groups]]
+name = "/aws/apigateway/access"
+streams = [{ name = "access", events = 50 }]
+
+[[base.logs.groups]]
+name = "/empty/group"
+
 # ─── Tier: small ─────────────────────────────────────────────────────────────
 # Base resources only, no extras. Default for quick dev iteration.
 
@@ -204,6 +232,10 @@ fifo = true
 
 # ─── Tier: medium ────────────────────────────────────────────────────────────
 # Realistic browsing with 20-50 resources per type.
+
+[tiers.medium.logs]
+extra_groups = 20
+streams_per_extra_group = 2
 
 [tiers.medium.sqs]
 extra_queues = 10
@@ -222,6 +254,10 @@ extra_sgs = 5
 # ─── Tier: large ─────────────────────────────────────────────────────────────
 # Pagination and progressive loading testing.
 
+[tiers.large.logs]
+extra_groups = 120
+streams_per_extra_group = 2
+
 [tiers.large.sqs]
 extra_queues = 50
 
@@ -238,6 +274,10 @@ extra_sgs = 20
 
 # ─── Tier: enterprise ────────────────────────────────────────────────────────
 # Performance stress testing.
+
+[tiers.enterprise.logs]
+extra_groups = 1200
+streams_per_extra_group = 2
 
 [tiers.enterprise.sqs]
 extra_queues = 200

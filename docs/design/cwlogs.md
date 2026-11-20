@@ -210,7 +210,7 @@ For both:
 - `/` filters the loaded lines, with no AWS call. `f` filters on the server. The help groups the two keys and says which is which.
 - Enter on a line opens the whole event in the side panel: the time, the ingestion time, the stream, the event ID and the message. A message that is valid JSON shows formatted, with the JSON colors of `ContentView`. The panel opens without the focus, so `F`, `l` and `f` still reach the viewer. Tab moves the focus to the panel.
 - `r` loads the range again from its end.
-- When a saved token is more than 23 hours old, `l` starts a new query that ends 1 ms before the oldest loaded event, in place of the old token.
+- When a saved token is more than 23 hours old, `l` starts a new query in place of the old token. For a group, the query ends 1 ms before the oldest loaded event. For a stream, it calls `FilterLogEvents` with `LogStreamNames`, because `GetLogEvents` has an exclusive end and no event ID. That query ends at the time of the oldest loaded event, and the viewer drops an event at that time whose message it already has.
 - A throttling error shows the hint that `aws.ErrorText` already gives ("AWS limits the request rate"), and the lines stay.
 
 ### Live tail

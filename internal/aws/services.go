@@ -8,6 +8,7 @@ type Services struct {
 	S3     S3Service
 	EC2    EC2Service
 	SQS    SQSService
+	Logs   LogsService
 }
 
 // NewServices builds the client and the services for a session. Each
@@ -24,5 +25,6 @@ func NewServices(profile, region, endpoint string, readOnly func() bool) (Servic
 		S3:     GuardS3(NewS3Service(c), readOnly),
 		EC2:    GuardEC2(NewEC2Service(c), readOnly),
 		SQS:    GuardSQS(NewSQSService(c), readOnly),
+		Logs:   GuardLogs(NewLogsService(c), readOnly),
 	}, nil
 }

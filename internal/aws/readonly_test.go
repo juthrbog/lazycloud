@@ -78,6 +78,18 @@ var guardCases = []guardCase{
 			return aws.GuardSQS(m, readOnly), &m.Mock
 		},
 	},
+	{
+		name:  "Logs",
+		iface: reflect.TypeFor[aws.LogsService](),
+		reads: []string{
+			"ListLogGroupsPage", "GetLogGroup", "ListLogStreamsPage",
+			"GetStreamEvents", "FilterEvents", "ListLogGroupTags",
+		},
+		guard: func(readOnly func() bool) (any, *mock.Mock) {
+			m := new(awstest.MockLogsService)
+			return aws.GuardLogs(m, readOnly), &m.Mock
+		},
+	},
 }
 
 // Every interface method is listed, so a new mutating method cannot pass

@@ -10,6 +10,7 @@ import (
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
@@ -147,6 +148,16 @@ func hasCredentials(ctx context.Context, profile string) bool {
 	return sc.Credentials.HasKeys() || sc.SSOSessionName != "" || sc.SSOStartURL != "" ||
 		sc.RoleARN != "" || sc.CredentialProcess != "" || sc.WebIdentityTokenFile != "" ||
 		sc.LoginSession != ""
+}
+
+// LogsClient returns a CloudWatch Logs client configured for the current
+// profile, region and endpoint.
+func (c *Client) LogsClient() *cloudwatchlogs.Client {
+	return cloudwatchlogs.NewFromConfig(c.Config, func(o *cloudwatchlogs.Options) {
+		if c.Endpoint != "" {
+			o.BaseEndpoint = aws.String(c.Endpoint)
+		}
+	})
 }
 
 // SQSClient returns an SQS service client configured for the current profile/region/endpoint.
