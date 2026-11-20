@@ -133,3 +133,39 @@ func DefaultContentViewKeyMap() ContentViewKeyMap {
 		ScrollRight:  key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l", "right")),
 	}
 }
+
+// LogViewKeyMap holds the keys of the log viewer. It has no key for a
+// sideways scroll, so that l stays free for the view, which loads older
+// lines with it.
+type LogViewKeyMap struct {
+	CursorDown   key.Binding
+	CursorUp     key.Binding
+	HalfPageDown key.Binding
+	HalfPageUp   key.Binding
+	GotoTop      key.Binding
+	GotoBottom   key.Binding
+	WrapToggle   key.Binding
+	Filter       key.Binding
+	Yank         key.Binding
+	VisualToggle key.Binding
+	Open         key.Binding
+	Esc          key.Binding
+}
+
+// DefaultLogViewKeyMap returns the default keys of the log viewer.
+func DefaultLogViewKeyMap() LogViewKeyMap {
+	return LogViewKeyMap{
+		CursorDown:   key.NewBinding(key.WithKeys("j", "down"), key.WithHelp("j/k", "move")),
+		CursorUp:     key.NewBinding(key.WithKeys("k", "up"), key.WithHelp("k", "up")),
+		HalfPageDown: key.NewBinding(key.WithKeys("ctrl+d"), key.WithHelp("ctrl+d", "page down")),
+		HalfPageUp:   key.NewBinding(key.WithKeys("ctrl+u"), key.WithHelp("ctrl+u", "page up")),
+		GotoTop:      key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "top")),
+		GotoBottom:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "end and follow")),
+		WrapToggle:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "wrap")),
+		Filter:       key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "filter")),
+		Yank:         key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
+		VisualToggle: key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "visual")),
+		Open:         key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "open")),
+		Esc:          key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "cancel")),
+	}
+}

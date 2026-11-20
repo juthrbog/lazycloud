@@ -122,6 +122,7 @@ A theme switch keeps the views, the panel, the back history and the open prompts
 - `Table.Restyle` sets the table styles again and calls the `Style` function of each column again. The rows, the sort, the filter, the selection and the cursor stay.
 - The views with a table call it: the resource lists through `listCore`, `S3Objects`, `S3Versions` and `SQSMessages`.
 - `EventLog` writes its lines again.
+- `LogView` makes its styles again. It styles only the rows on the screen, each time it draws, so it keeps no colored text.
 - `FormView` sends the huh form an update, because huh keeps the drawn fields of a group until the next update.
 
 `setTheme` calls `Restyle` on each view on the stack, and refreshes help. The panel needs no call: each `ContentView` draws again when the theme name changes, and the saved panels in the stash and the back history are the same panel values. A new view that keeps colored text must implement `ui.Restyler`. `TestViewsThatKeepColorsRestyle` fails for a view of a route that has a `ui.Table` and no `Restyle`.
@@ -130,7 +131,7 @@ A theme that the user picks ends the auto setting. With the auto setting, the fi
 
 ### Terminals Without Color
 
-When `NO_COLOR` is set, Bubble Tea uses the ASCII profile and removes all colors. The app gets the profile in `tea.ColorProfileMsg` at start, calls `ui.SetNoColor`, and restyles the views on the stack. A cursor or selection that only has a background would then not show, so the table cursor, the content cursor, and the selected picker option also use reverse video. With colors, they keep the background of the theme. A new style for a cursor or a selection must also show without color: check `ui.NoColor()`, or use a marker such as `▸` or `✓`.
+When `NO_COLOR` is set, Bubble Tea uses the ASCII profile and removes all colors. The app gets the profile in `tea.ColorProfileMsg` at start, calls `ui.SetNoColor`, and restyles the views on the stack. A cursor or selection that only has a background would then not show, so the table cursor, the content cursor, the log view cursor and selection, and the selected picker option also use reverse video. The log view shows the words for errors and warnings in bold. With colors, they keep the background of the theme. A new style for a cursor or a selection must also show without color: check `ui.NoColor()`, or use a marker such as `▸` or `✓`.
 
 ### AWS Text on the Screen
 
@@ -138,7 +139,7 @@ AWS text can hold terminal control characters, for example an S3 key, an object 
 
 For this reason, LazyCloud shows AWS text only after `ui.Sanitize` or `ui.SanitizeLines`. `ui.Sanitize` is for text on one line. It shows each control character as a visible symbol, for example ESC as `␛` and a line feed as `␊`. It shows a C1 control character, and a byte that is not valid UTF-8, as `�`. `ui.SanitizeLines` keeps line feeds and tabs, for text with more than one line.
 
-The shared components do this for the text that they get. These components are the table, the content view and the detail panels, toasts, the status bar error, confirm prompts, pickers, the header, and the event log. Call `ui.Sanitize` in view code only for AWS text that the view renders itself, for example:
+The shared components do this for the text that they get. These components are the table, the content view and the detail panels, the log view, toasts, the status bar error, confirm prompts, pickers, the header, and the event log. Call `ui.Sanitize` in view code only for AWS text that the view renders itself, for example:
 
 - A footer, such as `s3://bucket/prefix`.
 - An error line, such as `"Error: " + ui.Sanitize(err.Error())`.
