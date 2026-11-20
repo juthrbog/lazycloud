@@ -13,7 +13,7 @@ import (
 func TestIconFallbacksArePlainCharacters(t *testing.T) {
 	icons := map[string]ServiceIcon{
 		"S3": IconS3, "EC2": IconEC2, "Cloud": IconCloud, "Shield": IconShield,
-		"SQS": IconSQS, "Network": IconNetwork,
+		"SQS": IconSQS, "Network": IconNetwork, "Logs": IconLogs,
 		"Running": IconRunning, "Stopped": IconStopped, "Pending": IconPending,
 	}
 	for name, icon := range icons {

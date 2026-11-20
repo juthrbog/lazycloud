@@ -204,6 +204,15 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			return v
 		},
 		"sg_list": func(*testing.T) tea.Model { return newSGList("sg-1", "sg-2") },
+		"logs_groups": func(t *testing.T) tea.Model {
+			return testLogGroups(t, nil, testGroupOrders, testGroupWeb)
+		},
+		"logs_streams": func(*testing.T) tea.Model {
+			s := NewLogStreams(nil, "g")
+			s.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(s, &s.listCore, []aws.LogStream{testStream})
+			return s
+		},
 		"sqs_messages": func(*testing.T) tea.Model {
 			v, _ := newTestSQSMessages()
 			v.Update(sqsMessagesLoadedMsg{queueURL: testQueueURL, messages: []aws.SQSMessage{
@@ -247,6 +256,8 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"s3_objects":   func() tea.Model { v, _ := newTestS3Objects(); return v },
 		"s3_versions":  func() tea.Model { v := newTestS3Versions(); return v },
 		"sg_list":      func() tea.Model { v := newTestSGList(); return v },
+		"logs_groups":  func() tea.Model { return NewLogGroups(nil) },
+		"logs_streams": func() tea.Model { return NewLogStreams(nil, "g") },
 		"sqs_messages": func() tea.Model { v, _ := newTestSQSMessages(); return v },
 		"sqs_queues":   func() tea.Model { v, _ := newQueueList(); return v },
 		"subnet_list":  func() tea.Model { v := newTestSubnetList("vpc-1"); return v },

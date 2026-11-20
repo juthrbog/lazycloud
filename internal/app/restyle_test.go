@@ -56,7 +56,7 @@ func TestViewsThatKeepColorsRestyle(t *testing.T) {
 			assert.Truef(t, withTable[f.ViewID], "hasTable finds no table in the list %q", f.ViewID)
 		}
 	}
-	for _, id := range []string{"s3_objects", "s3_versions", "sqs_messages"} {
+	for _, id := range []string{"s3_objects", "s3_versions", "sqs_messages", "logs_streams"} {
 		assert.Truef(t, withTable[id], "hasTable finds no table in %q", id)
 	}
 }

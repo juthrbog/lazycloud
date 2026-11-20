@@ -6,7 +6,7 @@ LazyCloud follows the [Elm Architecture](https://guide.elm-lang.org/architecture
 
 ```
 cmd/seed/               Seed program for populating LocalStack with test data. See docs/DEVELOPMENT.md.
-internal/aws/           Service interfaces (S3Service, EC2Service, SQSService) + SDK implementations. No UI imports.
+internal/aws/           Service interfaces (S3Service, EC2Service, SQSService, LogsService) + SDK implementations. No UI imports.
 internal/aws/awstest/   Shared testify mocks for service interfaces (used by view and app tests).
 internal/views/         Bubble Tea models. Calls AWS layer via tea.Cmd. Handles input and rendering.
 internal/ui/            Reusable components (table, picker, toast, etc.). Not tied to any AWS service.
@@ -203,7 +203,7 @@ Three checks enforce ReadOnly mode:
 
 1. When the user presses a key, the app looks for it in the `KeyMap()` of the view on top. If a binding with `ui.ModeReadWrite` has that key, the app shows the toast "ReadOnly mode — press W to switch", and the view does not get the key.
 2. When the user answers yes to a confirm that changes AWS resources, the view checks the mode again. The mode can change while the prompt is open. In ReadOnly mode, the view shows the same toast with `refuseReadOnly()` and runs nothing.
-3. When the action runs, the AWS service refuses it. The app wraps each service with `aws.GuardS3`, `aws.GuardEC2`, or `aws.GuardSQS`. In ReadOnly mode, each mutating method returns `aws.ErrReadOnly` before it sends a request. This guard also covers a form or a text input that the user opened in ReadWrite mode, for example the copy destination of S3 objects or the new bucket name of S3 buckets.
+3. When the action runs, the AWS service refuses it. The app wraps each service with `aws.GuardS3`, `aws.GuardEC2`, `aws.GuardSQS`, or `aws.GuardLogs`. In ReadOnly mode, each mutating method returns `aws.ErrReadOnly` before it sends a request. This guard also covers a form or a text input that the user opened in ReadWrite mode, for example the copy destination of S3 objects or the new bucket name of S3 buckets.
 
 Rules for view code:
 
@@ -300,11 +300,13 @@ Home
 │   └── Subnets          (list → detail with tabs: Info / Config / IPv6 / JSON / Tags)
 ├── S3
 │   └── Buckets          (list → objects → versions)
-└── SQS
-    └── Queues           (list → detail with tabs / message peek)
+├── SQS
+│   └── Queues           (list → detail with tabs / message peek)
+└── CloudWatch
+    └── Log Groups       (list → detail with tabs: Info / Tags → streams → detail)
 ```
 
-A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. New services follow the same structure. These services are planned:
+A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. A log group always shows its Tags tab, because its tags come from a separate call that can fail, and the tab then shows the error. New services follow the same structure. These services are planned:
 
 ```
 Home
@@ -321,7 +323,7 @@ Home
 ├── RDS
 │   └── Instances        (list → detail)
 └── CloudWatch
-    ├── Log Groups       (list → streams → log viewer)
+    ├── Log events       (group or stream → log viewer with live tail, docs/design/cwlogs.md)
     └── Alarms           (list → detail)
 ```
 
@@ -346,7 +348,7 @@ Tests fail until the new service has its part in each check that every view must
 
 ### Adding a List View
 
-Every resource list (EC2 instances, AMIs, security groups, VPCs, subnets, SQS queues, S3 buckets) uses one shared core: `listCore[T]` in `internal/views/listcore.go`. The core loads the pages, drops replies of an older load, and handles the filter, sort, resize, selection, copy, focus, footer and error screen. The view keeps only what is special to its resource. `internal/views/vpc_list.go` is the smallest example.
+Every resource list (EC2 instances, AMIs, security groups, VPCs, subnets, SQS queues, S3 buckets, log groups, log streams) uses one shared core: `listCore[T]` in `internal/views/listcore.go`. The core loads the pages, drops replies of an older load, and handles the filter, sort, resize, selection, copy, focus, footer and error screen. The view keeps only what is special to its resource. `internal/views/vpc_list.go` is the smallest example.
 
 To add a list view:
 

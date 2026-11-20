@@ -38,10 +38,11 @@ func TestCommandWordsAreUnique(t *testing.T) {
 	}
 }
 
-// The words "logs", "log" and "events" stay free for AWS services, for
-// example CloudWatch Logs.
+// The word "events" stays free for an AWS service, for example
+// EventBridge. CloudWatch Logs took "logs" and "log" (decision D7 of
+// docs/design/cwlogs.md).
 func TestServiceWordsAreFree(t *testing.T) {
-	for _, w := range []string{"logs", "log", "events"} {
+	for _, w := range []string{"events"} {
 		assert.Nil(t, LookupCommand(w), "%q", w)
 	}
 }

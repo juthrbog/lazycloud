@@ -163,6 +163,7 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 | Shield | `\U000f0498` | `⛨` | Security groups |
 | SQS | `\U000f01ee` | `≡` | SQS service |
 | Network | `\U000f0317` | `⊞` | VPCs and subnets |
+| Logs | `\U000f0219` | `¶` | CloudWatch Logs |
 | Running | `\U000f012c` | `●` | State: running/available |
 | Stopped | `\U000f0156` | `○` | State: stopped/terminated |
 | Pending | `\U000f0e4e` | `◌` | State: pending/starting |
