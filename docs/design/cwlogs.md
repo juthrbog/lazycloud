@@ -170,6 +170,9 @@ A new `ui.LogView` in `internal/ui/logview.go`. It knows nothing about AWS.
 - It holds raw lines in a ring with two caps: 10,000 lines and 32 MB of text (decision D4). When the ring drops lines from the top, the footer counts them: "2000 older lines dropped".
 - It styles only the rows on screen, each time it draws. So a resize and a theme switch need no rebuild, and `Restyle` only clears the style cache. `LogView` and the event viewer implement `ui.Restyler`.
 - `Append(lines)` adds lines at the end. `Prepend(lines)` adds older lines at the top and keeps the cursor on the same line. Neither touches the other lines. Each line is sanitized once, when it comes in.
+- When the ring is full, `Prepend` adds only the newest lines that fit, and returns the count that it added. It does not drop new lines to make room for old lines. The viewer then stops `l` and says that the view is full.
+- The row text of a line keeps the first 64 KB of the message. The line keeps all of the message for a copy and for the detail.
+- `LogView` applies the local filter as the user types. Its filter sends `FilterChangedMsg` with the source `ui.LogViewFilterSource`, and the viewer drops that message.
 - Follow: when follow is on and the cursor is on the last line, new lines move the view to the end. A move up turns follow off. `G` goes to the end and turns follow on again.
 - Keys: `j k`, `ctrl+d ctrl+u`, `g G`, `w` wrap, `/` a local filter that hides lines that do not match, `y` copy the line, `V` visual select with `y` to copy many lines, and `enter` to open the line.
 - Without colors, the cursor and the visual selection use reverse video, and the words for errors and warnings use bold.
