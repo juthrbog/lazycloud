@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
@@ -35,18 +36,27 @@ func hasTable(t reflect.Type) bool {
 // which keeps colored lines.
 func TestViewsThatKeepColorsRestyle(t *testing.T) {
 	m := newTestModel(140, 40)
-	withTable := 0
+	withTable := map[string]bool{}
 	for id := range routes {
 		v := m.resolveView(msg.NavigateMsg{ViewID: id})
 		require.NotNilf(t, v, "route %q", id)
 		_, ok := v.(ui.Restyler)
 		if hasTable(reflect.TypeOf(v)) {
-			withTable++
+			withTable[id] = true
 			assert.Truef(t, ok, "view %q has a table, so it must implement ui.Restyler", id)
 		}
 		if id == "eventlog" {
 			assert.True(t, ok, "the event log keeps colored lines")
 		}
 	}
-	assert.Equal(t, 10, withTable, "the seven lists, s3_objects, s3_versions and sqs_messages")
+	// Each service view is a list, so hasTable must find its table. This
+	// keeps hasTable honest without a count to update for each service.
+	for _, s := range registry.Services {
+		for _, f := range s.Features {
+			assert.Truef(t, withTable[f.ViewID], "hasTable finds no table in the list %q", f.ViewID)
+		}
+	}
+	for _, id := range []string{"s3_objects", "s3_versions", "sqs_messages"} {
+		assert.Truef(t, withTable[id], "hasTable finds no table in %q", id)
+	}
 }

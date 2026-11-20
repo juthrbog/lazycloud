@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -151,6 +153,37 @@ func TestConfirmedDeleteIsBlockedAfterSwitchToReadOnly(t *testing.T) {
 	s3m.AssertNotCalled(t, "DeleteObject", mock.Anything, mock.Anything, mock.Anything)
 }
 
+// mockAllServices gives the model a mock for every service of the
+// session, so any view can open without a real client.
+// TestMockAllServicesFillsEveryService keeps it complete.
+func mockAllServices(m *Model) {
+	m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
+}
+
+func TestMockAllServicesFillsEveryService(t *testing.T) {
+	m := newTestModel(140, 40)
+	m.svc = aws.Services{}
+	mockAllServices(&m)
+	v := reflect.ValueOf(m.svc)
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		if f.Type.Kind() == reflect.Interface {
+			assert.Falsef(t, v.Field(i).IsNil(), "mockAllServices sets no mock for aws.Services.%s", f.Name)
+		}
+	}
+}
+
+// assertCoversRoutes fails for each route that the test does not cover,
+// so a new view cannot skip a check that every view must pass.
+func assertCoversRoutes(t *testing.T, covered map[string]bool, exempt ...string) {
+	t.Helper()
+	for id := range routes {
+		if !covered[id] && !slices.Contains(exempt, id) {
+			t.Errorf("route %q is missing from this test", id)
+		}
+	}
+}
+
 // T5: in ReadOnly mode, every ReadWrite key of every view shows the
 // ReadOnly toast, and the view never gets the key. The expected keys are
 // listed, so a binding that loses its ReadWrite mark fails this test.
@@ -173,10 +206,15 @@ func TestReadOnlyBlocksEveryReadWriteKey(t *testing.T) {
 		{"sqs_messages", map[string]string{"queue_url": "u", "queue_name": "q"}, []string{"x", "m"}},
 		{"eventlog", nil, nil},
 	}
+	covered := map[string]bool{}
+	for _, tc := range cases {
+		covered[tc.viewID] = true
+	}
+	assertCoversRoutes(t, covered, "content")
 	for _, tc := range cases {
 		t.Run(tc.viewID, func(t *testing.T) {
 			m := newTestModel(140, 40)
-			m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
+			mockAllServices(&m)
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: tc.viewID, Params: tc.params})
 			require.Equal(t, tc.viewID, strings.SplitN(m.nav.Current().ID(), ":", 2)[0])
 
@@ -212,7 +250,7 @@ func TestReadWriteKeysReachTheView(t *testing.T) {
 
 // Every view with a text input reports it, so the app can give it the keys.
 func TestViewsWithFiltersCaptureInput(t *testing.T) {
-	for viewID, params := range map[string]map[string]string{
+	filtered := map[string]map[string]string{
 		"s3_list":      nil,
 		"s3_objects":   {"bucket": "b"},
 		"ec2_list":     nil,
@@ -223,10 +261,17 @@ func TestViewsWithFiltersCaptureInput(t *testing.T) {
 		"sqs_queues":   nil,
 		"sqs_messages": {"queue_url": "u", "queue_name": "q"},
 		"eventlog":     nil,
-	} {
+	}
+	covered := map[string]bool{}
+	for id := range filtered {
+		covered[id] = true
+	}
+	// s3_versions lists the versions of one key, so it has no filter.
+	assertCoversRoutes(t, covered, "content", "s3_versions")
+	for viewID, params := range filtered {
 		t.Run(viewID, func(t *testing.T) {
 			m := newTestModel(140, 40)
-			m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
+			mockAllServices(&m)
 			m, _ = update(t, m, msg.NavigateMsg{ViewID: viewID, Params: params})
 			_, ok := m.nav.Current().(nav.InputCapturer)
 			require.True(t, ok, "%s implements nav.InputCapturer", viewID)

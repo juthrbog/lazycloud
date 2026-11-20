@@ -593,6 +593,15 @@ var loadContexts = map[string]string{
 	"s3_list":     "listing S3 buckets",
 }
 
+// Every list of the registry runs the conformance cases.
+func TestListConformance_CoversEveryServiceView(t *testing.T) {
+	names := map[string]bool{}
+	for _, tc := range conformanceCases {
+		names[tc.name] = true
+	}
+	assertCoversServiceViews(t, names)
+}
+
 func TestListConformance_NilServiceGivesErrorMsg(t *testing.T) {
 	for _, tc := range conformanceCases {
 		t.Run(tc.name, func(t *testing.T) {

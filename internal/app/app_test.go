@@ -400,11 +400,9 @@ func TestExecuteCommandAlias(t *testing.T) {
 func TestExecuteCommandNavAlias(t *testing.T) {
 	m := newTestModel(140, 40)
 
-	// "log" and "events" are aliases for "logs"
-	for _, alias := range []string{"log", "events"} {
-		_, cmd := m.executeCommand(alias)
-		assert.NotNil(t, cmd, "alias %q should resolve to logs nav command", alias)
-	}
+	// "buckets" is an alias for "s3"
+	_, cmd := m.executeCommand("buckets")
+	assert.NotNil(t, cmd, "alias 'buckets' should resolve to the s3 nav command")
 }
 
 func TestExecuteCommandUnknown(t *testing.T) {

@@ -334,6 +334,15 @@ Home
 6. **Route**: Add an entry to `routes` in `internal/app/routes.go` for each new view ID. Its `build` makes the view with the service from `m.svc`, and its `root` names the service view to open again after a region or profile switch. `TestRoutes` fails when a view ID of the registry has no route.
 7. **Service doc**: Add `services/aws/<service>.md` describing supported features and API calls used
 
+Tests fail until the new service has its part in each check that every view must pass:
+
+- `mockAllServices` in `internal/app/input_test.go` sets a mock for each service of `aws.Services`. `TestMockAllServicesFillsEveryService` fails when one is missing.
+- The ReadOnly key test and the filter test in `internal/app/input_test.go` need a case for each route.
+- The conformance cases and the two render safety tests in `internal/views` need a case for each view of the registry.
+- `TestListsLoad` in `internal/smoke` needs a case with a seed resource for each view of the registry.
+- `TestServiceIconsHavePlainFallbacks` checks the icon of each service and feature.
+- `TestCommandWordsAreUnique` fails when a command name or alias is taken. `LookupCommand` takes the first match, so a second command with the same word could never run.
+
 ### Adding a List View
 
 Every resource list (EC2 instances, AMIs, security groups, VPCs, subnets, SQS queues, S3 buckets) uses one shared core: `listCore[T]` in `internal/views/listcore.go`. The core loads the pages, drops replies of an older load, and handles the filter, sort, resize, selection, copy, focus, footer and error screen. The view keeps only what is special to its resource. `internal/views/vpc_list.go` is the smallest example.
