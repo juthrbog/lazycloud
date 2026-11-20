@@ -145,7 +145,7 @@ func TestHeaderAccountStates(t *testing.T) {
 		{HeaderData{AccountState: AccountKnown, Account: "111111111111"}, " 111111111111 "},
 		{HeaderData{AccountState: AccountLoginNeeded}, " login needed "},
 		{HeaderData{AccountState: AccountUnknown}, " account unknown "},
-		{HeaderData{AccountState: AccountKnown, Account: "000000000000", Endpoint: true}, "000000000000   endpoint "},
+		{HeaderData{AccountState: AccountKnown, Account: "000000000000", Endpoint: true}, "000000000000 endpoint "},
 	} {
 		tc.d.Mode, tc.d.Width = "RO", 100
 		assert.Contains(t, headerLine(tc.d), tc.want)
@@ -197,14 +197,14 @@ func TestHeaderNeverOverflows(t *testing.T) {
 }
 
 // Without breadcrumbs, a cut profile leaves the line at the width of the
-// terminal: the profile badge has the padding of HeaderStyle too.
+// terminal.
 func TestHeaderCutProfileWithoutCrumbs(t *testing.T) {
 	useFonts(t, false)
 	d := HeaderData{Profile: strings.Repeat("p", 40), Label: "PRODUCTI", Region: "ap-southeast-2", Mode: "RO",
 		AccountState: AccountChecking, Account: "000000000000", Endpoint: true, Width: 80}
 	got := headerLine(d)
 	assert.Equal(t, 80, ansi.StringWidth(got))
-	assert.Contains(t, got, " "+strings.Repeat("p", 13)+"… ", "the profile gets the 14 cells that are left")
+	assert.Contains(t, got, " "+strings.Repeat("p", 17)+"… · ", "the profile gets the 18 cells that are left")
 	// The profile takes all the room that is left, so the line ends with
 	// the mode and its two spaces.
 	assert.True(t, strings.HasSuffix(got, " RO    "), "%q", got)
@@ -217,6 +217,29 @@ func TestHeaderProfileLeavesRoomForCrumbs(t *testing.T) {
 		AccountState: AccountChecking, Account: "000000000000", Endpoint: true, Breadcrumbs: []string{"S3", "logs-bucket"}, Width: 80}
 	got := headerLine(d)
 	assert.Equal(t, 80, ansi.StringWidth(got))
-	assert.Contains(t, got, " ppp… ", "the profile gets the shortest width")
-	assert.Contains(t, got, "logs-buck…", "the crumb gets the rest")
+	assert.Contains(t, got, " ppppp… · ", "the profile leaves 12 cells for the crumbs")
+	assert.True(t, strings.HasSuffix(got, " logs-bucket "), "the crumb gets the rest: %q", got)
+}
+
+// Color in the header shows a state. The profile, the account, the
+// principal and the region are text with no background. A sign-in that is
+// needed has one.
+func TestHeaderIdentityHasNoBadge(t *testing.T) {
+	hasBackground := func(s string) bool { return strings.Contains(s, "[48;") || strings.Contains(s, ";48;") }
+	known := HeaderData{AccountState: AccountKnown, Account: "111111111111"}
+	assert.False(t, hasBackground(accountText(known)), "%q", accountText(known))
+	assert.False(t, hasBackground(accountText(HeaderData{AccountState: AccountUnknown})))
+	assert.False(t, hasBackground(accountText(HeaderData{AccountState: AccountChecking})))
+	assert.True(t, hasBackground(accountText(HeaderData{AccountState: AccountLoginNeeded})), "login needed is a state")
+	assert.False(t, hasBackground(principalText("ReadOnlyAccess")))
+	assert.False(t, hasBackground(S.HeaderProfile.Render("prod")))
+	assert.False(t, hasBackground(S.HeaderText.Render("us-east-1")))
+	assert.True(t, hasBackground(ModeBadge("RO", false)), "the mode is a badge")
+
+	got := headerLine(HeaderData{Profile: "prod", Region: "us-east-1", Mode: "RO", AccountState: AccountKnown,
+		Account: "111111111111", Principal: "ReadOnlyAccess", Width: 130})
+	assert.Contains(t, got, " prod · 111111111111 · ReadOnlyAccess · us-east-1   RO  ")
+	// With no title and no label, one space comes before the profile.
+	got = headerLine(HeaderData{Profile: "prod", Mode: "RO", Width: 70})
+	assert.True(t, strings.HasPrefix(got, " prod   RO  "), "%q", got)
 }

@@ -11,7 +11,9 @@ import (
 type Styles struct {
 	// Header
 	HeaderStyle    lipgloss.Style
-	HeaderAccent   lipgloss.Style
+	HeaderProfile  lipgloss.Style // the profile, plain bright text
+	HeaderText     lipgloss.Style // the account, the principal and the region
+	HeaderDot      lipgloss.Style // the dot between the parts of the session
 	Breadcrumb     lipgloss.Style
 	BreadcrumbSep  lipgloss.Style
 	HeaderGradient []color.Color
@@ -85,11 +87,9 @@ func NewStyles(t Theme) Styles {
 			Bold(true).
 			Padding(0, 1),
 
-		HeaderAccent: lipgloss.NewStyle().
-			Foreground(t.Base).
-			Background(t.Accent).
-			Bold(true).
-			Padding(0, 1),
+		HeaderProfile: lipgloss.NewStyle().Foreground(t.BrightText).Bold(true),
+		HeaderText:    lipgloss.NewStyle().Foreground(t.SubText),
+		HeaderDot:     lipgloss.NewStyle().Foreground(t.Muted),
 
 		Breadcrumb: lipgloss.NewStyle().
 			Foreground(t.BrightText).

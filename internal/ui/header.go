@@ -108,7 +108,6 @@ func RenderHeader(data HeaderData) string {
 		p = headerParts{title: true, profile: true, account: true, endpoint: data.Endpoint,
 			principal: data.Principal != "", region: true}
 	}
-	profilePad := lipgloss.Width(s.HeaderStyle.Render("  ")) // the padding of the profile badge
 	var before, after string
 	for _, drop := range []func(){
 		func() { p.principal = false },
@@ -122,7 +121,7 @@ func RenderHeader(data HeaderData) string {
 		before, after = p.render(data, labelBadge, modeBadge, region)
 		need := lipgloss.Width(before) + lipgloss.Width(after) + backWidth
 		if p.profile {
-			need += minHeaderText + profilePad
+			need += minHeaderText
 		}
 		if need <= data.Width {
 			break
@@ -132,11 +131,11 @@ func RenderHeader(data HeaderData) string {
 	before, after = p.render(data, labelBadge, modeBadge, region)
 	fixed := before + after
 	if p.profile {
-		room := data.Width - lipgloss.Width(fixed) - backWidth - profilePad
+		room := data.Width - lipgloss.Width(fixed) - backWidth
 		if len(data.Breadcrumbs) > 0 {
 			room -= minHeaderCrumbs
 		}
-		fixed = before + s.HeaderStyle.Render(" "+cut(profile, min(maxHeaderProfile, max(room, minHeaderText)))+" ") + after
+		fixed = before + s.HeaderProfile.Render(cut(profile, min(maxHeaderProfile, max(room, minHeaderText)))) + after
 	}
 	remaining := max(data.Width-lipgloss.Width(fixed)-backWidth, 0)
 	crumbBar := truncateBreadcrumbs(data.Breadcrumbs, sep, t, remaining)
@@ -170,27 +169,37 @@ type headerParts struct {
 }
 
 // render returns the parts before the profile and the parts after it.
+//
+// Color in the header shows a state: the label, the mode, a sign-in that
+// is needed and an endpoint override. The profile, the account, the
+// principal and the region are plain text with a dot between them.
 func (p headerParts) render(data HeaderData, labelBadge, modeBadge, region string) (before, after string) {
 	if p.title {
 		before = GradientText(" "+IconCloud.Icon()+" LazyCloud ", S.HeaderGradient) + " "
 	}
 	before += labelBadge
-	if p.profile {
-		after = " "
+	if !p.profile {
+		return before, modeBadge + "  "
 	}
+	if before == "" {
+		before = " "
+	}
+	dot := S.HeaderDot.Render(" · ")
 	if p.account {
-		after += accountBadge(data)
+		after += dot + accountText(data)
 		if p.endpoint {
-			after += lipgloss.NewStyle().Foreground(ActiveTheme.Warning).Render("endpoint") + " "
+			after += " " + lipgloss.NewStyle().Foreground(ActiveTheme.Warning).Render("endpoint")
 		}
 	}
 	if p.principal {
-		after += principalText(data.Principal)
+		if text := principalText(data.Principal); text != "" {
+			after += dot + text
+		}
 	}
 	if p.region {
-		after += S.HeaderAccent.Render(" "+region+" ") + " "
+		after += dot + S.HeaderText.Render(region)
 	}
-	return before, after + modeBadge + "  "
+	return before, after + " " + modeBadge + "  "
 }
 
 // cut shortens s to at most width cells, with an ellipsis at the end.
@@ -198,36 +207,35 @@ func cut(s string, width int) string {
 	return ansi.Truncate(s, width, "…")
 }
 
-// accountBadge renders the account of the session and the state of its
-// check. It ends with a space.
-func accountBadge(data HeaderData) string {
+// accountText renders the account of the session and the state of its
+// check. Only "login needed" has a color, because it changes what the
+// user can do.
+func accountText(data HeaderData) string {
 	t := ActiveTheme
 	account := Sanitize(data.Account)
-	var badge string
 	switch data.AccountState {
 	case AccountKnown:
-		badge = S.HeaderStyle.Render(" " + account + " ")
+		return S.HeaderText.Render(account)
 	case AccountLoginNeeded:
-		badge = lipgloss.NewStyle().Foreground(t.Base).Background(t.Error).Bold(true).Padding(0, 1).Render("login needed")
+		return lipgloss.NewStyle().Foreground(t.Base).Background(t.Error).Bold(true).Padding(0, 1).Render("login needed")
 	case AccountUnknown:
-		badge = lipgloss.NewStyle().Foreground(t.SubText).Render("account unknown")
+		return S.HeaderText.Render("account unknown")
 	default:
 		if account == "" {
 			account = "account"
 		}
-		badge = lipgloss.NewStyle().Foreground(t.SubText).Render(account + "?")
+		return S.HeaderText.Render(account + "?")
 	}
-	return badge + " "
 }
 
-// principalText renders the principal, cut to its maximum. It ends with
-// a space, and is "" for no principal.
+// principalText renders the principal, cut to its maximum. It is "" for no
+// principal.
 func principalText(p string) string {
 	p = Sanitize(p)
 	if p == "" {
 		return ""
 	}
-	return lipgloss.NewStyle().Foreground(ActiveTheme.SubText).Render(cut(p, maxHeaderPrincipal)) + " "
+	return S.HeaderText.Render(cut(p, maxHeaderPrincipal))
 }
 
 // ModeBadge renders the mode of a session: RW, RO, or RO with a lock when a
