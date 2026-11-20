@@ -83,7 +83,7 @@ func DefaultAppKeyMap() AppKeyMap {
 		ProfilePicker: NewHintBinding([]string{"P"}, "P", "profile"),
 		RegionPicker:  NewHintBinding([]string{"R"}, "R", "region"),
 		ModePicker:    NewHintBinding([]string{"W"}, "W", "mode"),
-		EventLog:      NewHintBinding([]string{"L"}, "L", "logs"),
+		EventLog:      NewHintBinding([]string{"L"}, "L", "eventlog"),
 		CommandBar:    NewHintBinding([]string{":"}, ":", "command"),
 		Help:          NewHintBinding([]string{"?"}, "?", "help"),
 		TabToggle:     NewHintBinding([]string{"tab"}, "tab", "toggle panel focus"),

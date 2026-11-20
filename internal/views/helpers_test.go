@@ -12,10 +12,26 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/msg"
+	"github.com/juthrbog/lazycloud/internal/registry"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
 
 // Shared helpers for the view tests.
+
+// assertCoversServiceViews fails for each view of the registry that is not
+// a key of cases. A test that every list must pass calls it, so a new
+// service cannot skip the test. The views package cannot read the route
+// table of the app, so it checks the registry, which each service updates.
+func assertCoversServiceViews[V any](t *testing.T, cases map[string]V) {
+	t.Helper()
+	for _, s := range registry.Services {
+		for _, f := range s.Features {
+			if _, ok := cases[f.ViewID]; !ok {
+				t.Errorf("the view %q of %s is missing from this test", f.ViewID, s.Name)
+			}
+		}
+	}
+}
 
 // ─── Prompt requests and their replies ───────────────────────────────────────
 //

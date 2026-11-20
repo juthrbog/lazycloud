@@ -229,6 +229,7 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			return v
 		},
 	}
+	assertCoversServiceViews(t, views)
 	for name, newView := range views {
 		t.Run(name, func(t *testing.T) {
 			out := ansi.Strip(newView(t).View().Content)
@@ -251,6 +252,7 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"subnet_list":  func() tea.Model { v := newTestSubnetList("vpc-1"); return v },
 		"vpc_list":     func() tea.Model { v := newTestVPCList(); return v },
 	}
+	assertCoversServiceViews(t, views)
 	for name, newView := range views {
 		t.Run(name, func(t *testing.T) {
 			view := newView()
