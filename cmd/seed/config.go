@@ -21,9 +21,26 @@ type tiersFile struct {
 }
 
 type baseConfig struct {
-	S3  baseS3Config  `toml:"s3"`
-	EC2 baseEC2Config `toml:"ec2"`
-	SQS baseSQSConfig `toml:"sqs"`
+	S3   baseS3Config   `toml:"s3"`
+	EC2  baseEC2Config  `toml:"ec2"`
+	SQS  baseSQSConfig  `toml:"sqs"`
+	Logs baseLogsConfig `toml:"logs"`
+}
+
+type baseLogsConfig struct {
+	Groups []logGroupDef `toml:"groups"`
+}
+
+type logGroupDef struct {
+	Name          string            `toml:"name"`
+	RetentionDays int32             `toml:"retention_days"` // 0: never expire
+	Tags          map[string]string `toml:"tags"`
+	Streams       []logStreamDef    `toml:"streams"`
+}
+
+type logStreamDef struct {
+	Name   string `toml:"name"`
+	Events int    `toml:"events"`
 }
 
 type baseSQSConfig struct {
@@ -51,9 +68,15 @@ type baseEC2Config struct {
 }
 
 type tierEntry struct {
-	S3  tierS3Extras  `toml:"s3"`
-	EC2 tierEC2Extras `toml:"ec2"`
-	SQS tierSQSExtras `toml:"sqs"`
+	S3   tierS3Extras   `toml:"s3"`
+	EC2  tierEC2Extras  `toml:"ec2"`
+	SQS  tierSQSExtras  `toml:"sqs"`
+	Logs tierLogsExtras `toml:"logs"`
+}
+
+type tierLogsExtras struct {
+	ExtraGroups          int `toml:"extra_groups"`
+	StreamsPerExtraGroup int `toml:"streams_per_extra_group"`
 }
 
 type tierSQSExtras struct {
@@ -130,9 +153,16 @@ type tierEC2Extras struct {
 
 // SeedConfig is the fully resolved configuration for a seed run.
 type SeedConfig struct {
-	S3  S3SeedConfig
-	EC2 EC2SeedConfig
-	SQS SQSSeedConfig
+	S3   S3SeedConfig
+	EC2  EC2SeedConfig
+	SQS  SQSSeedConfig
+	Logs LogsSeedConfig
+}
+
+type LogsSeedConfig struct {
+	Groups               []logGroupDef
+	ExtraGroups          int
+	StreamsPerExtraGroup int
 }
 
 type SQSSeedConfig struct {
@@ -192,6 +222,11 @@ func loadConfig(tier string) (*SeedConfig, error) {
 		SQS: SQSSeedConfig{
 			Queues:      f.Base.SQS.Queues,
 			ExtraQueues: entry.SQS.ExtraQueues,
+		},
+		Logs: LogsSeedConfig{
+			Groups:               f.Base.Logs.Groups,
+			ExtraGroups:          entry.Logs.ExtraGroups,
+			StreamsPerExtraGroup: entry.Logs.StreamsPerExtraGroup,
 		},
 	}, nil
 }

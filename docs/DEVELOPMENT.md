@@ -54,7 +54,7 @@ task localstack:wipe && task localstack:seed         # fresh reseed
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--size` | `small` | Tier: `small`, `medium`, `large`, `enterprise` |
-| `--service` | all | Comma-separated filter: `s3`, `ec2`, `sqs` |
+| `--service` | all | Comma-separated filter: `s3`, `ec2`, `sqs`, `logs` |
 | `--endpoint` | `http://localhost:4566` | LocalStack endpoint. The host must be `localhost`, a loopback address, `localstack`, or a `localhost.localstack.cloud` name, unless you pass `--allow-remote` |
 | `--allow-remote` | `false` | Accept an endpoint host that is not local, for LocalStack on another machine |
 | `--region` | `us-east-1` | AWS region |

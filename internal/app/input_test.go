@@ -158,6 +158,7 @@ func TestConfirmedDeleteIsBlockedAfterSwitchToReadOnly(t *testing.T) {
 // TestMockAllServicesFillsEveryService keeps it complete.
 func mockAllServices(m *Model) {
 	m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
+	m.svc.Logs = new(awstest.MockLogsService)
 }
 
 func TestMockAllServicesFillsEveryService(t *testing.T) {

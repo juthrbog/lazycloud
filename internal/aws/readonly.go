@@ -216,3 +216,15 @@ func (g guardedSQS) CancelMessageMoveTask(ctx context.Context, taskHandle string
 	}
 	return g.SQSService.CancelMessageMoveTask(ctx, taskHandle)
 }
+
+// GuardLogs returns svc with a ReadOnly guard on every mutating method.
+// Every method of LogsService reads, so it passes each call through. A
+// write action, such as a retention change, must get a guard here.
+func GuardLogs(svc LogsService, readOnly func() bool) LogsService {
+	return guardedLogs{LogsService: svc, readOnly: readOnly}
+}
+
+type guardedLogs struct {
+	LogsService
+	readOnly func() bool
+}
