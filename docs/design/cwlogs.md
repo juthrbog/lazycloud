@@ -131,7 +131,7 @@ These are true today, and PR 0 pins them.
 
 - `PageBudget int`: the core stops after this many pages. Zero keeps today's behavior.
 - `MoreKey bool`: when the core stopped with a next token, `l` loads the next `PageBudget` pages. The footer adds the hint after its counts: "1000/1000 log groups · l for more". `l` does nothing while a load runs.
-- `FetchDetail func(ctx context.Context, item T) ([]msg.TabContent, error)`: an async detail. When it is set, `d` and a focus link open the detail, and enter goes to the view. The core keeps the block of row keys on the error screen.
+- `FetchDetail func(ctx context.Context, item T) (msg.TabbedContentMsg, error)`: an async detail. It returns the whole panel, because the panel needs a title too. When it is set, `d` and a focus link open the detail, and enter goes to the view. The core keeps the block of row keys on the error screen.
 
 These rules change for every list:
 

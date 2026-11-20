@@ -75,6 +75,19 @@ type listConfig[T any] struct {
 	OpenDetail   func(T) tea.Cmd         // enter/d and focus; nil: the keys go to the table
 	FocusMissing func(id string) tea.Cmd // focus on an ID that is not in the list; nil: do nothing
 
+	// FetchDetail builds the detail panel with AWS calls, in a tea.Cmd with
+	// callTimeout. d and a focus open it; enter goes to the view. An error
+	// gives a toast and the list stays. Not together with OpenDetail.
+	FetchDetail func(ctx context.Context, item T) (msg.TabbedContentMsg, error)
+
+	// PageBudget stops a load after this many pages, with the next token
+	// kept for MoreKey. 0: no budget. Needs MoreKey, and not Complete.
+	PageBudget int
+	// MoreKey makes l load the next PageBudget pages after a stop, and
+	// keeps the rows when a later page fails (l then tries that page
+	// again). Not together with Complete.
+	MoreKey bool
+
 	MultiSelect bool   // space selects, esc deselects first, footer "(N selected)"
 	Copy        bool   // y copies. MultiSelect: the targets. Single: the cursor key, "Copied: <key>".
 	CopyNoun    string // toast noun with MultiSelect: "Copied N <CopyNoun>(s)"
@@ -119,7 +132,20 @@ type listCore[T any] struct {
 	height       int
 	widthTier    ui.WidthTier
 	pendingFocus string // resource ID to open after the load ends
+
+	// With MoreKey: the token of the next page after a budget stop or a
+	// failed later page, and when AWS gave it. nil: the load reached the end.
+	more   *string
+	moreAt time.Time
+	chunk  int // pages since the load or the last l started
 }
+
+// listNow is the clock of the core, so tests can set the age of a token.
+var listNow = time.Now
+
+// tokenMaxAge is the age after which the core does not send a kept page
+// token. AWS page tokens of CloudWatch Logs expire after 24 hours.
+const tokenMaxAge = 23 * time.Hour
 
 // newListCore builds the core in the loading state. It panics when a
 // required config field is missing, because that is a programming error.
@@ -139,6 +165,15 @@ func newListCore[T any](cfg listConfig[T]) listCore[T] {
 	}
 	if cfg.Complete != nil && (cfg.Complete.Run == nil || cfg.Complete.Label == "" || cfg.Complete.Context == "") {
 		panic("views: listConfig.Complete needs Run, Label and Context")
+	}
+	if cfg.Complete != nil && (cfg.PageBudget > 0 || cfg.MoreKey) {
+		panic("views: listConfig.PageBudget and MoreKey do not work with Complete, which needs all pages")
+	}
+	if cfg.PageBudget > 0 && !cfg.MoreKey {
+		panic("views: listConfig.PageBudget needs MoreKey, or the rest of the list could never load")
+	}
+	if cfg.OpenDetail != nil && cfg.FetchDetail != nil {
+		panic("views: listConfig has both OpenDetail and FetchDetail")
 	}
 	c := listCore[T]{
 		cfg:       cfg,
@@ -186,7 +221,26 @@ func (c *listCore[T]) startLoad() tea.Cmd {
 	c.completing = false
 	c.refreshed = nil
 	c.running = true
+	c.more = nil
+	c.chunk = 0
 	return c.fetchCmd(nil, 1)
+}
+
+// loadMore continues the load after a budget stop or a failed later page,
+// with the kept token and the same generation, so the pages append. It
+// does nothing while a load runs, and it does not send a token that is
+// too old.
+func (c *listCore[T]) loadMore() tea.Cmd {
+	if c.running || c.more == nil {
+		return nil
+	}
+	if listNow().Sub(c.moreAt) > tokenMaxAge {
+		return func() tea.Msg { return msg.ToastError("The page token expired. Press r to load again.") }
+	}
+	c.running = true
+	c.loading = true
+	c.chunk = 0
+	return tea.Batch(c.busy(c.loadLabel()), c.fetchCmd(c.more, c.pages+1))
 }
 
 // reload starts the default load with label in the spinner. After another
@@ -236,7 +290,7 @@ func (c *listCore[T]) fetchCmd(token *string, page int) tea.Cmd {
 		if err != nil {
 			return listFailedMsg{gen: gen, err: err, context: spec.errContext}
 		}
-		return listPageMsg[T]{gen: gen, items: items, next: next, page: page}
+		return listPageMsg[T]{gen: gen, items: items, next: next, page: page, token: token}
 	}
 }
 
@@ -267,10 +321,19 @@ func (c *listCore[T]) onPage(m listPageMsg[T]) tea.Cmd {
 		c.items = append(c.items, fresh...)
 		c.table.AppendRows(c.rows(fresh))
 	}
-	if m.next == nil {
+	// A next token equal to the token of the request is the end too:
+	// GetLogEvents returns the token it got at the end of a stream.
+	if m.next == nil || (m.token != nil && *m.next == *m.token) {
+		c.more = nil
 		if c.cfg.Complete != nil {
 			return c.startComplete()
 		}
+		return c.finishLoad()
+	}
+	c.more, c.moreAt = m.next, listNow()
+	c.chunk++
+	if c.cfg.PageBudget > 0 && c.chunk >= c.cfg.PageBudget {
+		eventlog.Infof(eventlog.CatAWS, "Stopped %s after %d pages, more exist", c.cfg.Noun, c.pages)
 		return c.finishLoad()
 	}
 	eventlog.Debugf(eventlog.CatAWS, "Loaded page %d of %s (%d so far)", max(m.page, 1), c.cfg.Noun, c.loadCount())
@@ -420,6 +483,8 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 		return c.onRefreshed(m), true
 	case listFailedMsg:
 		return c.onFailed(m), true
+	case listDetailMsg:
+		return c.onDetailFetched(m), true
 	case msg.ErrorMsg:
 		if _, ok := errors.AsType[*loadError](m.Err); ok {
 			return nil, true // our own echo; listFailedMsg already applied it
@@ -454,16 +519,55 @@ func (c *listCore[T]) handle(m tea.Msg) (tea.Cmd, bool) {
 // onFailed applies a failure of the current load and turns it into the
 // msg.ErrorMsg for the app. A failure of a superseded load is dropped, so it
 // reaches neither the view nor the status bar. The pending focus is kept for
-// the next good load.
+// the next good load, except when MoreKey keeps the rows.
 func (c *listCore[T]) onFailed(m listFailedMsg) tea.Cmd {
 	if m.gen != c.loadGen {
 		eventlog.Debugf(eventlog.CatAWS, "Dropped stale %s error", m.context)
 		return nil
 	}
-	c.loading, c.running, c.completing, c.err = false, false, false, m.err
+	c.loading, c.running, c.completing = false, false, false
 	c.spinner.Hide()
 	e := msg.ErrorMsg{Err: &loadError{err: m.err}, Context: m.context}
-	return func() tea.Msg { return e }
+	errCmd := func() tea.Msg { return e }
+	if !c.cfg.MoreKey || c.pages == 0 {
+		c.err = m.err
+		return errCmd
+	}
+	// With MoreKey, a failed later page keeps the rows, and l tries the
+	// kept token again. The error goes to the status bar only. The list is
+	// usable now, so a focus that waited acts on the loaded rows at once,
+	// as a focus after a load does, and does not fire after a later l.
+	if c.pendingFocus != "" {
+		id := c.pendingFocus
+		c.pendingFocus = ""
+		return tea.Batch(errCmd, c.focus(id))
+	}
+	return errCmd
+}
+
+// detailFetch runs FetchDetail for item in a tea.Cmd with callTimeout.
+func (c *listCore[T]) detailFetch(item T) tea.Cmd {
+	fetch := c.cfg.FetchDetail
+	ctx := c.viewContext()
+	key := c.cfg.Key(item)
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Fetching details for %s", key)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		panel, err := fetch(ctx, item)
+		return listDetailMsg{panel: panel, err: err}
+	}
+}
+
+// onDetailFetched opens the panel that FetchDetail built. An error gives a
+// toast, and the list stays.
+func (c *listCore[T]) onDetailFetched(m listDetailMsg) tea.Cmd {
+	if m.err != nil {
+		eventlog.Errorf(eventlog.CatAWS, "%s details failed: %v", c.cfg.Noun, m.err)
+		return detailErrorToast(m.err)
+	}
+	panel := m.panel
+	return func() tea.Msg { return panel }
 }
 
 // onRefreshed merges the reply of a selective refresh. The items it read
@@ -693,8 +797,11 @@ func (c *listCore[T]) focus(id string) tea.Cmd {
 		return c.cfg.FocusMissing(id)
 	}
 	c.table.SetCursorByKey(c.cfg.Key(*it))
-	if c.cfg.OpenDetail == nil {
-		return nil
+	switch {
+	case c.cfg.OpenDetail != nil:
+		return c.cfg.OpenDetail(*it)
+	case c.cfg.FetchDetail != nil:
+		return c.detailFetch(*it)
 	}
-	return c.cfg.OpenDetail(*it)
+	return nil
 }
