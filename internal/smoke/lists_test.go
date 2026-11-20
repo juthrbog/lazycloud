@@ -24,6 +24,7 @@ func TestListsLoad(t *testing.T) {
 		{"subnets", "Subnets", "staging-private-1a", "1:Info"},
 		{"sqs", "SQS Queues", "notifications", "1:Info"},
 		{"s3", "S3", "logs-bucket", `"Encryption": "AES256"`},
+		{"logs", "Log Groups", "/aws/lambda/orders-api", "Delete protected"},
 	}
 	// Each list of the registry has a case, so a new service gets a smoke
 	// test with a seed resource.

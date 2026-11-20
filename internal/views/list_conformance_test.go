@@ -334,6 +334,81 @@ var conformanceCases = []conformanceCase{
 		coreType:     reflect.TypeFor[listCore[aws.Bucket]](),
 		allowMethods: []string{"CapturingInput"}, // the filter or the create input
 	},
+	{
+		name: "logs_groups",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLogsService)
+			svc.Test(t)
+			svc.On("ListLogGroupsPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.LogGroupPage{Groups: []aws.LogGroup{{Name: "/g/1"}}}, nil)
+			svc.On("ListLogGroupsPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			// d fetches the detail with the tags.
+			svc.On("ListLogGroupTags", mock.Anything, mock.Anything).Return(map[string]string{}, nil).Maybe()
+			return NewLogGroups(svc)
+		},
+		buildNil: func() nav.View { return NewLogGroups(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LogGroups).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.LogGroup]{gen: c.loadGen, items: []aws.LogGroup{{Name: "/g/1"}}, next: &tok, page: 1},
+				listPageMsg[aws.LogGroup]{gen: c.loadGen, items: []aws.LogGroup{{Name: "/g/2"}}, page: 2},
+				listPageMsg[aws.LogGroup]{gen: c.loadGen - 1, items: []aws.LogGroup{{Name: "/g/old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('v'),
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LogGroups).items {
+				ids = append(ids, it.Name)
+			}
+			return ids
+		},
+		wantIDs:  []string{"/g/1", "/g/2"},
+		rowKeys:  []string{"v"},
+		file:     "logs_groups.go",
+		typeName: "LogGroups",
+		coreType: reflect.TypeFor[listCore[aws.LogGroup]](),
+	},
+	{
+		name: "logs_streams",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLogsService)
+			svc.Test(t)
+			svc.On("ListLogStreamsPage", mock.MatchedBy(ok), "g", mock.Anything).Return(&aws.LogStreamPage{Streams: []aws.LogStream{{Name: "s1"}}}, nil)
+			svc.On("ListLogStreamsPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewLogStreams(svc, "g")
+		},
+		buildNil: func() nav.View { return NewLogStreams(nil, "g") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LogStreams).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.LogStream]{gen: c.loadGen, items: []aws.LogStream{{Name: "s1"}}, next: &tok, page: 1},
+				listPageMsg[aws.LogStream]{gen: c.loadGen, items: []aws.LogStream{{Name: "s2"}}, page: 2},
+				listPageMsg[aws.LogStream]{gen: c.loadGen - 1, items: []aws.LogStream{{Name: "s-old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LogStreams).items {
+				ids = append(ids, it.Name)
+			}
+			return ids
+		},
+		wantIDs:  []string{"s1", "s2"},
+		file:     "logs_streams.go",
+		typeName: "LogStreams",
+		coreType: reflect.TypeFor[listCore[aws.LogStream]](),
+	},
 }
 
 // replyStep stands for a prompt reply in a list of messages. The test runs
@@ -584,13 +659,15 @@ func TestListConformance_FitsTheWindow(t *testing.T) {
 // loadContexts are the msg.ErrorMsg contexts of the default loads. A nil
 // service fails like any load, with the context of the load (PR 4 to 9).
 var loadContexts = map[string]string{
-	"sg_list":     "listing security groups",
-	"vpc_list":    "listing VPCs",
-	"subnet_list": "listing subnets",
-	"ami_list":    "listing owned AMIs",
-	"ec2_list":    "listing EC2 instances",
-	"sqs_queues":  "listing SQS queues",
-	"s3_list":     "listing S3 buckets",
+	"sg_list":      "listing security groups",
+	"vpc_list":     "listing VPCs",
+	"subnet_list":  "listing subnets",
+	"ami_list":     "listing owned AMIs",
+	"ec2_list":     "listing EC2 instances",
+	"sqs_queues":   "listing SQS queues",
+	"s3_list":      "listing S3 buckets",
+	"logs_groups":  "listing log groups",
+	"logs_streams": "listing log streams",
 }
 
 // Every list of the registry runs the conformance cases.

@@ -580,7 +580,7 @@ func TestRoutes(t *testing.T) {
 	}
 	// The views below a service view go back to it after a switch.
 	for id, root := range map[string]string{
-		"s3_objects": "s3_list", "s3_versions": "s3_list", "sqs_messages": "sqs_queues",
+		"s3_objects": "s3_list", "s3_versions": "s3_list", "sqs_messages": "sqs_queues", "logs_streams": "logs_groups",
 		"eventlog": "", "content": "",
 	} {
 		assert.Equalf(t, root, routes[id].root, "the root of %q", id)

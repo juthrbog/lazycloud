@@ -56,6 +56,12 @@ var routes = map[string]route{
 	"sqs_messages": {root: "sqs_queues", build: func(m Model, p map[string]string) nav.View {
 		return views.NewSQSMessages(m.svc.SQS, p["queue_url"], p["queue_name"], p["fifo"] == "true")
 	}},
+	"logs_groups": {root: "logs_groups", build: func(m Model, _ map[string]string) nav.View {
+		return views.NewLogGroups(m.svc.Logs)
+	}},
+	"logs_streams": {root: "logs_groups", build: func(m Model, p map[string]string) nav.View {
+		return views.NewLogStreams(m.svc.Logs, p["log_group"])
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},
