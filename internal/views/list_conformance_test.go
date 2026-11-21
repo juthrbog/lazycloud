@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -526,6 +527,48 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[aws.Trigger]](),
 	},
 	{
+		name: "lambda_invocations",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLogsService)
+			svc.Test(t)
+			// The floor of the walk is now, so the load ends after one window.
+			svc.On("GetLogGroup", mock.Anything, "/aws/lambda/fn").Return(&aws.LogGroup{Name: "/aws/lambda/fn",
+				Created: time.Now().Add(logsBackfill + time.Minute)}, nil)
+			ev := aws.LogEvent{ID: "e1", Message: "REPORT RequestId: r1\tDuration: 1 ms\t"}
+			svc.On("FilterEvents", mock.MatchedBy(ok), mock.Anything).Return(&aws.EventPage{Events: []aws.LogEvent{ev}, End: true}, nil)
+			svc.On("FilterEvents", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewLambdaInvocations(svc, map[string]string{"function": "fn", "log_group": "/aws/lambda/fn"})
+		},
+		buildNil: func() nav.View {
+			return NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "/aws/lambda/fn"})
+		},
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LambdaInvocations).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[lambdaInvocation]{gen: c.loadGen, items: []lambdaInvocation{{RequestID: "r1", Parsed: true}}, next: &tok, page: 1},
+				listPageMsg[lambdaInvocation]{gen: c.loadGen, items: []lambdaInvocation{{RequestID: "r2", Parsed: true}}, page: 2},
+				listPageMsg[lambdaInvocation]{gen: c.loadGen - 1, items: []lambdaInvocation{{RequestID: "old", Parsed: true}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LambdaInvocations).items {
+				ids = append(ids, it.RequestID)
+			}
+			return ids
+		},
+		wantIDs:  []string{"r1", "r2"},
+		file:     "lambda_invocations.go",
+		typeName: "LambdaInvocations",
+		coreType: reflect.TypeFor[listCore[lambdaInvocation]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -810,19 +853,20 @@ func TestListConformance_FitsTheWindow(t *testing.T) {
 // loadContexts are the msg.ErrorMsg contexts of the default loads. A nil
 // service fails like any load, with the context of the load (PR 4 to 9).
 var loadContexts = map[string]string{
-	"sg_list":          "listing security groups",
-	"vpc_list":         "listing VPCs",
-	"subnet_list":      "listing subnets",
-	"ami_list":         "listing owned AMIs",
-	"ec2_list":         "listing EC2 instances",
-	"sqs_queues":       "listing SQS queues",
-	"s3_list":          "listing S3 buckets",
-	"logs_groups":      "listing log groups",
-	"lambda_functions": "listing functions",
-	"logs_streams":     "listing log streams",
-	"lambda_aliases":   "listing aliases",
-	"lambda_versions":  "listing versions",
-	"lambda_triggers":  "listing triggers",
+	"sg_list":            "listing security groups",
+	"vpc_list":           "listing VPCs",
+	"subnet_list":        "listing subnets",
+	"ami_list":           "listing owned AMIs",
+	"ec2_list":           "listing EC2 instances",
+	"sqs_queues":         "listing SQS queues",
+	"s3_list":            "listing S3 buckets",
+	"logs_groups":        "listing log groups",
+	"lambda_functions":   "listing functions",
+	"logs_streams":       "listing log streams",
+	"lambda_aliases":     "listing aliases",
+	"lambda_versions":    "listing versions",
+	"lambda_triggers":    "listing triggers",
+	"lambda_invocations": "listing invocations",
 }
 
 // Every list of the registry runs the conformance cases.

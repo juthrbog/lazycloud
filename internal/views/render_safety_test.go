@@ -225,6 +225,14 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			deliverItems(v, &v.listCore, []aws.Function{{Name: "fn", Version: "1", Runtime: "python3.12"}})
 			return v
 		},
+		"lambda_invocations": func(*testing.T) tea.Model {
+			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			v.Update(lambdaGroupMsg{group: &aws.LogGroup{}})
+			deliverItems(v, &v.listCore, []lambdaInvocation{parseReport(aws.LogEvent{ID: "e1", Stream: "s",
+				Message: "REPORT RequestId: r1\tDuration: 1 ms\tBilled Duration: 1 ms\tMemory Size: 128 MB\tMax Memory Used: 60 MB\t"})})
+			return v
+		},
 		"lambda_triggers": func(*testing.T) tea.Model {
 			v := NewLambdaTriggers(nil, "fn")
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -286,10 +294,15 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"lambda_aliases":   func() tea.Model { return NewLambdaAliases(nil, "fn", "g") },
 		"lambda_versions":  func() tea.Model { return NewLambdaVersions(nil, "fn", "g") },
 		"lambda_triggers":  func() tea.Model { return NewLambdaTriggers(nil, "fn") },
-		"sqs_messages":     func() tea.Model { v, _ := newTestSQSMessages(); return v },
-		"sqs_queues":       func() tea.Model { v, _ := newQueueList(); return v },
-		"subnet_list":      func() tea.Model { v := newTestSubnetList("vpc-1"); return v },
-		"vpc_list":         func() tea.Model { v := newTestVPCList(); return v },
+		"lambda_invocations": func() tea.Model {
+			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})
+			v.Update(lambdaGroupMsg{group: &aws.LogGroup{}})
+			return v
+		},
+		"sqs_messages": func() tea.Model { v, _ := newTestSQSMessages(); return v },
+		"sqs_queues":   func() tea.Model { v, _ := newQueueList(); return v },
+		"subnet_list":  func() tea.Model { v := newTestSubnetList("vpc-1"); return v },
+		"vpc_list":     func() tea.Model { v := newTestVPCList(); return v },
 	}
 	assertCoversServiceViews(t, views)
 	for name, newView := range views {

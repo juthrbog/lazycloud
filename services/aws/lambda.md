@@ -1,8 +1,6 @@
 # Lambda
 
-Browse Lambda functions with their aliases, versions and triggers, and open their logs. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/lambda.md`.
-
-The list of recent invocations comes in a later PR of that design.
+Browse Lambda functions with their aliases, versions, triggers and recent invocations, and open their logs. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/lambda.md`.
 
 ## Views
 
@@ -35,6 +33,7 @@ The list loads at most 20 pages of 50 functions (1,000 functions). When more fun
 | `a` | Open the aliases of the function |
 | `v` | Open the versions of the function |
 | `t` | Open the triggers of the function |
+| `i` | Open the recent invocations of the function |
 | `y` | Copy the ARN of the function |
 | `l` | Load more functions |
 | `/` | Filter the loaded functions |
@@ -89,6 +88,43 @@ If `GetFunctionUrlConfig` fails, for example because AWS limits the request rate
 
 The list shows only poll-based triggers. API Gateway, S3, SNS and EventBridge call the function directly and are set up on their side. An empty list says so.
 
+### Recent invocations
+
+`i` on a function opens its recent invocations. The list reads the `REPORT` lines of the log group of the function: Lambda writes one line at the end of each invocation, with its duration and its memory.
+
+| Column | Description |
+|--------|-------------|
+| Time | The time of the end of the invocation |
+| Duration | How long the invocation ran |
+| Billed | The billed duration (not on a narrow terminal) |
+| Memory | The memory used, of the memory size (not on a narrow terminal) |
+| Init | The init duration of a cold start. Empty for a warm start. |
+| Status | `ok`, `error` or `timeout`, with the error type |
+| Stream | The log stream (wide terminals) |
+
+The list reads the last hour first, newest first. One load shows at most 1,000 invocations, and `l` loads more: first the rest of the hour, then the hour before. The walk stops at the oldest time that the group can hold: 14 days before it was made, and now minus its retention.
+
+The footer counts the invocations, the cold starts and the errors, and shows the loaded span, for example `214/214 invocations · 12 cold · 3 errors · 14:02 to 15:02`.
+
+| Key | Action |
+|-----|--------|
+| `enter` | Open the log lines of the invocation: its stream, from its start to its `REPORT` line |
+| `d` | Open the detail with every field and the raw line |
+| `l` | Load older invocations |
+| `/` | Filter the loaded invocations |
+| `s`, `S` | Sort. The durations sort as numbers. |
+| `r` | Load again from the last hour |
+
+Some things to know:
+
+- **Log format:** the list reads the format in the logging settings of the function: text `REPORT` lines, or JSON `platform.report` records. After a change of the format, the older lines in the other format do not show.
+- **System log level `WARN`:** Lambda writes a report only for an invocation that failed. The footer then says "only failed invocations are logged".
+- **Max memory used:** AWS gives the maximum of the execution environment, so the value can be higher than one invocation used.
+- **No log group:** a function that never ran has none. The list then says so, in place of an error. After the first invocation, `r` looks the group up again.
+- **Shared log group:** a custom log group can hold the lines of more than one function. Lambda then names each stream `YYYY/MM/DD/<function>[<version>]<id>`, and the list keeps only the streams of this function.
+- **Retries:** Lambda retries a failed async invocation with the same request ID. Each try writes its own `REPORT` line and is its own row.
+- **Lines that do not parse:** a line that the list cannot read shows with its time and its raw text.
+
 ## API calls
 
 | Call | Used for |
@@ -99,6 +135,8 @@ The list shows only poll-based triggers. API Gateway, S3, SNS and EventBridge ca
 | `ListAliases` | The aliases of a function |
 | `ListVersionsByFunction` | The versions of a function, 50 for each page |
 | `ListEventSourceMappings` | The triggers of a function, 100 for each page |
+| `DescribeLogGroups` (CloudWatch Logs) | The log group of the invocation list: its retention, its creation, or that it does not exist |
+| `FilterLogEvents` (CloudWatch Logs) | The `REPORT` lines of the invocation list, 100 for each call |
 
 `GetFunction` has its own quota of 100 calls each second. The other calls share a quota of 15 calls each second with all users and tools of the account.
 
@@ -109,5 +147,6 @@ The list shows only poll-based triggers. API Gateway, S3, SNS and EventBridge ca
 - `lambda:GetFunctionUrlConfig` (optional: without it, the URL line shows the error)
 - `lambda:ListAliases`, `lambda:ListVersionsByFunction` and `lambda:ListEventSourceMappings` (for the three lists of a function)
 - `lambda:ListTags` (optional: without it, the Tags tab shows the reason)
+- `logs:DescribeLogGroups` and `logs:FilterLogEvents` (for the logs and the invocation list)
 
 `ListFunctions`, `ListVersionsByFunction` and `GetFunction` return the values of the environment variables to any role that may call them.
