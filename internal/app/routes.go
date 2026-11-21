@@ -80,6 +80,12 @@ var routes = map[string]route{
 	"lambda_invocations": {root: "lambda_functions", build: func(m Model, p map[string]string) nav.View {
 		return views.NewLambdaInvocations(m.svc.Logs, p)
 	}},
+	"ecs_clusters": {root: "ecs_clusters", build: func(m Model, _ map[string]string) nav.View {
+		return views.NewECSClusters(m.svc.ECS)
+	}},
+	"ecs_services": {root: "ecs_clusters", build: func(m Model, p map[string]string) nav.View {
+		return views.NewECSServices(m.svc.ECS, p["cluster"])
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},

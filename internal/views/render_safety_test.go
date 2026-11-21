@@ -233,6 +233,18 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 				Message: "REPORT RequestId: r1\tDuration: 1 ms\tBilled Duration: 1 ms\tMemory Size: 128 MB\tMax Memory Used: 60 MB\t"})})
 			return v
 		},
+		"ecs_clusters": func(*testing.T) tea.Model {
+			v := NewECSClusters(nil)
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.Cluster{testCluster})
+			return v
+		},
+		"ecs_services": func(*testing.T) tea.Model {
+			v := NewECSServices(nil, testClusterARN)
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.ClusterService{testService})
+			return v
+		},
 		"lambda_triggers": func(*testing.T) tea.Model {
 			v := NewLambdaTriggers(nil, "fn")
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -294,6 +306,8 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"lambda_aliases":   func() tea.Model { return NewLambdaAliases(nil, "fn", "g") },
 		"lambda_versions":  func() tea.Model { return NewLambdaVersions(nil, "fn", "g") },
 		"lambda_triggers":  func() tea.Model { return NewLambdaTriggers(nil, "fn") },
+		"ecs_clusters":     func() tea.Model { return NewECSClusters(nil) },
+		"ecs_services":     func() tea.Model { return NewECSServices(nil, testClusterARN) },
 		"lambda_invocations": func() tea.Model {
 			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})
 			v.Update(lambdaGroupMsg{group: &aws.LogGroup{}})

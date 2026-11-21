@@ -13,7 +13,7 @@ import (
 func TestIconFallbacksArePlainCharacters(t *testing.T) {
 	icons := map[string]ServiceIcon{
 		"S3": IconS3, "EC2": IconEC2, "Cloud": IconCloud, "Shield": IconShield,
-		"SQS": IconSQS, "Network": IconNetwork, "Logs": IconLogs, "Lambda": IconLambda,
+		"SQS": IconSQS, "Network": IconNetwork, "Logs": IconLogs, "Lambda": IconLambda, "ECS": IconECS,
 		"Running": IconRunning, "Stopped": IconStopped, "Pending": IconPending,
 	}
 	for name, icon := range icons {
@@ -24,5 +24,25 @@ func TestIconFallbacksArePlainCharacters(t *testing.T) {
 			assert.Less(t, r, rune(0x1F000), "%s fallback %q is an emoji", name, icon.Fallback)
 			assert.NotEqual(t, rune(0xFE0F), r, "%s fallback %q asks for an emoji", name, icon.Fallback)
 		}
+	}
+}
+
+// The running/desired count of an ECS service: green when equal, yellow
+// when not, and plain text that does not parse.
+func TestRatioColor(t *testing.T) {
+	assert.Equal(t, FgRender(ActiveTheme.StateRunning, "2/2"), RatioColor("2/2"))
+	assert.Equal(t, FgRender(ActiveTheme.StatePending, "1/3"), RatioColor("1/3"))
+	assert.Equal(t, FgRender(ActiveTheme.StatePending, "3/1"), RatioColor("3/1"))
+	for _, s := range []string{"?", "", "2", "a/2", "2/b"} {
+		assert.Equal(t, s, RatioColor(s))
+	}
+}
+
+func TestRolloutColor(t *testing.T) {
+	assert.Equal(t, FgRender(ActiveTheme.StateRunning, IconRunning.Icon()+" COMPLETED"), RolloutColor("COMPLETED"))
+	assert.Equal(t, FgRender(ActiveTheme.StatePending, IconPending.Icon()+" IN_PROGRESS"), RolloutColor("IN_PROGRESS"))
+	assert.Equal(t, FgRender(ActiveTheme.StateStopped, IconStopped.Icon()+" FAILED"), RolloutColor("FAILED"))
+	for _, s := range []string{"", "completed", "PRIMARY"} {
+		assert.Equal(t, s, RolloutColor(s))
 	}
 }
