@@ -79,6 +79,26 @@ func TestLambdaMissingLogGroup(t *testing.T) {
 	h.waitFor("No log group named /custom/report-builder. Lambda makes it at the first invocation of the function.")
 }
 
+// The invocation list of orders-api shows a REPORT line, and enter opens
+// the lines of that invocation in the event viewer (docs/design/lambda.md,
+// PR 5). The test writes its own line, because the seeded lines can be
+// older than the hour that the list reads first.
+func TestLambdaInvocationList(t *testing.T) {
+	requestID := putReportLine(t, "/aws/lambda/orders-api")
+
+	h := start(t, "")
+	h.open("lambda", "Lambda Functions")
+	h.filter("orders-api")
+	h.keys("i")
+	h.waitFor("orders-api invocations", " invocations · ")
+	// LocalStack returns the lines one stream after the other, so the row
+	// of the test can be anywhere. The local filter finds it by its cells.
+	h.filter("77.77 ms")
+	h.waitFor("99/256 MB")
+	h.enter()
+	h.waitFor("REPORT RequestId: " + requestID)
+}
+
 // putReportLine writes a REPORT line of now into a new stream of group,
 // and deletes the stream at the end of the test. The seeded lines can be
 // older than the last hour that the event viewer shows.
@@ -103,7 +123,9 @@ func putReportLine(t *testing.T, group string) string {
 		}
 	})
 	id := fmt.Sprintf("smoke%d", time.Now().UnixNano())
-	line := fmt.Sprintf("REPORT RequestId: %s\tDuration: 12.50 ms\tBilled Duration: 13 ms\tMemory Size: 256 MB\tMax Memory Used: 70 MB\t\n", id)
+	// The duration and the memory differ from every seeded line, so a test
+	// can find the row by its cells.
+	line := fmt.Sprintf("REPORT RequestId: %s\tDuration: 77.77 ms\tBilled Duration: 78 ms\tMemory Size: 256 MB\tMax Memory Used: 99 MB\t\n", id)
 	if _, err := logs.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
 		LogGroupName: sdkaws.String(group), LogStreamName: sdkaws.String(stream),
 		LogEvents: []types.InputLogEvent{{Timestamp: sdkaws.Int64(time.Now().UnixMilli()), Message: sdkaws.String(line)}},
