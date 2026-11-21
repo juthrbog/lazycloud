@@ -87,7 +87,7 @@ func seedLambda(ctx context.Context, api lambdaAPI, queues queueAPI, cfg LambdaS
 	}
 	for i := range cfg.ExtraFunctions {
 		f := functionDef{Name: fmt.Sprintf("generated-fn-%04d", i+1), Runtime: "python3.12"}
-		if _, err := ensureFunction(ctx, api, f, code); err != nil {
+		if err := ensureFunction(ctx, api, f, code); err != nil {
 			return err
 		}
 	}
@@ -97,11 +97,13 @@ func seedLambda(ctx context.Context, api lambdaAPI, queues queueAPI, cfg LambdaS
 // seedFunction makes one function and its versions, alias and trigger. A
 // second run adds nothing.
 func seedFunction(ctx context.Context, api lambdaAPI, queues queueAPI, f functionDef, code []byte) error {
-	created, err := ensureFunction(ctx, api, f, code)
-	if err != nil {
+	if err := ensureFunction(ctx, api, f, code); err != nil {
 		return err
 	}
-	if created || f.Versions > 0 || f.Alias != nil {
+	// Wait only when a later step changes the function. A function with no
+	// later step can stay Pending or fail: the image function fails in CI,
+	// where LocalStack cannot resolve its image, and that is fine for a list.
+	if f.Versions > 0 || f.Alias != nil || f.SQSTrigger != "" {
 		if err := waitReady(ctx, api, f.Name); err != nil {
 			return err
 		}
@@ -122,15 +124,14 @@ func seedFunction(ctx context.Context, api lambdaAPI, queues queueAPI, f functio
 	return nil
 }
 
-// ensureFunction makes the function when it does not exist. It reports
-// whether it made it.
-func ensureFunction(ctx context.Context, api lambdaAPI, f functionDef, code []byte) (bool, error) {
+// ensureFunction makes the function when it does not exist.
+func ensureFunction(ctx context.Context, api lambdaAPI, f functionDef, code []byte) error {
 	_, err := api.GetFunction(ctx, &lambda.GetFunctionInput{FunctionName: aws.String(f.Name)})
 	if err == nil {
-		return false, nil
+		return nil
 	}
 	if !lambdaNotFound(err) {
-		return false, fmt.Errorf("reading function %s: %w", f.Name, err)
+		return fmt.Errorf("reading function %s: %w", f.Name, err)
 	}
 	in := &lambda.CreateFunctionInput{
 		FunctionName:  aws.String(f.Name),
@@ -168,9 +169,9 @@ func ensureFunction(ctx context.Context, api lambdaAPI, f functionDef, code []by
 		in.LoggingConfig = lc
 	}
 	if _, err := api.CreateFunction(ctx, in); err != nil {
-		return false, fmt.Errorf("creating function %s: %w", f.Name, err)
+		return fmt.Errorf("creating function %s: %w", f.Name, err)
 	}
-	return true, nil
+	return nil
 }
 
 // waitReady waits until the function is Active and no update runs. A new

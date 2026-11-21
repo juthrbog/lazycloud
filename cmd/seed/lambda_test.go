@@ -23,6 +23,7 @@ import (
 // call that changes a function that is not ready fails.
 type fakeLambdaAPI struct {
 	fns      map[string]*fakeFn
+	failImg  bool                                // image functions fail, as on LocalStack in CI
 	aliases  map[string]*lambda.CreateAliasInput // "fn/alias"
 	mappings []lambdatypes.EventSourceMappingConfiguration
 	creates  int
@@ -31,6 +32,7 @@ type fakeLambdaAPI struct {
 }
 
 type fakeFn struct {
+	failed      bool // the function stays Failed, as an image function in CI
 	in          *lambda.CreateFunctionInput
 	desc        string
 	pending     int // reads left in Pending or InProgress
@@ -48,7 +50,8 @@ func notFound() error {
 
 func (f *fakeLambdaAPI) CreateFunction(_ context.Context, in *lambda.CreateFunctionInput, _ ...func(*lambda.Options)) (*lambda.CreateFunctionOutput, error) {
 	f.creates++
-	f.fns[aws.ToString(in.FunctionName)] = &fakeFn{in: in, desc: aws.ToString(in.Description), pending: 2}
+	f.fns[aws.ToString(in.FunctionName)] = &fakeFn{in: in, desc: aws.ToString(in.Description), pending: 2,
+		failed: f.failImg && in.PackageType == lambdatypes.PackageTypeImage}
 	return &lambda.CreateFunctionOutput{}, nil
 }
 
@@ -58,6 +61,10 @@ func (f *fakeLambdaAPI) GetFunction(_ context.Context, in *lambda.GetFunctionInp
 		return nil, notFound()
 	}
 	c := &lambdatypes.FunctionConfiguration{State: lambdatypes.StateActive, LastUpdateStatus: lambdatypes.LastUpdateStatusSuccessful}
+	if fn.failed {
+		c.State, c.StateReason = lambdatypes.StateFailed, aws.String("Error while creating lambda: APIError in Docker")
+		return &lambda.GetFunctionOutput{Configuration: c}, nil
+	}
 	if fn.pending > 0 {
 		fn.pending--
 		c.State, c.LastUpdateStatus = lambdatypes.StatePending, lambdatypes.LastUpdateStatusInProgress
@@ -204,6 +211,24 @@ func TestSeedLambdaWaitsForAFunctionThatExists(t *testing.T) {
 	require.NoError(t, seedLambda(context.Background(), api, &fakeQueueAPI{}, cfg))
 	assert.Equal(t, []string{"1"}, api.fns["fn"].versions)
 	assert.Zero(t, api.creates)
+}
+
+// In CI, LocalStack cannot resolve the image of the image function, and the
+// function fails. The seed goes on: nothing waits for that function.
+func TestSeedLambdaKeepsGoingWhenTheImageFunctionFails(t *testing.T) {
+	fastLambdaWait(t)
+	cfg, err := loadConfig("small")
+	require.NoError(t, err)
+	api := newFakeLambdaAPI()
+	api.failImg = true
+	require.NoError(t, seedLambda(context.Background(), api, &fakeQueueAPI{}, cfg.Lambda))
+	assert.True(t, api.fns["legacy-image"].failed)
+	assert.Equal(t, []string{"1", "2"}, api.fns["orders-api"].versions)
+
+	// A function that a later step changes still stops the seed when it fails.
+	bad := LambdaSeedConfig{Functions: []functionDef{{Name: "bad", ImageURI: "x", Versions: 1}}}
+	err = seedLambda(context.Background(), api, &fakeQueueAPI{}, bad)
+	require.ErrorContains(t, err, "function bad failed")
 }
 
 func TestSeedLambdaExtraFunctions(t *testing.T) {
