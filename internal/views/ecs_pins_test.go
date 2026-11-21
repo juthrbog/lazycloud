@@ -2,6 +2,7 @@ package views
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,18 +13,20 @@ import (
 )
 
 // Pin tests for the ECS design (docs/design/ecs.md). They pin the hazards as
-// they are today (TestECSHazard_*). The PR that fixes a hazard flips its test.
+// they are today (TestECSHazard_*). The PR that fixes a hazard flips its test
+// (TestECSH3_*).
 // H1, H2, H4, H5 and H13 are facts of the AWS API; PR 1, PR 4 and PR 5 test
 // them against httptest fakes. H8 to H11 are facts of AWS and LocalStack that
 // no unit test can pin. H12 is a fact of the list core that PR 3 changes with
 // tests. The AWS layer half of H6, and H7, are pinned in internal/aws.
 
-// H3, fixed in PR 2: StateColor gives no color to the ECS lifecycle states.
-// The health and rollout values get their own column styles, so they are not
-// part of this pin.
-func TestECSHazard_StateColorMissesECSStates(t *testing.T) {
+// H3, fixed in PR 2: StateColor gave no color to the ECS lifecycle states.
+// They are now yellow, as the other states between two others. The health
+// and rollout values get their own column styles (ui.RolloutColor, and the
+// health style of PR 3), so they are not part of this test.
+func TestECSH3_StateColorKnowsTheECSStates(t *testing.T) {
 	for _, s := range []string{"PROVISIONING", "DEPROVISIONING", "DRAINING", "ACTIVATING", "DEACTIVATING"} {
-		assert.Equal(t, s, ui.StateColor(s), "%s has no color", s)
+		assert.Equal(t, strings.Replace(ui.StateColor("pending"), "pending", s, 1), ui.StateColor(s), "%s looks like pending", s)
 	}
 	// The states that it knows keep their colors.
 	for _, s := range []string{"ACTIVE", "RUNNING", "PENDING", "STOPPING", "STOPPED", "FAILED", "INACTIVE"} {

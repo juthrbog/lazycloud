@@ -36,6 +36,7 @@ var (
 	IconNetwork = ServiceIcon{Nerd: "\U000f0317", Fallback: "⊞"} // nf-md-lan
 	IconLogs    = ServiceIcon{Nerd: "\U000f0219", Fallback: "¶"} // nf-md-file_document
 	IconLambda  = ServiceIcon{Nerd: "\U000f0627", Fallback: "λ"} // nf-md-lambda
+	IconECS     = ServiceIcon{Nerd: "\U000f0868", Fallback: "▣"} // nf-md-docker
 
 	// IconLock marks a session that a rule locks to ReadOnly. Its fallback
 	// makes the mode badge read RO*.
@@ -65,6 +66,41 @@ func CountColor(count string) string {
 	return FgRender(ActiveTheme.Warning, count)
 }
 
+// RatioColor colors a "running/desired" count: green when the two numbers
+// are equal, yellow when they differ. It takes the cell text, so that it can
+// be the Style of a column. Text that does not parse stays plain.
+func RatioColor(ratio string) string {
+	a, b, ok := strings.Cut(ratio, "/")
+	if !ok {
+		return ratio
+	}
+	running, err1 := strconv.Atoi(a)
+	desired, err2 := strconv.Atoi(b)
+	if err1 != nil || err2 != nil {
+		return ratio
+	}
+	if running == desired {
+		return FgRender(ActiveTheme.StateRunning, ratio)
+	}
+	return FgRender(ActiveTheme.StatePending, ratio)
+}
+
+// RolloutColor colors the rollout state of an ECS deployment: COMPLETED
+// green, IN_PROGRESS yellow and FAILED red, with the icons of StateColor.
+// Other text stays plain.
+func RolloutColor(state string) string {
+	t := ActiveTheme
+	switch state {
+	case "COMPLETED":
+		return FgRender(t.StateRunning, IconRunning.Icon()+" "+state)
+	case "IN_PROGRESS":
+		return FgRender(t.StatePending, IconPending.Icon()+" "+state)
+	case "FAILED":
+		return FgRender(t.StateStopped, IconStopped.Icon()+" "+state)
+	}
+	return state
+}
+
 // StateColor returns a styled state string with the appropriate color and
 // icon. It compares without case, so the capitalized states of Lambda and
 // of event source mappings ("Active", "Enabled") get a color too. The text
@@ -77,7 +113,9 @@ func StateColor(state string) string {
 	case "stopped", "terminated", "deleted", "failed", "unavailable", "disabled":
 		return FgRender(t.StateStopped, IconStopped.Icon()+" "+state)
 	case "pending", "starting", "stopping", "shutting-down", "creating",
-		"inprogress", "enabling", "updating", "disabling":
+		"inprogress", "enabling", "updating", "disabling",
+		// The lifecycle states of ECS clusters, services and tasks.
+		"provisioning", "activating", "draining", "deactivating", "deprovisioning":
 		return FgRender(t.StatePending, IconPending.Icon()+" "+state)
 	case "inactive":
 		return FgRender(t.Muted, IconStopped.Icon()+" "+state)

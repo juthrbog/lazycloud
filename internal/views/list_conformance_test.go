@@ -569,6 +569,79 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[lambdaInvocation]](),
 	},
 	{
+		name: "ecs_clusters",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockECSService)
+			svc.Test(t)
+			svc.On("ListClustersPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.ClusterPage{Clusters: []aws.Cluster{{Name: "c1", ARN: "arn:c1"}}}, nil)
+			svc.On("ListClustersPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewECSClusters(svc)
+		},
+		buildNil: func() nav.View { return NewECSClusters(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*ECSClusters).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Cluster]{gen: c.loadGen, items: []aws.Cluster{{Name: "c1", ARN: "arn:c1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Cluster]{gen: c.loadGen, items: []aws.Cluster{{Name: "c2", ARN: "arn:c2"}}, page: 2},
+				listPageMsg[aws.Cluster]{gen: c.loadGen - 1, items: []aws.Cluster{{Name: "old", ARN: "arn:old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*ECSClusters).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:c1", "arn:c2"},
+		rowKeys:  []string{"enter"},
+		file:     "ecs_clusters.go",
+		typeName: "ECSClusters",
+		coreType: reflect.TypeFor[listCore[aws.Cluster]](),
+	},
+	{
+		name: "ecs_services",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockECSService)
+			svc.Test(t)
+			svc.On("ListServicesPage", mock.MatchedBy(ok), "arn:c", mock.Anything).Return(&aws.ServicePage{Services: []aws.ClusterService{{Name: "s1", ARN: "arn:s1"}}}, nil)
+			svc.On("ListServicesPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewECSServices(svc, "arn:c")
+		},
+		buildNil: func() nav.View { return NewECSServices(nil, "arn:c") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*ECSServices).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.ClusterService]{gen: c.loadGen, items: []aws.ClusterService{{Name: "s1", ARN: "arn:s1"}}, next: &tok, page: 1},
+				listPageMsg[aws.ClusterService]{gen: c.loadGen, items: []aws.ClusterService{{Name: "s2", ARN: "arn:s2"}}, page: 2},
+				listPageMsg[aws.ClusterService]{gen: c.loadGen - 1, items: []aws.ClusterService{{Name: "old", ARN: "arn:old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*ECSServices).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:s1", "arn:s2"},
+		rowKeys:  []string{"enter"},
+		file:     "ecs_services.go",
+		typeName: "ECSServices",
+		coreType: reflect.TypeFor[listCore[aws.ClusterService]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -867,6 +940,8 @@ var loadContexts = map[string]string{
 	"lambda_versions":    "listing versions",
 	"lambda_triggers":    "listing triggers",
 	"lambda_invocations": "listing invocations",
+	"ecs_clusters":       "listing clusters",
+	"ecs_services":       "listing services",
 }
 
 // Every list of the registry runs the conformance cases.

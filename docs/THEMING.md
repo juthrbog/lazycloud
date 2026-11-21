@@ -70,8 +70,6 @@ This creates clear visual hierarchy without being distracting. The user should a
 
 | Service    | Nerd Font             | Unicode Fallback |
 | ---------- | --------------------- | ---------------- |
-| Lambda     | Lambda symbol         | `λ`              |
-| ECS        | Container icon        | `⊟`              |
 | IAM        | Lock icon             | `⊠`              |
 | RDS        | Database icon         | `⊡`              |
 | CloudWatch | Chart/graph icon      | `◔`              |
