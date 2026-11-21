@@ -26,15 +26,21 @@ const lambdaHidden = "••••"
 
 // lambdaKeys are the keys of the function list that the core does not have.
 var lambdaKeys = struct {
-	Logs    ui.HintBinding
-	Details ui.HintBinding
-	Env     ui.HintBinding
-	CopyARN ui.HintBinding
+	Logs     ui.HintBinding
+	Details  ui.HintBinding
+	Env      ui.HintBinding
+	CopyARN  ui.HintBinding
+	Aliases  ui.HintBinding
+	Versions ui.HintBinding
+	Triggers ui.HintBinding
 }{
-	Logs:    ui.NewHintBinding([]string{"enter"}, "enter", "logs"),
-	Details: ui.NewHintBinding([]string{"d"}, "d", "details"),
-	Env:     ui.NewHintBinding([]string{"$"}, "$", "details with env values"),
-	CopyARN: ui.NewHintBinding([]string{"y"}, "y", "copy ARN"),
+	Logs:     ui.NewHintBinding([]string{"enter"}, "enter", "logs"),
+	Details:  ui.NewHintBinding([]string{"d"}, "d", "details"),
+	Env:      ui.NewHintBinding([]string{"$"}, "$", "details with env values"),
+	CopyARN:  ui.NewHintBinding([]string{"y"}, "y", "copy ARN"),
+	Aliases:  ui.NewHintBinding([]string{"a"}, "a", "aliases"),
+	Versions: ui.NewHintBinding([]string{"v"}, "v", "versions"),
+	Triggers: ui.NewHintBinding([]string{"t"}, "t", "triggers"),
 }
 
 // LambdaFunctions displays the Lambda functions.
@@ -59,7 +65,7 @@ func NewLambdaFunctions(svc aws.LambdaService) *LambdaFunctions {
 		Fetch:        fetchPages(svc, aws.LambdaService.ListFunctionsPage, splitFunctionPage),
 		FetchTimeout: callTimeout,
 		FetchDetail: func(ctx context.Context, f aws.Function) (msg.TabbedContentMsg, error) {
-			return lambdaDetail(ctx, svc, f, false)
+			return lambdaDetail(ctx, svc, f, "", false)
 		},
 		PageBudget: lambdaPageBudget,
 		MoreKey:    true,
@@ -75,7 +81,8 @@ func (v *LambdaFunctions) Footer() string { return v.footer() }
 func (v *LambdaFunctions) View() tea.View { return tea.NewView(v.render("", "")) }
 
 func (v *LambdaFunctions) KeyMap() []ui.HintBinding {
-	return v.hints(lambdaKeys.Logs, lambdaKeys.Details, lambdaKeys.Env, lambdaKeys.CopyARN, listKeys.More,
+	return v.hints(lambdaKeys.Logs, lambdaKeys.Details, lambdaKeys.Env, lambdaKeys.Aliases, lambdaKeys.Versions,
+		lambdaKeys.Triggers, lambdaKeys.CopyARN, listKeys.More,
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
@@ -90,6 +97,12 @@ func (v *LambdaFunctions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return v, navigate("logs_events", map[string]string{"log_group": it.LogGroupName()})
 		case key.Matches(k, lambdaKeys.Env.Binding):
 			return v, v.revealDetail(*it)
+		case key.Matches(k, lambdaKeys.Aliases.Binding):
+			return v, navigate("lambda_aliases", lambdaChildParams(*it))
+		case key.Matches(k, lambdaKeys.Versions.Binding):
+			return v, navigate("lambda_versions", lambdaChildParams(*it))
+		case key.Matches(k, lambdaKeys.Triggers.Binding):
+			return v, navigate("lambda_triggers", lambdaChildParams(*it))
 		}
 	}
 	return v, v.update(m)
@@ -103,7 +116,7 @@ func (v *LambdaFunctions) revealDetail(f aws.Function) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(ctx, callTimeout)
 		defer cancel()
-		d, err := lambdaDetail(ctx, svc, f, true)
+		d, err := lambdaDetail(ctx, svc, f, "", true)
 		if err != nil {
 			// ErrorText reads only the local AWS config files, so it needs
 			// no request context.
@@ -200,22 +213,33 @@ func lambdaRuntimeText(f aws.Function) string {
 
 // lambdaDetail builds the detail of a function with GetFunction and
 // GetFunctionURL. A failure of GetFunctionURL shows on the URL line, and
-// the panel still opens. With reveal, the Environment tab comes first and
-// shows the values.
-func lambdaDetail(ctx context.Context, svc aws.LambdaService, f aws.Function, reveal bool) (msg.TabbedContentMsg, error) {
+// the panel still opens. With a qualifier (a version), it reads that
+// version and leaves out the URL, which belongs to the function. With
+// reveal, the Environment tab comes first and shows the values.
+func lambdaDetail(ctx context.Context, svc aws.LambdaService, f aws.Function, qualifier string, reveal bool) (msg.TabbedContentMsg, error) {
 	if svc == nil {
 		return msg.TabbedContentMsg{}, errNoClient
 	}
-	d, err := svc.GetFunction(ctx, f.Name, "")
+	d, err := svc.GetFunction(ctx, f.Name, qualifier)
 	if err != nil {
 		return msg.TabbedContentMsg{}, err
 	}
+	title := f.Name
+	if qualifier != "" {
+		title += ":" + qualifier
+	}
 	urlText := ""
-	switch u, err := svc.GetFunctionURL(ctx, f.Name); {
-	case err != nil:
+	var u *aws.FunctionURL
+	var urlErr error
+	if qualifier == "" {
+		u, urlErr = svc.GetFunctionURL(ctx, f.Name)
+	}
+	switch {
+	case qualifier != "":
+	case urlErr != nil:
 		// ErrorText reads only the local AWS config files, so it needs no
 		// request context.
-		urlText = "failed: " + aws.ErrorText(err) //nolint:contextcheck // see above
+		urlText = "failed: " + aws.ErrorText(urlErr) //nolint:contextcheck // see above
 	case u != nil:
 		urlText = fmt.Sprintf("%s (auth %s)", u.URL, u.AuthType)
 	default:
@@ -238,7 +262,7 @@ func lambdaDetail(ctx context.Context, svc aws.LambdaService, f aws.Function, re
 	case len(d.Tags) > 0:
 		tabs = append(tabs, msg.TabContent{Title: "Tags", Content: buildTagsContent(d.Tags), Format: "text"})
 	}
-	return msg.TabbedContentMsg{PanelTitle: f.Name, Tabs: tabs}, nil
+	return msg.TabbedContentMsg{PanelTitle: title, Tabs: tabs}, nil
 }
 
 func lambdaInfo(d *aws.FunctionDetail, urlText string) []infoField {
@@ -277,6 +301,7 @@ func lambdaInfo(d *aws.FunctionDetail, urlText string) []infoField {
 	return []infoField{
 		{K: "Name", V: d.Name},
 		{K: "ARN", V: d.ARN},
+		{K: "Version", V: d.Version},
 		{K: "State", V: state},
 		{K: "Last update", V: update},
 		{K: "Description", V: d.Description},

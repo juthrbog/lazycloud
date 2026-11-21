@@ -307,7 +307,7 @@ Home
 ├── CloudWatch
 │   └── Log Groups       (list → events, or streams → events; detail with tabs: Info / Tags)
 └── Lambda
-    └── Functions        (list → logs; detail with tabs: Info / Environment / Network / Tags)
+    └── Functions        (list → logs, aliases, versions, triggers; detail with tabs: Info / Environment / Network / Tags)
 ```
 
 A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. A log group always shows its Tags tab, because its tags come from a separate call that can fail, and the tab then shows the error. A Lambda function shows its Tags tab also when AWS says why it sent no tags. New services follow the same structure. These services are planned:
@@ -315,7 +315,7 @@ A Tags tab shows only when the resource has tags, and an IPv6 tab only when it h
 ```
 Home
 ├── Lambda
-│   ├── Aliases, versions, triggers and invocations of a function (docs/design/lambda.md)
+│   ├── Recent invocations of a function (docs/design/lambda.md)
 │   └── Layers           (list → detail)
 ├── ECS
 │   ├── Clusters         (list → services → tasks)
