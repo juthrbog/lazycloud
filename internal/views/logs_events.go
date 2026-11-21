@@ -150,6 +150,7 @@ var logsEventKeys = struct {
 	Visual  ui.HintBinding
 	Wrap    ui.HintBinding
 	Follow  ui.HintBinding
+	Tail    ui.HintBinding
 }{
 	Older:   ui.NewHintBinding([]string{"l"}, "l", "older events"),
 	Pattern: ui.NewHintBinding([]string{"f"}, "f", "filter pattern (AWS)"),
@@ -161,6 +162,7 @@ var logsEventKeys = struct {
 	Visual:  ui.NewHintBinding([]string{"V"}, "V", "select lines"),
 	Wrap:    ui.NewHintBinding([]string{"w"}, "w", "wrap"),
 	Follow:  ui.NewHintBinding([]string{"G"}, "G", "end and follow"),
+	Tail:    ui.NewHintBinding([]string{"F"}, "F", "live tail"),
 }
 
 // logQuery is what a query asks for: the range and the filter pattern.
@@ -202,6 +204,16 @@ type LogEvents struct {
 	oldestMsgs map[string]bool // the messages of the events at oldest
 	seen       map[string]bool // the event IDs of the last two loads
 	seenPrev   map[string]bool
+	// head holds the newest events that the view shows: the first load,
+	// and the events of the poll (see headKey). The poll does not show
+	// them again, also in a later poll session. A new query clears it.
+	head map[string]time.Time
+	// lookingUp is true while the group lookup runs. replacing is true
+	// while the load of a new query runs.
+	lookingUp, replacing bool
+
+	tail        tailState
+	tailCovered bool // another view stopped live tail; say so on the way back
 
 	width, height int
 }
@@ -271,7 +283,11 @@ func (v *LogEvents) Restyle() { v.lv.Restyle() }
 
 func (v *LogEvents) KeyMap() []ui.HintBinding {
 	k := logsEventKeys
-	return []ui.HintBinding{k.Older, k.Pattern, k.Local, k.Range, k.Reload, k.Open, k.Copy, k.Visual, k.Wrap, k.Follow}
+	tail := k.Tail
+	if v.tail.mode != tailOff {
+		tail = ui.NewHintBinding([]string{"F"}, "F", "stop live tail")
+	}
+	return []ui.HintBinding{tail, k.Older, k.Pattern, k.Local, k.Range, k.Reload, k.Open, k.Copy, k.Visual, k.Wrap, k.Follow}
 }
 
 func (v *LogEvents) Init() tea.Cmd {
@@ -289,7 +305,7 @@ func (v *LogEvents) Init() tea.Cmd {
 // retention.
 func (v *LogEvents) lookup() tea.Cmd {
 	svc, ctx, name := v.logs, v.viewContext(), v.groupName
-	v.loading = true
+	v.loading, v.lookingUp = true, true
 	return func() tea.Msg {
 		if svc == nil {
 			return logsGroupMsg{err: errNoClient}
@@ -302,7 +318,7 @@ func (v *LogEvents) lookup() tea.Cmd {
 }
 
 func (v *LogEvents) onGroup(m logsGroupMsg) tea.Cmd {
-	v.loading = false
+	v.loading, v.lookingUp = false, false
 	switch {
 	case errors.Is(m.err, aws.ErrLogGroupNotFound):
 		v.notFound = true
@@ -359,6 +375,8 @@ func (v *LogEvents) query(rng logRange, pattern string) tea.Cmd {
 	now := logsNow()
 	filter := v.stream == "" || pattern != ""
 	w := eventWalk{rng: rng, pattern: pattern, filter: filter}
+	// A new query replaces the lines, also the lines of live tail.
+	cmds := []tea.Cmd{v.stopTailFor()}
 	if rng.custom() {
 		w.winStart, w.winEnd, w.spanEnd = rng.start, rng.end, rng.end
 		if !filter {
@@ -370,7 +388,6 @@ func (v *LogEvents) query(rng logRange, pattern string) tea.Cmd {
 		// not hide the newest events.
 		w.winStart, w.spanEnd = now.Add(-rng.dur), now
 	}
-	var cmds []tea.Cmd
 	if f := v.floor(filter, now); w.winStart.Before(f) {
 		if rng.custom() && filter && rng.start.Before(logsEpoch) {
 			cmds = append(cmds, toastCmd(msg.ToastInfo("AWS reads newest events first only from 2024-01-01, so the range starts there")))
@@ -392,8 +409,8 @@ func (v *LogEvents) query(rng logRange, pattern string) tea.Cmd {
 func (v *LogEvents) reset(w eventWalk) {
 	v.lv.Clear()
 	v.walk = w
-	v.loaded, v.full, v.loading = true, false, false
-	v.oldest, v.oldestMsgs, v.seen, v.seenPrev = time.Time{}, nil, nil, nil
+	v.loaded, v.full, v.loading, v.replacing = true, false, false, false
+	v.oldest, v.oldestMsgs, v.seen, v.seenPrev, v.head = time.Time{}, nil, nil, nil, nil
 	v.lv.SetEmptyText("No events")
 }
 
@@ -401,7 +418,7 @@ func (v *LogEvents) reset(w eventWalk) {
 // logsLoadPages pages, until the window ends.
 func (v *LogEvents) load(w eventWalk, replace bool) tea.Cmd {
 	v.gen++
-	v.loading = true
+	v.loading, v.replacing = true, replace
 	gen, svc, ctx := v.gen, v.logs, v.viewContext()
 	group, stream := v.groupName, v.stream
 	return func() tea.Msg {
@@ -451,7 +468,7 @@ func (v *LogEvents) onEvents(m logsEventsMsg) tea.Cmd {
 	if m.gen != v.gen {
 		return nil
 	}
-	v.loading = false
+	v.loading, v.replacing = false, false
 	var cmds []tea.Cmd
 	if m.err != nil {
 		err := m.err
@@ -473,6 +490,9 @@ func (v *LogEvents) onEvents(m logsEventsMsg) tea.Cmd {
 	}
 	v.walk = m.walk
 	lines := v.take(m.events)
+	if m.replace {
+		v.noteHead(lines)
+	}
 	if n := v.lv.Prepend(lines); n < len(lines) || (len(lines) > 0 && v.lv.Dropped() > 0) {
 		v.full = true
 	}
@@ -480,6 +500,20 @@ func (v *LogEvents) onEvents(m logsEventsMsg) tea.Cmd {
 		v.walk.atStart = true
 	}
 	return tea.Batch(cmds...)
+}
+
+// noteHead keeps the newest lines of a first load, for the poll.
+func (v *LogEvents) noteHead(lines []ui.LogLine) {
+	keep := logsNow().Add(-logsPollKeep)
+	for _, l := range slices.Backward(lines) {
+		if l.Time.Before(keep) {
+			break
+		}
+		if v.head == nil {
+			v.head = map[string]time.Time{}
+		}
+		v.head[headKey(l.ID, l.Time, l.Message)] = l.Time
+	}
 }
 
 // take sorts the events by time and event ID, drops the events that the
@@ -594,6 +628,14 @@ func (v *LogEvents) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		return v, v.onGroup(m)
 	case logsEventsMsg:
 		return v, v.onEvents(m)
+	case logsTailStartMsg:
+		return v, v.onTailStart(m)
+	case logsTailUpdateMsg:
+		return v, v.onTailUpdate(m)
+	case logsPollMsg:
+		return v, v.onPoll(m)
+	case logsPollTickMsg:
+		return v, v.onPollTick(m)
 	case msg.ErrorMsg:
 		return v, nil // the echo of an error of the viewer; the status bar shows it
 	case ui.LogLineOpenedMsg:
@@ -648,6 +690,8 @@ func (v *LogEvents) key(m tea.KeyPressMsg) tea.Cmd {
 		return func() tea.Msg { return msg.NavigateBackMsg{} }
 	case key.Matches(m, logsEventKeys.Older.Binding):
 		return v.older()
+	case key.Matches(m, logsEventKeys.Tail.Binding):
+		return v.toggleTail()
 	case key.Matches(m, logsEventKeys.Reload.Binding):
 		return v.query(v.want.rng, v.want.pattern)
 	case key.Matches(m, logsEventKeys.Pattern.Binding):
@@ -825,10 +869,14 @@ func (v *LogEvents) View() tea.View {
 	return tea.NewView(b.String())
 }
 
-// header names the range, the zone and the pattern:
-// "last 1h · UTC-05:00 · filter: ERROR".
+// header names live tail, the range, the zone and the pattern:
+// "LIVE 02:13 · last 1h · UTC-05:00 · filter: ERROR".
 func (v *LogEvents) header() string {
-	parts := []string{v.want.rng.label(), logZone(logsNow())}
+	var parts []string
+	if t := v.tailHeader(); t != "" {
+		parts = append(parts, t)
+	}
+	parts = append(parts, v.want.rng.label(), logZone(logsNow()))
 	if v.want.pattern != "" {
 		parts = append(parts, "filter: "+v.want.pattern)
 	}
@@ -874,6 +922,9 @@ func (v *LogEvents) Footer() string {
 		s += " · start of " + noun
 	default:
 		s += " · l for older"
+	}
+	if v.tail.mode == tailLive && v.tail.sampled {
+		s += " · AWS shows a sample above 500 events each second"
 	}
 	return s
 }

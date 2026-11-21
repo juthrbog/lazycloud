@@ -206,6 +206,13 @@ func (lv *LogView) SetEmptyText(s string) { lv.emptyText = Sanitize(s) }
 // cursor to the end when it is on the last line.
 func (lv *LogView) SetFollow(v bool) { lv.follow = v }
 
+// FollowEnd moves the cursor to the last line and turns follow on, as G
+// does.
+func (lv *LogView) FollowEnd() {
+	lv.follow = true
+	lv.moveTo(lv.count() - 1)
+}
+
 // Following reports whether follow is on.
 func (lv *LogView) Following() bool { return lv.follow }
 

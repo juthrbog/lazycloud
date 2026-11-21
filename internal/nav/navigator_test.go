@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
@@ -120,4 +121,49 @@ func (v *trackingView) Update(tea.Msg) (tea.Model, tea.Cmd) {
 		v.onUpdate()
 	}
 	return v, nil
+}
+
+// coverView records the calls of Coverable.
+type coverView struct {
+	stubView
+	covered, uncovered int
+}
+
+type uncoveredMsg struct{}
+
+func (v *coverView) Covered() { v.covered++ }
+func (v *coverView) Uncovered() tea.Cmd {
+	v.uncovered++
+	return func() tea.Msg { return uncoveredMsg{} }
+}
+
+// A push covers the view below. A pop that makes it the top again
+// uncovers it, and returns its command, tagged with the view.
+func TestCoverable(t *testing.T) {
+	root := &coverView{stubView: stubView{id: "root"}}
+	n := New(root)
+	assert.Zero(t, root.covered, "the root is not covered at the start")
+
+	n.Push(stubView{id: "a"})
+	n.Push(stubView{id: "b"})
+	assert.Equal(t, 1, root.covered, "only the top is covered by a push")
+
+	assert.Nil(t, n.PopTo(5), "no pop, no command")
+	assert.Nil(t, n.Pop(), "a is not Coverable")
+	assert.Zero(t, root.uncovered)
+
+	cmd := n.Pop()
+	require.NotNil(t, cmd)
+	assert.Equal(t, 1, root.uncovered)
+	assert.Equal(t, Routed{Origin: root, Msg: uncoveredMsg{}}, cmd())
+
+	assert.Nil(t, n.Pop(), "the root stays")
+	assert.Equal(t, 1, root.uncovered)
+
+	// PopTo over several views uncovers once.
+	n.Push(stubView{id: "c"})
+	n.Push(stubView{id: "d"})
+	assert.NotNil(t, n.PopTo(1))
+	assert.Equal(t, 2, root.covered)
+	assert.Equal(t, 2, root.uncovered)
 }

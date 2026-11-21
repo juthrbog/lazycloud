@@ -27,6 +27,8 @@ A view that leaves the stack is gone. The navigator does not keep it. When the u
 
 Each view on the stack has its own context. If the view implements `nav.ContextSetter`, the navigator gives it the context before `Init`. The navigator cancels the context when the view leaves the stack, and `Close()` cancels the contexts of all views when the app replaces the navigator. See [AWS Calls](#aws-calls-time-limits-and-cancel).
 
+A view that another view covers stays on the stack, and its loads keep running. A view that must stop work while it is covered implements `nav.Coverable`. The navigator calls `Covered()` when it pushes a view on top, and `Uncovered()` when a pop makes the view the top again. `Pop` and `PopTo` return the command of `Uncovered`, and the app runs it. The log event viewer uses this to stop live tail, which AWS bills each minute. The side panel, the help and the pickers are not on the stack, so they do not cover a view.
+
 ### Message Flow
 
 All side effects (AWS API calls, clipboard, file I/O) happen in `tea.Cmd` goroutines that return messages. Views never mutate state directly — they emit messages like `NavigateMsg`, `ToastMsg`, or `RequestConfirmMsg` that the app routes.

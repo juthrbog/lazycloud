@@ -319,12 +319,10 @@ func (r *recordingHTTP) Do(req *http.Request) (*http.Response, error) {
 	return nil, errRecorded
 }
 
-// H5 of docs/design/cwlogs.md: with an endpoint override, StartLiveTail
-// goes to the endpoint host with "stream-" in front, which does not
-// resolve for LocalStack. PR 6 turns the prefix off for that call. Other
-// calls go to the endpoint host as it is.
-func TestLogsHazard_LiveTailHostPrefixWithEndpoint(t *testing.T) {
-	// Keep the developer's AWS setup out of the test.
+// testClient returns a client with test credentials, kept away from the
+// AWS setup of the developer.
+func testClient(t *testing.T, endpoint string) *Client {
+	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
 	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
@@ -332,16 +330,26 @@ func TestLogsHazard_LiveTailHostPrefixWithEndpoint(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "test")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
 	t.Setenv("AWS_MAX_ATTEMPTS", "1")
-	c, err := NewClient("", "us-east-1", "http://localhost:4566")
+	c, err := NewClient("", "us-east-1", endpoint)
 	require.NoError(t, err)
+	return c
+}
+
+// H5 of docs/design/cwlogs.md, fixed in PR 6: with an endpoint override,
+// the SDK sends StartLiveTail to the endpoint host with "stream-" in
+// front, which does not resolve for LocalStack. StartLiveTail turns the
+// prefix off for that call, so it goes to the endpoint host as the other
+// calls do.
+func TestLogsHazard_LiveTailHostPrefixWithEndpoint(t *testing.T) {
+	c := testClient(t, "http://localhost:4566")
 	rec := &recordingHTTP{}
 	c.Config.HTTPClient = rec
 
-	_, err = c.LogsClient().StartLiveTail(context.Background(), &cloudwatchlogs.StartLiveTailInput{
-		LogGroupIdentifiers: []string{"arn:aws:logs:us-east-1:000000000000:log-group:/g"},
+	_, err := NewLogsService(c).StartLiveTail(context.Background(), TailQuery{
+		GroupARN: "arn:aws:logs:us-east-1:000000000000:log-group:/g",
 	})
 	require.ErrorIs(t, err, errRecorded)
 	_, err = c.LogsClient().DescribeLogGroups(context.Background(), &cloudwatchlogs.DescribeLogGroupsInput{})
 	require.ErrorIs(t, err, errRecorded)
-	assert.Equal(t, []string{"stream-localhost:4566", "localhost:4566"}, rec.hosts)
+	assert.Equal(t, []string{"localhost:4566", "localhost:4566"}, rec.hosts)
 }

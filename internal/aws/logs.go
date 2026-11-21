@@ -21,6 +21,7 @@ type LogsService interface {
 	GetStreamEvents(ctx context.Context, q EventQuery) (*EventPage, error)
 	FilterEvents(ctx context.Context, q EventQuery) (*EventPage, error)
 	ListLogGroupTags(ctx context.Context, arn string) (map[string]string, error)
+	StartLiveTail(ctx context.Context, q TailQuery) (LiveTail, error)
 }
 
 // LogsServiceImpl is the real AWS-backed implementation of LogsService.

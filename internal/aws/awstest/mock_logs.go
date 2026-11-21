@@ -45,6 +45,12 @@ func (m *MockLogsService) FilterEvents(ctx context.Context, q aws.EventQuery) (*
 	return val, args.Error(1)
 }
 
+func (m *MockLogsService) StartLiveTail(ctx context.Context, q aws.TailQuery) (aws.LiveTail, error) {
+	args := m.Called(ctx, q)
+	val, _ := args.Get(0).(aws.LiveTail)
+	return val, args.Error(1)
+}
+
 func (m *MockLogsService) ListLogGroupTags(ctx context.Context, arn string) (map[string]string, error) {
 	args := m.Called(ctx, arn)
 	val, _ := args.Get(0).(map[string]string)

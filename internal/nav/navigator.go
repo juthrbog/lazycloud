@@ -34,6 +34,16 @@ type ContextSetter interface {
 	SetContext(ctx context.Context)
 }
 
+// Coverable is implemented by views that must know when another view
+// covers them, for example to stop a stream that AWS bills each minute.
+// The navigator calls Covered when it pushes a view on top of the view, and
+// Uncovered when a pop makes the view the top again. The side panel, the
+// help and the pickers are not on the stack, so they do not cover a view.
+type Coverable interface {
+	Covered()
+	Uncovered() tea.Cmd
+}
+
 // Navigator manages a stack of views. Each view on the stack has its own
 // context (see ContextSetter). A view that leaves the stack is gone: its
 // context is cancelled and its late results are dropped. Navigating to the
@@ -130,7 +140,11 @@ func isRuntimeMsg(m tea.Msg) bool {
 }
 
 // Push adds a view to the stack, gives it a context, and runs its Init.
+// It tells the view below that it is covered (see Coverable).
 func (n *Navigator) Push(v View) tea.Cmd {
+	if c, ok := n.Current().(Coverable); ok {
+		c.Covered()
+	}
 	n.push(v)
 	return Tag(v, v.Init())
 }
@@ -196,19 +210,21 @@ func (n *Navigator) update(i int, msg tea.Msg) tea.Cmd {
 	return Tag(uv, cmd)
 }
 
-// Pop removes the top view, cancels its context, and returns the view
-// below it.
-func (n *Navigator) Pop() View {
-	if len(n.stack) > 1 {
-		n.PopTo(len(n.stack) - 1)
-	}
-	return n.Current()
+// Pop removes the top view and cancels its context. It returns the
+// command of Uncovered of the view below it (see Coverable), or nil.
+func (n *Navigator) Pop() tea.Cmd {
+	return n.PopTo(len(n.stack) - 1)
 }
 
 // PopTo removes views from the top until depth views are left and cancels
-// their contexts. The root view always stays.
-func (n *Navigator) PopTo(depth int) {
+// their contexts. The root view always stays. When it removes a view, it
+// tells the new top that it is uncovered and returns the tagged command of
+// Uncovered, or nil.
+func (n *Navigator) PopTo(depth int) tea.Cmd {
 	depth = max(1, min(depth, len(n.stack)))
+	if depth == len(n.stack) {
+		return nil
+	}
 	for i := len(n.stack) - 1; i >= depth; i-- {
 		n.cancels[i]()
 	}
@@ -218,6 +234,10 @@ func (n *Navigator) PopTo(depth int) {
 	n.stack = n.stack[:depth]
 	n.ctxs = n.ctxs[:depth]
 	n.cancels = n.cancels[:depth]
+	if c, ok := n.Current().(Coverable); ok {
+		return Tag(n.Current(), c.Uncovered())
+	}
+	return nil
 }
 
 // Close cancels the context of every view. Call it when the app replaces

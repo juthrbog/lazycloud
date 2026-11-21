@@ -270,6 +270,22 @@ func TestLogViewFollowNeedsTheCursorOnTheLastLine(t *testing.T) {
 	assert.Equal(t, "line 3", selectedMsg(t, &lv))
 }
 
+// FollowEnd moves to the last line and turns follow on, so the next lines
+// move the cursor. With no lines, it only turns follow on.
+func TestLogViewFollowEnd(t *testing.T) {
+	lv := newTestLogView(80, 6)
+	lv.FollowEnd()
+	assert.True(t, lv.Following())
+	lv.Append(logLines(0, 5))
+	pressLog(&lv, keyK, keyK)
+	require.False(t, lv.Following())
+	lv.FollowEnd()
+	assert.True(t, lv.Following())
+	assert.Equal(t, "line 4", selectedMsg(t, &lv))
+	lv.Append(logLines(5, 1))
+	assert.Equal(t, "line 5", selectedMsg(t, &lv))
+}
+
 func TestLogViewMoves(t *testing.T) {
 	lv := newTestLogView(80, 11) // 10 rows for lines
 	lv.Append(logLines(0, 40))
