@@ -164,9 +164,10 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 | SQS | `\U000f01ee` | `≡` | SQS service |
 | Network | `\U000f0317` | `⊞` | VPCs and subnets |
 | Logs | `\U000f0219` | `¶` | CloudWatch Logs |
-| Running | `\U000f012c` | `●` | State: running/available |
-| Stopped | `\U000f0156` | `○` | State: stopped/terminated |
-| Pending | `\U000f0e4e` | `◌` | State: pending/starting |
+| Lambda | `\U000f0627` | `λ` | Lambda |
+| Running | `\U000f012c` | `●` | State: running/available/active/enabled |
+| Stopped | `\U000f0156` | `○` | State: stopped/terminated/failed/disabled, and inactive in a muted color |
+| Pending | `\U000f0e4e` | `◌` | State: pending/starting/inprogress/updating |
 
 ### Rules
 

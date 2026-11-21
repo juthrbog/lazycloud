@@ -65,6 +65,9 @@ var routes = map[string]route{
 	"logs_events": {root: "logs_groups", build: func(m Model, p map[string]string) nav.View {
 		return views.NewLogEvents(m.svc.Logs, p)
 	}},
+	"lambda_functions": {root: "lambda_functions", build: func(m Model, _ map[string]string) nav.View {
+		return views.NewLambdaFunctions(m.svc.Lambda)
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},

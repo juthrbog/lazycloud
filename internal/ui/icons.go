@@ -3,6 +3,7 @@ package ui
 import (
 	"image/color"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -34,6 +35,7 @@ var (
 	IconSQS     = ServiceIcon{Nerd: "\U000f01ee", Fallback: "≡"} // nf-md-message_text
 	IconNetwork = ServiceIcon{Nerd: "\U000f0317", Fallback: "⊞"} // nf-md-lan
 	IconLogs    = ServiceIcon{Nerd: "\U000f0219", Fallback: "¶"} // nf-md-file_document
+	IconLambda  = ServiceIcon{Nerd: "\U000f0627", Fallback: "λ"} // nf-md-lambda
 
 	// IconLock marks a session that a rule locks to ReadOnly. Its fallback
 	// makes the mode badge read RO*.
@@ -63,16 +65,22 @@ func CountColor(count string) string {
 	return FgRender(ActiveTheme.Warning, count)
 }
 
-// StateColor returns a styled state string with the appropriate color and icon.
+// StateColor returns a styled state string with the appropriate color and
+// icon. It compares without case, so the capitalized states of Lambda and
+// of event source mappings ("Active", "Enabled") get a color too. The text
+// keeps its case.
 func StateColor(state string) string {
 	t := ActiveTheme
-	switch state {
-	case "running", "available", "active":
+	switch strings.ToLower(state) {
+	case "running", "available", "active", "enabled", "successful":
 		return FgRender(t.StateRunning, IconRunning.Icon()+" "+state)
-	case "stopped", "terminated", "deleted", "failed", "unavailable":
+	case "stopped", "terminated", "deleted", "failed", "unavailable", "disabled":
 		return FgRender(t.StateStopped, IconStopped.Icon()+" "+state)
-	case "pending", "starting", "stopping", "shutting-down", "creating":
+	case "pending", "starting", "stopping", "shutting-down", "creating",
+		"inprogress", "enabling", "updating", "disabling":
 		return FgRender(t.StatePending, IconPending.Icon()+" "+state)
+	case "inactive":
+		return FgRender(t.Muted, IconStopped.Icon()+" "+state)
 	default:
 		return state
 	}

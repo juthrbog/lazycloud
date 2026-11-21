@@ -837,11 +837,12 @@ func readWriteKey(hints []ui.HintBinding, k tea.KeyPressMsg) bool {
 }
 
 func (m Model) executeCommand(input string) (Model, tea.Cmd) {
-	// :login takes the profile to sign in, and :logs a log group name.
+	// :login takes the profile to sign in, :logs a log group name, and
+	// :lambda a function name.
 	name, arg, _ := strings.Cut(strings.TrimSpace(input), " ")
 	arg = strings.TrimSpace(arg)
 	cmd := registry.LookupCommand(name)
-	if cmd == nil || (arg != "" && cmd.Name != "login" && cmd.Name != "logs") {
+	if cmd == nil || (arg != "" && cmd.Name != "login" && cmd.Name != "logs" && cmd.Name != "lambda") {
 		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
 	}
@@ -850,6 +851,14 @@ func (m Model) executeCommand(input string) (Model, tea.Cmd) {
 	if cmd.Name == "logs" && arg != "" {
 		return m, func() tea.Msg {
 			return appmsg.NavigateMsg{ViewID: "logs_events", Params: map[string]string{"log_group": arg}}
+		}
+	}
+
+	// :lambda NAME opens the list with the cursor on that function and its
+	// detail (a focus opens the detail).
+	if cmd.Name == "lambda" && arg != "" {
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "lambda_functions", Params: map[string]string{"focus": arg}}
 		}
 	}
 

@@ -304,16 +304,18 @@ Home
 │   └── Buckets          (list → objects → versions)
 ├── SQS
 │   └── Queues           (list → detail with tabs / message peek)
-└── CloudWatch
-    └── Log Groups       (list → events, or streams → events; detail with tabs: Info / Tags)
+├── CloudWatch
+│   └── Log Groups       (list → events, or streams → events; detail with tabs: Info / Tags)
+└── Lambda
+    └── Functions        (list → logs; detail with tabs: Info / Environment / Network / Tags)
 ```
 
-A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. A log group always shows its Tags tab, because its tags come from a separate call that can fail, and the tab then shows the error. New services follow the same structure. These services are planned:
+A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. A log group always shows its Tags tab, because its tags come from a separate call that can fail, and the tab then shows the error. A Lambda function shows its Tags tab also when AWS says why it sent no tags. New services follow the same structure. These services are planned:
 
 ```
 Home
 ├── Lambda
-│   ├── Functions        (list → detail with tabs: Config / Env / Triggers / Logs)
+│   ├── Aliases, versions, triggers and invocations of a function (docs/design/lambda.md)
 │   └── Layers           (list → detail)
 ├── ECS
 │   ├── Clusters         (list → services → tasks)
@@ -325,7 +327,6 @@ Home
 ├── RDS
 │   └── Instances        (list → detail)
 └── CloudWatch
-    ├── Live tail        (in the log event viewer, docs/design/cwlogs.md)
     └── Alarms           (list → detail)
 ```
 
