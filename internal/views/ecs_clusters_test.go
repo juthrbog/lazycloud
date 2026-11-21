@@ -121,6 +121,11 @@ func TestECSClusters_Keys(t *testing.T) {
 	assert.Equal(t, msg.NavigateMsg{ViewID: "ecs_services", Params: map[string]string{"cluster": testClusterARN}}, cmd())
 	svc.AssertNumberOfCalls(t, "ListClustersPage", 1)
 
+	// t opens every task of the cluster: no service.
+	_, cmd = v.Update(keyPress('t'))
+	require.NotNil(t, cmd)
+	assert.Equal(t, msg.NavigateMsg{ViewID: "ecs_tasks", Params: map[string]string{"cluster": testClusterARN}}, cmd())
+
 	// A focus on a missing name gives a toast.
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "nope"})
 	assert.Equal(t, []msg.ToastMsg{msg.ToastInfo("No cluster named nope in the loaded clusters")}, toasts(pump(v, cmd, 3)))
@@ -130,7 +135,7 @@ func TestECSClusters_Keys(t *testing.T) {
 	require.NotEmpty(t, ts)
 	assert.Contains(t, ts[0].Text, testClusterARN)
 
-	assert.Equal(t, []string{"enter", "d", "y", "s/S", "/", "r"}, hintKeys(NewECSClusters(nil).KeyMap()))
+	assert.Equal(t, []string{"enter", "t", "d", "y", "s/S", "/", "r"}, hintKeys(NewECSClusters(nil).KeyMap()))
 	assert.Contains(t, v.View().Content, ui.StateColor("ACTIVE"), "the Status column has its style")
 
 	// enter waits while the filter is open.

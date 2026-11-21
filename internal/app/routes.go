@@ -86,6 +86,9 @@ var routes = map[string]route{
 	"ecs_services": {root: "ecs_clusters", build: func(m Model, p map[string]string) nav.View {
 		return views.NewECSServices(m.svc.ECS, p["cluster"])
 	}},
+	"ecs_tasks": {root: "ecs_clusters", build: func(m Model, p map[string]string) nav.View {
+		return views.NewECSTasks(m.svc.ECS, p["cluster"], p["service"])
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},

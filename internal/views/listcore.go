@@ -262,6 +262,27 @@ func (c *listCore[T]) backgroundReload(label string) tea.Cmd {
 	return tea.Batch(c.busy(label), c.startLoad())
 }
 
+// switchList changes the fetch, the columns and the row function of the
+// list, and loads it again with label in the spinner. The stopped toggle of
+// the ECS task list uses it: the two kinds of rows have other columns
+// (docs/design/ecs.md, H12). The rows, the selection and the filter of the
+// old kind go. After the switch, r and l use the new fetch.
+func (c *listCore[T]) switchList(fetch fetchFunc[T], columns func(ui.WidthTier) []ui.Column,
+	row func(T, ui.WidthTier) ui.Row, label string) tea.Cmd {
+	c.cfg.Fetch, c.cfg.Columns, c.cfg.Row = fetch, columns, row
+	c.table.DeselectAll()
+	c.filter.Deactivate()
+	c.table.Filter("")
+	c.setItems(nil)
+	cols, tier := columns(ui.TierMedium), ui.TierMedium
+	if c.width > 0 {
+		cols, tier = ui.BestFitTier(c.width, columns)
+	}
+	c.widthTier = tier
+	c.table.SetColumns(cols)
+	return c.reload(label)
+}
+
 // loadWith starts a full load of s, with its label in the spinner. It
 // replaces the current load, so a reply of the load before is dropped.
 func (c *listCore[T]) loadWith(s loadSpec[T]) tea.Cmd {

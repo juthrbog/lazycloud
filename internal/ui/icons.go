@@ -101,6 +101,22 @@ func RolloutColor(state string) string {
 	return state
 }
 
+// HealthColor colors the health status of an ECS task or container:
+// HEALTHY green, UNHEALTHY red and UNKNOWN muted, with the icons of
+// StateColor. Other text stays plain.
+func HealthColor(health string) string {
+	t := ActiveTheme
+	switch health {
+	case "HEALTHY":
+		return FgRender(t.StateRunning, IconRunning.Icon()+" "+health)
+	case "UNHEALTHY":
+		return FgRender(t.StateStopped, IconStopped.Icon()+" "+health)
+	case "UNKNOWN":
+		return FgRender(t.Muted, IconPending.Icon()+" "+health)
+	}
+	return health
+}
+
 // StateColor returns a styled state string with the appropriate color and
 // icon. It compares without case, so the capitalized states of Lambda and
 // of event source mappings ("Active", "Enabled") get a color too. The text

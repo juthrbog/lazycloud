@@ -1,6 +1,6 @@
 # ECS
 
-Browse ECS clusters and their services. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Tasks, containers, logs, task definitions, exec and the write actions come in later PRs of that design.
+Browse ECS clusters, their services and their tasks, with the stopped tasks and their stop reasons. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Containers, logs, task definitions, exec and the write actions come in later PRs of that design.
 
 ## Views
 
@@ -25,6 +25,7 @@ The list loads every page, because an account has few clusters. Each page is one
 | Key | Action |
 |-----|--------|
 | `enter` | Open the services of the cluster |
+| `t` | Open every task of the cluster |
 | `d` | Open the detail of the cluster |
 | `y` | Copy the ARN of the cluster |
 | `/` | Filter the clusters |
@@ -60,7 +61,8 @@ Each page is one `ListServices` call of up to 100 services and up to 10 `Describ
 
 | Key | Action |
 |-----|--------|
-| `enter`, `d` | Open the detail of the service |
+| `enter` | Open the tasks of the service |
+| `d` | Open the detail of the service |
 | `y` | Copy the ARN of the service |
 | `l` | Load more services |
 | `/` | Filter the loaded services |
@@ -78,3 +80,57 @@ Each page is one `ListServices` call of up to 100 services and up to 10 `Describ
 5. Tags: the tags of the service, when it has tags.
 
 The current service deployment needs one `DescribeServiceDeployments` call. When it fails, its line shows the error, and the panel still opens. LocalStack does not support this call.
+
+### Tasks
+
+`enter` on a service opens its tasks. `t` on a cluster opens every task of the cluster. A task that `RunTask` started is not part of a service, so only the list of the cluster shows it.
+
+| Column | Description |
+|--------|-------------|
+| Task | The ID of the task, from its ARN |
+| Status | The last status, for example `PROVISIONING`, `PENDING`, `RUNNING` or `STOPPING` |
+| Health | `HEALTHY` in green, `UNHEALTHY` in red, `UNKNOWN` in gray. A task without a health check is `UNKNOWN` |
+| Task def | The family and the revision |
+| Started | How long ago the task started, for example `3h12m` |
+| Launch | The capacity provider, or the launch type |
+| CPU | The CPU units (wide terminals) |
+| Memory | The memory in MiB (wide terminals) |
+| Zone | The Availability Zone (wide terminals) |
+| Group | The task group, for example `service:web` (wide terminals) |
+
+A narrow terminal shows only the task, the status and the start. Started sorts by the time. An empty value, for example the start of a task that did not start, shows as an empty cell.
+
+Each page is one `ListTasks` call of up to 100 tasks and one `DescribeTasks` call. The list loads at most 10 pages (1,000 tasks), with `l` for more.
+
+`x` switches the list to the stopped tasks, and `x` again goes back to the running tasks. AWS keeps a stopped task for about an hour, and the footer says so. The stopped list has its own columns, so the reason shows without the detail:
+
+| Column | Description |
+|--------|-------------|
+| Task | The ID of the task |
+| Stop code | For example `EssentialContainerExited`, `TaskFailedToStart` or `UserInitiated` |
+| Reason | The stop reason, for example `CannotPullContainerError: ...` |
+| Stopped | How long ago the task stopped |
+| Task def | The family and the revision |
+| Started | How long ago the task started (wide terminals) |
+
+A terminal of 80 to 119 columns leaves out Started. A narrow terminal shows only the task, the reason and the stop time. Stopped sorts by the time.
+
+| Key | Action |
+|-----|--------|
+| `enter`, `d` | Open the detail of the task. In a later PR, `enter` opens the containers |
+| `x` | Switch between the running and the stopped tasks |
+| `y` | Copy the ARN of the task |
+| `l` | Load more tasks |
+| `/` | Filter the loaded tasks |
+| `s`, `S` | Sort |
+| `r` | Load the list again from the first page |
+
+### Task Detail (side panel)
+
+`d` opens a panel from the data of the row, with no call:
+
+1. Info: the ID, the ARN, the status (and the desired status when it differs), the health, the stop code and reason, the task definition, the launch type or capacity provider, the platform, CPU, memory, ephemeral storage, the zone, the group, the started-by, the connectivity, exec on or off, and the times of the task.
+2. Containers: the image, the status, the health, the exit code and the reason of each container.
+3. Network: the network interface, its private IP and its subnet, which is a link to the subnet list.
+4. Tags: the tags of the task, when it has tags.
+

@@ -25,9 +25,8 @@ const ecsServicePageBudget = 10
 // ecsEventsNote heads the Events tab: AWS keeps only the newest events.
 const ecsEventsNote = "AWS keeps the 100 latest events of a service."
 
-// ecsServiceOpen is enter on a service. It opens the detail until the task
-// list exists (PR 3).
-var ecsServiceOpen = ui.NewHintBinding([]string{"enter"}, "enter", "details")
+// ecsServiceOpen is enter on a service: it opens the tasks of the service.
+var ecsServiceOpen = ui.NewHintBinding([]string{"enter"}, "enter", "tasks")
 
 // ECSServices lists the services of one cluster.
 type ECSServices struct {
@@ -76,12 +75,12 @@ func (v *ECSServices) KeyMap() []ui.HintBinding {
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
-// Update returns the view itself. enter opens the detail, as d does.
+// Update returns the view itself. enter opens the tasks of the service.
 func (v *ECSServices) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil &&
 		key.Matches(k, ecsServiceOpen.Binding) {
 		if it := v.cursorItem(); it != nil {
-			return v, v.detailFetch(*it)
+			return v, navigate("ecs_tasks", map[string]string{"cluster": v.cluster, "service": it.Name})
 		}
 	}
 	return v, v.update(m)

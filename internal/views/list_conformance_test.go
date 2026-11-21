@@ -642,6 +642,45 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[aws.ClusterService]](),
 	},
 	{
+		name: "ecs_tasks",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockECSService)
+			svc.Test(t)
+			svc.On("ListTasksPage", mock.MatchedBy(ok), "arn:c", "web", false, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{{ID: "t1", ARN: "arn:t1"}}}, nil)
+			// x loads the stopped tasks.
+			svc.On("ListTasksPage", mock.MatchedBy(ok), "arn:c", "web", true, mock.Anything).Return(&aws.TaskPage{}, nil).Maybe()
+			svc.On("ListTasksPage", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewECSTasks(svc, "arn:c", "web")
+		},
+		buildNil: func() nav.View { return NewECSTasks(nil, "arn:c", "web") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*ECSTasks).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Task]{gen: c.loadGen, items: []aws.Task{{ID: "t1", ARN: "arn:t1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Task]{gen: c.loadGen, items: []aws.Task{{ID: "t2", ARN: "arn:t2"}}, page: 2},
+				listPageMsg[aws.Task]{gen: c.loadGen - 1, items: []aws.Task{{ID: "old", ARN: "arn:old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*ECSTasks).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:t1", "arn:t2"},
+		rowKeys:  []string{"enter"},
+		file:     "ecs_tasks.go",
+		typeName: "ECSTasks",
+		coreType: reflect.TypeFor[listCore[aws.Task]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -942,6 +981,7 @@ var loadContexts = map[string]string{
 	"lambda_invocations": "listing invocations",
 	"ecs_clusters":       "listing clusters",
 	"ecs_services":       "listing services",
+	"ecs_tasks":          "listing tasks",
 }
 
 // Every list of the registry runs the conformance cases.

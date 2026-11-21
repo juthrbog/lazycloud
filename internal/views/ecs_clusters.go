@@ -21,10 +21,12 @@ import (
 // ecsKeys are the keys of the ECS lists that the core does not have.
 var ecsKeys = struct {
 	Services ui.HintBinding
+	Tasks    ui.HintBinding
 	Details  ui.HintBinding
 	CopyARN  ui.HintBinding
 }{
 	Services: ui.NewHintBinding([]string{"enter"}, "enter", "services"),
+	Tasks:    ui.NewHintBinding([]string{"t"}, "t", "tasks"),
 	Details:  ui.NewHintBinding([]string{"d"}, "d", "details"),
 	CopyARN:  ui.NewHintBinding([]string{"y"}, "y", "copy ARN"),
 }
@@ -69,16 +71,19 @@ func (v *ECSClusters) Footer() string { return v.footer() }
 func (v *ECSClusters) View() tea.View { return tea.NewView(v.render("", "")) }
 
 func (v *ECSClusters) KeyMap() []ui.HintBinding {
-	return v.hints(ecsKeys.Services, ecsKeys.Details, ecsKeys.CopyARN, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+	return v.hints(ecsKeys.Services, ecsKeys.Tasks, ecsKeys.Details, ecsKeys.CopyARN, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
 // Update returns the view itself, so the navigator keeps its identity.
-// enter opens the services of the cluster.
+// enter opens the services of the cluster, and t all its tasks.
 func (v *ECSClusters) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil &&
-		key.Matches(k, ecsKeys.Services.Binding) {
-		if it := v.cursorItem(); it != nil {
+	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil {
+		switch it := v.cursorItem(); {
+		case it == nil:
+		case key.Matches(k, ecsKeys.Services.Binding):
 			return v, navigate("ecs_services", map[string]string{"cluster": it.ARN})
+		case key.Matches(k, ecsKeys.Tasks.Binding):
+			return v, navigate("ecs_tasks", map[string]string{"cluster": it.ARN})
 		}
 	}
 	return v, v.update(m)
