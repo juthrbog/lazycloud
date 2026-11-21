@@ -104,7 +104,7 @@ func TestLambdaAliases(t *testing.T) {
 	assert.Equal(t, "2/2 aliases", v.Footer())
 
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/aws/lambda/orders-api"}}},
+	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/aws/lambda/orders-api", "missing_hint": lambdaMissingHint}}},
 		navigations(collectMsgs(cmd)), "enter opens the logs of the function")
 
 	_, cmd = v.Update(keyPress('d'))
@@ -146,7 +146,7 @@ func TestLambdaVersions(t *testing.T) {
 		lambdaVersionRow(aws.Function{Version: "10"}, ui.TierWide).Sort[0], "2 sorts before 10")
 
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/aws/lambda/orders-api"}}},
+	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/aws/lambda/orders-api", "missing_hint": lambdaMissingHint}}},
 		navigations(collectMsgs(cmd)))
 
 	_, cmd = v.Update(keyPress('d'))

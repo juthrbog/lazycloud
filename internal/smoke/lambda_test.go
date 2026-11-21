@@ -68,6 +68,17 @@ func TestLambdaChildLists(t *testing.T) {
 	h.waitFor("Batch size")
 }
 
+// A function whose log group does not exist gets the reason. LocalStack
+// ignores the custom log group of report-builder, so the group is never
+// made (docs/design/lambda.md, PR 4).
+func TestLambdaMissingLogGroup(t *testing.T) {
+	h := start(t, "")
+	h.open("lambda", "Lambda Functions")
+	h.filter("report-builder")
+	h.enter()
+	h.waitFor("No log group named /custom/report-builder. Lambda makes it at the first invocation of the function.")
+}
+
 // putReportLine writes a REPORT line of now into a new stream of group,
 // and deletes the stream at the end of the test. The seeded lines can be
 // older than the last hour that the event viewer shows.

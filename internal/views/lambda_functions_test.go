@@ -146,11 +146,11 @@ func TestLambdaFunctions_EnterOpensTheLogs(t *testing.T) {
 	f := &fakeLambda{pages: [][]aws.Function{{testImageFunction, {Name: "plain", ARN: "arn:plain"}}}}
 	v := newFunctions(t, f, 160)
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/custom/legacy"}}},
+	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/custom/legacy", "missing_hint": lambdaMissingHint}}},
 		navigations(collectMsgs(cmd)))
 	v.Update(keyPress('j'))
 	_, cmd = v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/aws/lambda/plain"}}},
+	assert.Equal(t, []msg.NavigateMsg{{ViewID: "logs_events", Params: map[string]string{"log_group": "/aws/lambda/plain", "missing_hint": lambdaMissingHint}}},
 		navigations(collectMsgs(cmd)))
 }
 

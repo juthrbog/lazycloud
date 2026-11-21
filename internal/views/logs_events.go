@@ -177,9 +177,11 @@ type LogEvents struct {
 
 	logs      aws.LogsService
 	groupName string
-	stream    string        // "": the whole group
-	group     *aws.LogGroup // nil until known
-	streamAt  time.Time     // the first event of the stream, when known
+	stream    string // "": the whole group
+	// missingHint follows the text for a group that does not exist.
+	missingHint string
+	group       *aws.LogGroup // nil until known
+	streamAt    time.Time     // the first event of the stream, when known
 
 	lv          ui.LogView
 	input       ui.Filter // the pattern or a custom time; one at a time
@@ -222,14 +224,22 @@ type LogEvents struct {
 // log_group, and log_stream for one stream. The group list also sends
 // log_group_arn, log_class, log_created (ms) and log_retention (days), so
 // the viewer needs no lookup. The stream list sends stream_first (ms).
+// log_start and log_end (ms) open a custom range, for example the lines of
+// one Lambda invocation. missing_hint follows the text for a group that
+// does not exist, for example why a Lambda function has no group yet.
 func NewLogEvents(logs aws.LogsService, p map[string]string) *LogEvents {
+	rng := logRange{dur: time.Hour}
+	if start, end := paramMillis(p["log_start"]), paramMillis(p["log_end"]); !start.IsZero() && end.After(start) {
+		rng = logRange{start: start, end: end}
+	}
 	v := &LogEvents{
-		logs:      logs,
-		groupName: p["log_group"],
-		stream:    p["log_stream"],
-		lv:        ui.NewLogView(),
-		walk:      eventWalk{rng: logRange{dur: time.Hour}},
-		want:      logQuery{rng: logRange{dur: time.Hour}},
+		logs:        logs,
+		groupName:   p["log_group"],
+		stream:      p["log_stream"],
+		missingHint: p["missing_hint"],
+		lv:          ui.NewLogView(),
+		walk:        eventWalk{rng: rng},
+		want:        logQuery{rng: rng},
 	}
 	if arn := p["log_group_arn"]; arn != "" {
 		g := aws.LogGroup{Name: v.groupName, ARN: arn, Class: p["log_class"]}
@@ -324,7 +334,11 @@ func (v *LogEvents) onGroup(m logsGroupMsg) tea.Cmd {
 		v.notFound = true
 		v.gen++ // drop a load that the user started during the lookup
 		v.lv.Clear()
-		v.lv.SetEmptyText("No log group named " + v.groupName)
+		text := "No log group named " + v.groupName
+		if v.missingHint != "" {
+			text += ". " + v.missingHint
+		}
+		v.lv.SetEmptyText(text)
 		return nil
 	case m.err != nil:
 		// The events can still load. The walk back then stops only at

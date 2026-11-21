@@ -35,9 +35,13 @@ func lambdaChildParams(f aws.Function) map[string]string {
 	return map[string]string{"function": f.Name, "log_group": f.LogGroupName()}
 }
 
-// lambdaLogs opens the log group of a function in the event viewer.
+// lambdaMissingHint says why a function can have no log group (H7).
+const lambdaMissingHint = "Lambda makes it at the first invocation of the function."
+
+// lambdaLogs opens the log group of a function in the event viewer. When
+// the group does not exist, the viewer says why.
 func lambdaLogs(group string) tea.Cmd {
-	return navigate("logs_events", map[string]string{"log_group": group})
+	return navigate("logs_events", map[string]string{"log_group": group, "missing_hint": lambdaMissingHint})
 }
 
 // ─── Aliases ────────────────────────────────────────────────────────────────
