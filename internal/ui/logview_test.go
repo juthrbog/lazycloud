@@ -445,6 +445,20 @@ func TestLogViewFilterWithNoMatch(t *testing.T) {
 	assert.Equal(t, "line 2", selectedMsg(t, &lv))
 }
 
+// A paste goes into the open filter and filters at once. Without the
+// filter open, a paste does nothing.
+func TestLogViewPasteIntoTheFilter(t *testing.T) {
+	lv := newTestLogView(80, 6)
+	lv.Append(logLines(0, 3))
+	lv.Update(tea.PasteMsg{Content: "line 1"})
+	assert.Empty(t, lv.FilterText())
+	pressLog(&lv, keySlash)
+	lv.Update(tea.PasteMsg{Content: "line 1"})
+	assert.Equal(t, "line 1", lv.FilterText())
+	assert.Equal(t, "line 1", selectedMsg(t, &lv))
+	assert.NotContains(t, strings.Join(plainRows(&lv), "\n"), "line 2")
+}
+
 // The cap drops lines that match the filter, and the filter keeps the rest.
 func TestLogViewFilterWithTheCap(t *testing.T) {
 	lv := newTestLogView(80, 6)

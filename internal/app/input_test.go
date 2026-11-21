@@ -207,6 +207,7 @@ func TestReadOnlyBlocksEveryReadWriteKey(t *testing.T) {
 		{"sqs_messages", map[string]string{"queue_url": "u", "queue_name": "q"}, []string{"x", "m"}},
 		{"logs_groups", nil, nil},
 		{"logs_streams", map[string]string{"log_group": "g"}, nil},
+		{"logs_events", map[string]string{"log_group": "g", "log_group_arn": "arn"}, nil},
 		{"eventlog", nil, nil},
 	}
 	covered := map[string]bool{}
@@ -265,6 +266,7 @@ func TestViewsWithFiltersCaptureInput(t *testing.T) {
 		"sqs_messages": {"queue_url": "u", "queue_name": "q"},
 		"logs_groups":  nil,
 		"logs_streams": {"log_group": "g"},
+		"logs_events":  {"log_group": "g", "log_group_arn": "arn"},
 		"eventlog":     nil,
 	}
 	covered := map[string]bool{}

@@ -303,7 +303,7 @@ Home
 ├── SQS
 │   └── Queues           (list → detail with tabs / message peek)
 └── CloudWatch
-    └── Log Groups       (list → detail with tabs: Info / Tags → streams → detail)
+    └── Log Groups       (list → events, or streams → events; detail with tabs: Info / Tags)
 ```
 
 A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. A log group always shows its Tags tab, because its tags come from a separate call that can fail, and the tab then shows the error. New services follow the same structure. These services are planned:
@@ -323,7 +323,7 @@ Home
 ├── RDS
 │   └── Instances        (list → detail)
 └── CloudWatch
-    ├── Log events       (group or stream → log viewer with live tail, docs/design/cwlogs.md)
+    ├── Live tail        (in the log event viewer, docs/design/cwlogs.md)
     └── Alarms           (list → detail)
 ```
 

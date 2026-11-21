@@ -62,6 +62,9 @@ var routes = map[string]route{
 	"logs_streams": {root: "logs_groups", build: func(m Model, p map[string]string) nav.View {
 		return views.NewLogStreams(m.svc.Logs, p["log_group"])
 	}},
+	"logs_events": {root: "logs_groups", build: func(m Model, p map[string]string) nav.View {
+		return views.NewLogEvents(m.svc.Logs, p)
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},

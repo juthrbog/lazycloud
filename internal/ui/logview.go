@@ -43,6 +43,10 @@ type LogLine struct {
 	Source  string // where the line comes from, for example a log stream
 	Message string // the text as it came, for a copy and for the detail
 	ID      string // an ID for the caller, for example an event ID
+	// Data is kept with the line for the caller, for example the whole
+	// event for its detail. LogView does not read it, and the byte cap
+	// does not count it.
+	Data any
 }
 
 // LogViewFilterSource is the Source of the FilterChangedMsg of the filter
@@ -620,6 +624,12 @@ func (lv *LogView) selection() (int, int) {
 // Update handles the keys of the view. It returns a command for a copy and
 // for enter on a line.
 func (lv *LogView) Update(msg tea.Msg) tea.Cmd {
+	if _, paste := msg.(tea.PasteMsg); paste && lv.filter.Active() {
+		var cmd tea.Cmd
+		lv.filter, cmd = lv.filter.Update(msg)
+		lv.setQuery(lv.filter.Value())
+		return cmd
+	}
 	km, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil

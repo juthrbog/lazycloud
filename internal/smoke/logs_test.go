@@ -10,6 +10,7 @@ import (
 
 	sdkaws "github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -42,6 +43,71 @@ func TestLogStreamsPaging(t *testing.T) {
 	h.keys("l")
 	h.waitFor(fmt.Sprintf("%d/%d log streams", count, count))
 	h.waitGone("l for more")
+}
+
+// TestLogEventsPageAStream opens a stream with 2,500 events and pages back
+// with l until the footer says "start of stream".
+func TestLogEventsPageAStream(t *testing.T) {
+	group := "/smoke/" + uniqueName("events")
+	createLogEvents(t, group, "app/1", 2500)
+
+	h := start(t, "")
+	h.open("logs", "Log Groups")
+	h.filter(group)
+	h.waitFor(group)
+	h.keys("v")
+	h.waitFor("1/1 log streams")
+	h.enter()
+	h.waitFor("1000 events ·", "l for older")
+	h.keys("l")
+	h.waitFor("2000 events ·")
+	h.keys("l")
+	h.waitFor("2500 events ·", "start of stream")
+}
+
+// TestLogEventsFilterPattern opens a group with :logs NAME and sets a
+// filter pattern with f. Every tenth event has ERROR.
+func TestLogEventsFilterPattern(t *testing.T) {
+	group := "/smoke/" + uniqueName("pattern")
+	createLogEvents(t, group, "app/1", 500)
+
+	h := start(t, "")
+	h.keys(":logs " + group)
+	h.enter()
+	h.waitFor("500 events ·")
+	h.keys("f")
+	h.keys("ERROR")
+	h.enter()
+	h.waitFor("filter: ERROR", "50 events ·")
+}
+
+// createLogEvents makes group with one stream of n events in the last 20
+// minutes. Every tenth event has ERROR.
+func createLogEvents(t *testing.T, group, stream string, n int) {
+	t.Helper()
+	createLogStreams(t, group, 0)
+	logs := services(t).Client.LogsClient()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := logs.CreateLogStream(ctx, &cloudwatchlogs.CreateLogStreamInput{
+		LogGroupName: sdkaws.String(group), LogStreamName: sdkaws.String(stream),
+	}); err != nil {
+		t.Fatalf("creating log stream: %v", err)
+	}
+	start := time.Now().Add(-20 * time.Minute).UnixMilli()
+	events := make([]types.InputLogEvent, n)
+	for i := range events {
+		text := fmt.Sprintf("event %04d ok", i)
+		if i%10 == 0 {
+			text = fmt.Sprintf("event %04d ERROR failed", i)
+		}
+		events[i] = types.InputLogEvent{Timestamp: sdkaws.Int64(start + int64(i)*400), Message: sdkaws.String(text)}
+	}
+	if _, err := logs.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
+		LogGroupName: sdkaws.String(group), LogStreamName: sdkaws.String(stream), LogEvents: events,
+	}); err != nil {
+		t.Fatalf("putting log events: %v", err)
+	}
 }
 
 // createLogStreams makes group with n streams, and deletes the group at

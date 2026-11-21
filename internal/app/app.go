@@ -568,7 +568,7 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.TabbedContentMsg:
 		if m.canShowPanel() {
-			m.openTabbedPanel(msg.PanelTitle, msg.Tabs)
+			m.openPanelFocus(msg.PanelTitle, msg.Tabs, !msg.NoFocus)
 			return m, nil
 		}
 		// Narrow terminal fallback: push first tab as full-screen content
@@ -837,13 +837,20 @@ func readWriteKey(hints []ui.HintBinding, k tea.KeyPressMsg) bool {
 }
 
 func (m Model) executeCommand(input string) (Model, tea.Cmd) {
-	// Only :login takes an argument, the profile to sign in.
+	// :login takes the profile to sign in, and :logs a log group name.
 	name, arg, _ := strings.Cut(strings.TrimSpace(input), " ")
 	arg = strings.TrimSpace(arg)
 	cmd := registry.LookupCommand(name)
-	if cmd == nil || (arg != "" && cmd.Name != "login") {
+	if cmd == nil || (arg != "" && cmd.Name != "login" && cmd.Name != "logs") {
 		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
+	}
+
+	// :logs NAME opens the events of that group.
+	if cmd.Name == "logs" && arg != "" {
+		return m, func() tea.Msg {
+			return appmsg.NavigateMsg{ViewID: "logs_events", Params: map[string]string{"log_group": arg}}
+		}
 	}
 
 	// Navigation commands emit a NavigateMsg.
@@ -935,7 +942,13 @@ func (m *Model) openPanel(title, content string, format ui.ContentFormat) {
 }
 
 func (m *Model) openTabbedPanel(title string, tabs []appmsg.TabContent) {
-	m.panels.Open(title, tabs, m.nav.Current(), !m.capturingInput())
+	m.openPanelFocus(title, tabs, true)
+}
+
+// openPanelFocus opens the panel. It takes the focus when focus is true and
+// no text input is open.
+func (m *Model) openPanelFocus(title string, tabs []appmsg.TabContent, focus bool) {
+	m.panels.Open(title, tabs, m.nav.Current(), focus && !m.capturingInput())
 	m.resizeViews()
 	m.refreshHelp()
 	eventlog.Infof(eventlog.CatUI, "Panel opened: %s (%d tabs)", title, len(tabs))
