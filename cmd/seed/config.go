@@ -26,6 +26,40 @@ type baseConfig struct {
 	SQS    baseSQSConfig    `toml:"sqs"`
 	Logs   baseLogsConfig   `toml:"logs"`
 	Lambda baseLambdaConfig `toml:"lambda"`
+	ECS    baseECSConfig    `toml:"ecs"`
+}
+
+type baseECSConfig struct {
+	Clusters []ecsClusterDef `toml:"clusters"`
+}
+
+// ecsClusterDef is a seeded ECS cluster with its services.
+type ecsClusterDef struct {
+	Name     string            `toml:"name"`
+	Tags     map[string]string `toml:"tags"`
+	Services []ecsServiceDef   `toml:"services"`
+}
+
+// ecsServiceDef is a seeded ECS service. Its task definition family has the
+// name of the service unless Family is set.
+type ecsServiceDef struct {
+	Name        string            `toml:"name"`
+	Family      string            `toml:"family"`
+	Image       string            `toml:"image"`
+	Desired     int32             `toml:"desired"` // each running task is a container on the host
+	Revisions   int               `toml:"revisions"`
+	Exec        bool              `toml:"exec"`
+	LogGroup    string            `toml:"log_group"` // "": no log configuration
+	Env         map[string]string `toml:"env"`
+	Tags        map[string]string `toml:"tags"`
+	StoppedTask bool              `toml:"stopped_task"` // run one task and stop it
+}
+
+func (s ecsServiceDef) familyName() string {
+	if s.Family != "" {
+		return s.Family
+	}
+	return s.Name
 }
 
 type baseLambdaConfig struct {
@@ -107,6 +141,12 @@ type tierEntry struct {
 	SQS    tierSQSExtras    `toml:"sqs"`
 	Logs   tierLogsExtras   `toml:"logs"`
 	Lambda tierLambdaExtras `toml:"lambda"`
+	ECS    tierECSExtras    `toml:"ecs"`
+}
+
+type tierECSExtras struct {
+	// ExtraServices go in their own cluster, with a desired count of 0.
+	ExtraServices int `toml:"extra_services"`
 }
 
 type tierLambdaExtras struct {
@@ -197,6 +237,12 @@ type SeedConfig struct {
 	SQS    SQSSeedConfig
 	Logs   LogsSeedConfig
 	Lambda LambdaSeedConfig
+	ECS    ECSSeedConfig
+}
+
+type ECSSeedConfig struct {
+	Clusters      []ecsClusterDef
+	ExtraServices int
 }
 
 type LambdaSeedConfig struct {
@@ -276,6 +322,10 @@ func loadConfig(tier string) (*SeedConfig, error) {
 		Lambda: LambdaSeedConfig{
 			Functions:      f.Base.Lambda.Functions,
 			ExtraFunctions: entry.Lambda.ExtraFunctions,
+		},
+		ECS: ECSSeedConfig{
+			Clusters:      f.Base.ECS.Clusters,
+			ExtraServices: entry.ECS.ExtraServices,
 		},
 	}, nil
 }

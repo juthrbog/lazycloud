@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
@@ -165,6 +166,16 @@ func (c *Client) LogsClient() *cloudwatchlogs.Client {
 // region and endpoint.
 func (c *Client) LambdaClient() *lambda.Client {
 	return lambda.NewFromConfig(c.Config, func(o *lambda.Options) {
+		if c.Endpoint != "" {
+			o.BaseEndpoint = aws.String(c.Endpoint)
+		}
+	})
+}
+
+// ECSClient returns an ECS client configured for the current profile,
+// region and endpoint.
+func (c *Client) ECSClient() *ecs.Client {
+	return ecs.NewFromConfig(c.Config, func(o *ecs.Options) {
 		if c.Endpoint != "" {
 			o.BaseEndpoint = aws.String(c.Endpoint)
 		}
