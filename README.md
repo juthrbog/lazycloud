@@ -39,6 +39,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 | [EC2](services/aws/ec2.md) | Instances, AMIs, security groups, VPCs, subnets, start/stop/reboot/terminate, SSM connect, public AMI search |
 | [SQS](services/aws/sqs.md) | Queues, message peek, send, purge, delete, DLQ redrive |
 | [CloudWatch Logs](services/aws/logs.md) | Log groups, log streams, and an event viewer with filter patterns, time ranges and live tail (read only) |
+| [Lambda](services/aws/lambda.md) | Functions, their detail with hidden environment values, and a jump to their logs (read only) |
 
 ## Getting Started
 

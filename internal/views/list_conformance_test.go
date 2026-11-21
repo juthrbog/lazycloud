@@ -375,6 +375,48 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[aws.LogGroup]](),
 	},
 	{
+		name: "lambda_functions",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLambdaService)
+			svc.Test(t)
+			fn := aws.Function{Name: "fn-1", ARN: "arn:fn-1"}
+			svc.On("ListFunctionsPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.FunctionPage{Functions: []aws.Function{fn}}, nil)
+			svc.On("ListFunctionsPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			// d and $ fetch the detail.
+			svc.On("GetFunction", mock.Anything, mock.Anything, mock.Anything).Return(&aws.FunctionDetail{Function: fn}, nil).Maybe()
+			svc.On("GetFunctionURL", mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+			return NewLambdaFunctions(svc)
+		},
+		buildNil: func() nav.View { return NewLambdaFunctions(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LambdaFunctions).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Function]{gen: c.loadGen, items: []aws.Function{{Name: "fn-1", ARN: "arn:fn-1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Function]{gen: c.loadGen, items: []aws.Function{{Name: "fn-2", ARN: "arn:fn-2"}}, page: 2},
+				listPageMsg[aws.Function]{gen: c.loadGen - 1, items: []aws.Function{{Name: "old", ARN: "arn:old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('$'),
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LambdaFunctions).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:fn-1", "arn:fn-2"},
+		rowKeys:  []string{"$"},
+		file:     "lambda_functions.go",
+		typeName: "LambdaFunctions",
+		coreType: reflect.TypeFor[listCore[aws.Function]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -659,15 +701,16 @@ func TestListConformance_FitsTheWindow(t *testing.T) {
 // loadContexts are the msg.ErrorMsg contexts of the default loads. A nil
 // service fails like any load, with the context of the load (PR 4 to 9).
 var loadContexts = map[string]string{
-	"sg_list":      "listing security groups",
-	"vpc_list":     "listing VPCs",
-	"subnet_list":  "listing subnets",
-	"ami_list":     "listing owned AMIs",
-	"ec2_list":     "listing EC2 instances",
-	"sqs_queues":   "listing SQS queues",
-	"s3_list":      "listing S3 buckets",
-	"logs_groups":  "listing log groups",
-	"logs_streams": "listing log streams",
+	"sg_list":          "listing security groups",
+	"vpc_list":         "listing VPCs",
+	"subnet_list":      "listing subnets",
+	"ami_list":         "listing owned AMIs",
+	"ec2_list":         "listing EC2 instances",
+	"sqs_queues":       "listing SQS queues",
+	"s3_list":          "listing S3 buckets",
+	"logs_groups":      "listing log groups",
+	"lambda_functions": "listing functions",
+	"logs_streams":     "listing log streams",
 }
 
 // Every list of the registry runs the conformance cases.

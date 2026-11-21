@@ -258,6 +258,8 @@ func (h *harness) keys(s string) {
 
 func (h *harness) enter() { h.tm.Send(tea.KeyPressMsg{Code: tea.KeyEnter}) }
 
+func (h *harness) esc() { h.tm.Send(tea.KeyPressMsg{Code: tea.KeyEscape}) }
+
 // open runs a command of the command bar, for example "sqs", and waits
 // until the list with that title has loaded. Keys sent during the load can
 // reach another screen, for example the sort picker.

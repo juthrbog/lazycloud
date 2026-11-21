@@ -51,6 +51,9 @@ var Services = []Service{
 	{Name: "CloudWatch", Icon: ui.IconLogs, Features: []Feature{
 		{Name: "Log Groups", ViewID: "logs_groups", Icon: ui.IconLogs},
 	}},
+	{Name: "Lambda", Icon: ui.IconLambda, Features: []Feature{
+		{Name: "Functions", ViewID: "lambda_functions", Icon: ui.IconLambda},
+	}},
 }
 
 // Commands is the ordered list of commands available in the command palette.
@@ -65,6 +68,7 @@ var Commands = []Command{
 	{Name: "s3", Aliases: []string{"buckets"}, Description: "S3 buckets", ViewID: "s3_list"},
 	{Name: "sqs", Aliases: []string{"queues"}, Description: "SQS queues", ViewID: "sqs_queues"},
 	{Name: "logs", Aliases: []string{"log"}, Description: "CloudWatch log groups (:logs NAME for the events of a group)", ViewID: "logs_groups"},
+	{Name: "lambda", Aliases: []string{"functions", "fn"}, Description: "Lambda functions (:lambda NAME to open a function)", ViewID: "lambda_functions"},
 	{Name: "eventlog", Description: "Event log of the app", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},
 	{Name: "theme", Description: "Switch theme"},

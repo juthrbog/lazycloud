@@ -207,6 +207,7 @@ func TestReadOnlyBlocksEveryReadWriteKey(t *testing.T) {
 		{"sqs_queues", nil, []string{"m"}},
 		{"sqs_messages", map[string]string{"queue_url": "u", "queue_name": "q"}, []string{"x", "m"}},
 		{"logs_groups", nil, nil},
+		{"lambda_functions", nil, nil},
 		{"logs_streams", map[string]string{"log_group": "g"}, nil},
 		{"logs_events", map[string]string{"log_group": "g", "log_group_arn": "arn"}, nil},
 		{"eventlog", nil, nil},
@@ -256,19 +257,20 @@ func TestReadWriteKeysReachTheView(t *testing.T) {
 // Every view with a text input reports it, so the app can give it the keys.
 func TestViewsWithFiltersCaptureInput(t *testing.T) {
 	filtered := map[string]map[string]string{
-		"s3_list":      nil,
-		"s3_objects":   {"bucket": "b"},
-		"ec2_list":     nil,
-		"ami_list":     nil,
-		"sg_list":      nil,
-		"vpc_list":     nil,
-		"subnet_list":  nil,
-		"sqs_queues":   nil,
-		"sqs_messages": {"queue_url": "u", "queue_name": "q"},
-		"logs_groups":  nil,
-		"logs_streams": {"log_group": "g"},
-		"logs_events":  {"log_group": "g", "log_group_arn": "arn"},
-		"eventlog":     nil,
+		"s3_list":          nil,
+		"s3_objects":       {"bucket": "b"},
+		"ec2_list":         nil,
+		"ami_list":         nil,
+		"sg_list":          nil,
+		"vpc_list":         nil,
+		"subnet_list":      nil,
+		"sqs_queues":       nil,
+		"sqs_messages":     {"queue_url": "u", "queue_name": "q"},
+		"logs_groups":      nil,
+		"lambda_functions": nil,
+		"logs_streams":     {"log_group": "g"},
+		"logs_events":      {"log_group": "g", "log_group_arn": "arn"},
+		"eventlog":         nil,
 	}
 	covered := map[string]bool{}
 	for id := range filtered {

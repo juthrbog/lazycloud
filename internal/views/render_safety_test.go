@@ -207,6 +207,12 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 		"logs_groups": func(t *testing.T) tea.Model {
 			return testLogGroups(t, nil, testGroupOrders, testGroupWeb)
 		},
+		"lambda_functions": func(*testing.T) tea.Model {
+			v := NewLambdaFunctions(nil)
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.Function{testFunction})
+			return v
+		},
 		"logs_streams": func(*testing.T) tea.Model {
 			s := NewLogStreams(nil, "g")
 			s.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -250,18 +256,19 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 
 func TestViews_ShowListErrorSafely(t *testing.T) {
 	views := map[string]func() tea.Model{
-		"ami_list":     func() tea.Model { v := newTestAMIList(); return v },
-		"ec2_list":     func() tea.Model { v, _ := newTestEC2List(); return v },
-		"s3_list":      func() tea.Model { v, _ := newTestS3List(); return v },
-		"s3_objects":   func() tea.Model { v, _ := newTestS3Objects(); return v },
-		"s3_versions":  func() tea.Model { v := newTestS3Versions(); return v },
-		"sg_list":      func() tea.Model { v := newTestSGList(); return v },
-		"logs_groups":  func() tea.Model { return NewLogGroups(nil) },
-		"logs_streams": func() tea.Model { return NewLogStreams(nil, "g") },
-		"sqs_messages": func() tea.Model { v, _ := newTestSQSMessages(); return v },
-		"sqs_queues":   func() tea.Model { v, _ := newQueueList(); return v },
-		"subnet_list":  func() tea.Model { v := newTestSubnetList("vpc-1"); return v },
-		"vpc_list":     func() tea.Model { v := newTestVPCList(); return v },
+		"ami_list":         func() tea.Model { v := newTestAMIList(); return v },
+		"ec2_list":         func() tea.Model { v, _ := newTestEC2List(); return v },
+		"s3_list":          func() tea.Model { v, _ := newTestS3List(); return v },
+		"s3_objects":       func() tea.Model { v, _ := newTestS3Objects(); return v },
+		"s3_versions":      func() tea.Model { v := newTestS3Versions(); return v },
+		"sg_list":          func() tea.Model { v := newTestSGList(); return v },
+		"logs_groups":      func() tea.Model { return NewLogGroups(nil) },
+		"lambda_functions": func() tea.Model { return NewLambdaFunctions(nil) },
+		"logs_streams":     func() tea.Model { return NewLogStreams(nil, "g") },
+		"sqs_messages":     func() tea.Model { v, _ := newTestSQSMessages(); return v },
+		"sqs_queues":       func() tea.Model { v, _ := newQueueList(); return v },
+		"subnet_list":      func() tea.Model { v := newTestSubnetList("vpc-1"); return v },
+		"vpc_list":         func() tea.Model { v := newTestVPCList(); return v },
 	}
 	assertCoversServiceViews(t, views)
 	for name, newView := range views {

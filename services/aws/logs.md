@@ -2,8 +2,6 @@
 
 Browse CloudWatch Logs log groups, their log streams, and their events. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/cwlogs.md`.
 
-Live tail comes in a later PR of that design.
-
 ## Views
 
 ### Log Groups

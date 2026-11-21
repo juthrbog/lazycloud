@@ -213,9 +213,9 @@ Each PR keeps `go test ./...` green and runs golangci-lint with gosec.
 
 - PR 0. This design, and pin tests: `TestLambdaHazard_*` pins H4 (no color for `Active`), H5 (the app binds `L`, and the conformance test forbids `E`), and H6 (the event viewer ignores a range parameter, and its missing-group text has no hint).
 - PR 1. The AWS layer and the seed: the `lambda` module, `LambdaService`, the time parser, the empty marker rule, `GuardLambda`, `LambdaClient`, the mock, the `httptest` fakes, the Lambda seeder, and the new stream kind of the logs seeder.
-- PR 2. The function list and its detail, the registry entry, the `lambda` command with `:lambda NAME` and the change in `executeCommand`, the routes, the icon, `ui.StateColor` without case, the smoke case, `services/aws/lambda.md` and the docs. H4 flips. Until PR 4, enter on a function says that a later PR adds the logs.
-- PR 3. The aliases, versions and triggers lists. enter on an alias or a version gives the same note as on a function until PR 4.
-- PR 4. The jump to the logs from functions, aliases and versions, and the new parameters of the event viewer. H6 flips.
+- PR 2. The function list and its detail, the registry entry, the `lambda` command with `:lambda NAME` and the change in `executeCommand`, the routes, the icon, `ui.StateColor` without case, the smoke case, `services/aws/lambda.md` and the docs. H4 flips. enter on a function already opens its log group, because the event viewer can open a group by name today. PR 4 adds the hint for a missing group, and the jump from aliases and versions.
+- PR 3. The aliases, versions and triggers lists. enter on an alias or a version opens the log group of the function, as enter on a function does.
+- PR 4. The new parameters of the event viewer (`missing_hint`, `log_start`, `log_end`), and the hint for a missing group on the jump from functions, aliases and versions. H6 flips.
 - PR 5. The invocation list and the `REPORT` parser, with the smoke test. The tracker marks item 2 of the roadmap priority done.
 
 PR 1 comes first. PR 2 needs PR 1. PR 3 needs PR 2. PR 4 needs PR 3. PR 5 needs PR 4.
