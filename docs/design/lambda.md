@@ -1,6 +1,6 @@
 # Lambda: functions, aliases, versions, triggers and invocations
 
-Status: Proposed. PR 0 is this design and its pin tests. The facts below were checked at `10ab49b` with `service/lambda` v1.118.0 and LocalStack 2026.10.4.
+Status: Approved on 2026-11-20 with all proposed answers (#318 merged). PR 0 is this design and its pin tests. The facts below were checked at `10ab49b` with `service/lambda` v1.118.0 and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -111,7 +111,7 @@ These are true today. PR 0 pins the ones that the app code shows.
 
 - `LambdaService` with these methods, each a read:
   - `ListFunctionsPage(ctx, token)`.
-  - `GetFunction(ctx, name)`: the configuration, the reserved concurrency and the tags, without `Code.Location`.
+  - `GetFunction(ctx, name, qualifier)`: the configuration of the function, or of one version or alias when `qualifier` is not empty, with the reserved concurrency and the tags, without `Code.Location`.
   - `GetFunctionURL(ctx, name)`: nil and no error when the function has none.
   - `ListAliasesPage(ctx, name, token)`, `ListVersionsPage(ctx, name, token)` and `ListTriggersPage(ctx, name, token)`.
 - Each page method maps an empty `NextMarker` to nil (H11).

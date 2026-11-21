@@ -208,6 +208,16 @@ tags = { team = "orders", env = "dev" }
 streams = [
   { name = "2026/11/20/[$LATEST]a1b2c3", events = 2500 },
   { name = "2026/11/20/[$LATEST]d4e5f6", events = 120 },
+  # Invocations of the seeded function orders-api, with REPORT lines.
+  { name = "2026/11/21/[$LATEST]f7a8b9", events = 60, kind = "lambda_text" },
+]
+
+# The JSON log format of the seeded function thumbnailer, with
+# SystemLogLevel WARN: only failed invocations write a report.
+[[base.logs.groups]]
+name = "/aws/lambda/thumbnailer"
+streams = [
+  { name = "2026/11/21/[$LATEST]c0ffee", events = 60, kind = "lambda_json_warn" },
 ]
 
 [[base.logs.groups]]
@@ -225,6 +235,41 @@ streams = [{ name = "access", events = 50 }]
 [[base.logs.groups]]
 name = "/empty/group"
 
+# Lambda. The functions are never invoked; the logs seeder writes their
+# log lines. orders-api has versions, a weighted alias and an SQS trigger.
+
+[[base.lambda.functions]]
+name = "orders-api"
+runtime = "python3.12"
+description = "Takes orders"
+memory = 256
+timeout = 30
+env = { DB_HOST = "orders.db.internal", DB_PASSWORD = "not-a-real-secret" }
+tags = { team = "orders" }
+versions = 2
+alias = { name = "live", version = "1", description = "production", weight_version = "2", weight = 0.1 }
+sqs_trigger = "orders-api-jobs"
+
+[[base.lambda.functions]]
+name = "thumbnailer"
+runtime = "python3.12"
+description = "Makes thumbnails"
+memory = 1024
+timeout = 60
+log_format = "JSON"
+system_log_level = "WARN"
+
+[[base.lambda.functions]]
+name = "report-builder"
+runtime = "python3.12"
+description = "Writes to a custom log group"
+log_group = "/custom/report-builder"
+
+[[base.lambda.functions]]
+name = "legacy-image"
+description = "An image function"
+image_uri = "000000000000.dkr.ecr.us-east-1.amazonaws.com/legacy:latest"
+
 # ─── Tier: small ─────────────────────────────────────────────────────────────
 # Base resources only, no extras. Default for quick dev iteration.
 
@@ -236,6 +281,9 @@ name = "/empty/group"
 [tiers.medium.logs]
 extra_groups = 20
 streams_per_extra_group = 2
+
+[tiers.medium.lambda]
+extra_functions = 60
 
 [tiers.medium.sqs]
 extra_queues = 10
@@ -258,6 +306,9 @@ extra_sgs = 5
 extra_groups = 120
 streams_per_extra_group = 2
 
+[tiers.large.lambda]
+extra_functions = 120
+
 [tiers.large.sqs]
 extra_queues = 50
 
@@ -278,6 +329,9 @@ extra_sgs = 20
 [tiers.enterprise.logs]
 extra_groups = 1200
 streams_per_extra_group = 2
+
+[tiers.enterprise.lambda]
+extra_functions = 1100
 
 [tiers.enterprise.sqs]
 extra_queues = 200

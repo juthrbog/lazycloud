@@ -54,7 +54,7 @@ task localstack:wipe && task localstack:seed         # fresh reseed
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--size` | `small` | Tier: `small`, `medium`, `large`, `enterprise` |
-| `--service` | all | Comma-separated filter: `s3`, `ec2`, `sqs`, `logs` |
+| `--service` | all | Comma-separated filter: `s3`, `ec2`, `sqs`, `logs`, `lambda` |
 | `--endpoint` | `http://localhost:4566` | LocalStack endpoint. The host must be `localhost`, a loopback address, `localstack`, or a `localhost.localstack.cloud` name, unless you pass `--allow-remote` |
 | `--allow-remote` | `false` | Accept an endpoint host that is not local, for LocalStack on another machine |
 | `--region` | `us-east-1` | AWS region |
@@ -67,9 +67,9 @@ Tiers control how many resources are created. Every tier includes the base named
 | Tier | Extra resources | Use case |
 |------|----------------|----------|
 | `small` | None — base only | Quick dev iteration |
-| `medium` | +10 buckets, +15 instances, +5 SGs | Realistic browsing and filtering |
-| `large` | +50 buckets, +200 instances, +20 SGs | Pagination and progressive loading |
-| `enterprise` | +200 buckets, +1000 instances, +50 SGs | Performance stress testing |
+| `medium` | +10 buckets, +15 instances, +5 SGs, +60 functions | Realistic browsing and filtering |
+| `large` | +50 buckets, +200 instances, +20 SGs, +120 functions | Pagination and progressive loading |
+| `enterprise` | +200 buckets, +1000 instances, +50 SGs, +1100 functions | Performance stress testing |
 
 Exact counts are defined in `cmd/seed/tiers.toml`.
 
@@ -80,6 +80,8 @@ Exact counts are defined in `cmd/seed/tiers.toml`.
 - **Parallel** — services seed concurrently (S3 and EC2 run in separate goroutines).
 - **Base + extras** — named resources (from `tiers.toml` `[base]` section) are always created. Tiers add generated resources on top (`data-bucket-001`, `worker-003`, `gen-sg-001`, etc.).
 - **Object content** — base bucket objects have realistic content (JSON configs, YAML, scripts, logs). Extra bucket objects are simple generated text files.
+- **Lambda** — the seeder makes x86_64 Python functions and one image function (`legacy-image`), with a role ARN that does not exist, which LocalStack accepts. `orders-api` has two versions, an alias `live` with a 10% weight on version 2, and an SQS trigger. The seeder never invokes a function, because Invoke pulls a runtime image and starts containers. The logs seeder writes the log lines of the functions instead. A stream with `kind = "lambda_text"` or `"lambda_json"` writes invocations with `START`, `END` and `REPORT` lines, and `events` then counts invocations. `"lambda_json_warn"` writes only the failed invocations, as Lambda does with `SystemLogLevel` `WARN`.
+- **Ghost triggers on LocalStack** — when you delete an event source mapping that is disabled, LocalStack keeps listing it with the state `Deleting`. Never disable a mapping before you delete it. `--wipe` removes such ghosts.
 
 ### Adding a New Service Seeder
 

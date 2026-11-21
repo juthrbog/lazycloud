@@ -228,3 +228,15 @@ type guardedLogs struct {
 	LogsService
 	readOnly func() bool
 }
+
+// GuardLambda returns svc with a ReadOnly guard on every mutating method.
+// Every method of LambdaService reads, so it passes each call through.
+// Invoke and the write actions must get a guard here.
+func GuardLambda(svc LambdaService, readOnly func() bool) LambdaService {
+	return guardedLambda{LambdaService: svc, readOnly: readOnly}
+}
+
+type guardedLambda struct {
+	LambdaService
+	readOnly func() bool
+}
