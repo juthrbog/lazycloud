@@ -41,7 +41,7 @@ The list loads at most 20 pages of 50 functions (1,000 functions). When more fun
 | `s`, `S` | Sort |
 | `r` | Load the list again from the first page |
 
-The log group is the group in the logging settings of the function, or `/aws/lambda/<name>`. Lambda makes the group at the first invocation, so a function that never ran has no group. The event viewer then says "No log group named NAME".
+The log group is the group in the logging settings of the function, or `/aws/lambda/<name>`. Lambda makes the group at the first invocation, so a function that never ran has no group. The event viewer then says "No log group named NAME. Lambda makes it at the first invocation of the function."
 
 ### Function Detail (side panel)
 

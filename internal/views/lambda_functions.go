@@ -94,7 +94,7 @@ func (v *LambdaFunctions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch it := v.cursorItem(); {
 		case it == nil:
 		case key.Matches(k, lambdaKeys.Logs.Binding):
-			return v, navigate("logs_events", map[string]string{"log_group": it.LogGroupName()})
+			return v, lambdaLogs(it.LogGroupName())
 		case key.Matches(k, lambdaKeys.Env.Binding):
 			return v, v.revealDetail(*it)
 		case key.Matches(k, lambdaKeys.Aliases.Binding):
