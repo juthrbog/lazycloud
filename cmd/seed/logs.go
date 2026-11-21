@@ -100,7 +100,11 @@ func seedLogStream(ctx context.Context, api logsAPI, group string, st logStreamD
 	// The check above only sees whether a stream has events. So a stream
 	// gets all its events in one call when they fit, and a failed run
 	// cannot leave it half full.
-	for _, b := range eventBatches(seedEvents(st.Events, now)) {
+	events := seedEvents(st.Events, now)
+	if st.Kind != "" {
+		events = lambdaEvents(st.Kind, st.Events, now)
+	}
+	for _, b := range eventBatches(events) {
 		if _, err := api.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
 			LogGroupName:  aws.String(group),
 			LogStreamName: aws.String(st.Name),

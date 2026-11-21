@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
+	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
@@ -154,6 +155,16 @@ func hasCredentials(ctx context.Context, profile string) bool {
 // profile, region and endpoint.
 func (c *Client) LogsClient() *cloudwatchlogs.Client {
 	return cloudwatchlogs.NewFromConfig(c.Config, func(o *cloudwatchlogs.Options) {
+		if c.Endpoint != "" {
+			o.BaseEndpoint = aws.String(c.Endpoint)
+		}
+	})
+}
+
+// LambdaClient returns a Lambda client configured for the current profile,
+// region and endpoint.
+func (c *Client) LambdaClient() *lambda.Client {
+	return lambda.NewFromConfig(c.Config, func(o *lambda.Options) {
 		if c.Endpoint != "" {
 			o.BaseEndpoint = aws.String(c.Endpoint)
 		}

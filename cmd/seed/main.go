@@ -78,6 +78,7 @@ func buildSeeders(client *aws.Client, cfg *SeedConfig, region string) []Seeder {
 		newEC2Seeder(client, cfg.EC2),
 		newSQSSeeder(client, cfg.SQS),
 		newLogsSeeder(client, cfg.Logs),
+		newLambdaSeeder(client, cfg.Lambda),
 	}
 }
 

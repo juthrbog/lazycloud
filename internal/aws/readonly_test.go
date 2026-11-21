@@ -90,6 +90,18 @@ var guardCases = []guardCase{
 			return aws.GuardLogs(m, readOnly), &m.Mock
 		},
 	},
+	{
+		name:  "Lambda",
+		iface: reflect.TypeFor[aws.LambdaService](),
+		reads: []string{
+			"ListFunctionsPage", "GetFunction", "GetFunctionURL",
+			"ListAliasesPage", "ListVersionsPage", "ListTriggersPage",
+		},
+		guard: func(readOnly func() bool) (any, *mock.Mock) {
+			m := new(awstest.MockLambdaService)
+			return aws.GuardLambda(m, readOnly), &m.Mock
+		},
+	},
 }
 
 // Every interface method is listed, so a new mutating method cannot pass

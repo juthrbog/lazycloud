@@ -21,10 +21,42 @@ type tiersFile struct {
 }
 
 type baseConfig struct {
-	S3   baseS3Config   `toml:"s3"`
-	EC2  baseEC2Config  `toml:"ec2"`
-	SQS  baseSQSConfig  `toml:"sqs"`
-	Logs baseLogsConfig `toml:"logs"`
+	S3     baseS3Config     `toml:"s3"`
+	EC2    baseEC2Config    `toml:"ec2"`
+	SQS    baseSQSConfig    `toml:"sqs"`
+	Logs   baseLogsConfig   `toml:"logs"`
+	Lambda baseLambdaConfig `toml:"lambda"`
+}
+
+type baseLambdaConfig struct {
+	Functions []functionDef `toml:"functions"`
+}
+
+// functionDef is a seeded Lambda function. An ImageURI makes an image
+// function, else a Python zip function.
+type functionDef struct {
+	Name           string            `toml:"name"`
+	Runtime        string            `toml:"runtime"`
+	Description    string            `toml:"description"`
+	MemoryMB       int32             `toml:"memory"`
+	TimeoutSec     int32             `toml:"timeout"`
+	Env            map[string]string `toml:"env"`
+	Tags           map[string]string `toml:"tags"`
+	LogFormat      string            `toml:"log_format"`
+	LogGroup       string            `toml:"log_group"`
+	SystemLogLevel string            `toml:"system_log_level"`
+	ImageURI       string            `toml:"image_uri"`
+	Versions       int               `toml:"versions"`
+	Alias          *aliasDef         `toml:"alias"`
+	SQSTrigger     string            `toml:"sqs_trigger"` // a queue name
+}
+
+type aliasDef struct {
+	Name          string  `toml:"name"`
+	Version       string  `toml:"version"`
+	Description   string  `toml:"description"`
+	WeightVersion string  `toml:"weight_version"`
+	Weight        float64 `toml:"weight"`
 }
 
 type baseLogsConfig struct {
@@ -40,7 +72,9 @@ type logGroupDef struct {
 
 type logStreamDef struct {
 	Name   string `toml:"name"`
-	Events int    `toml:"events"`
+	Events int    `toml:"events"` // for a Lambda kind: invocations
+	// Kind is "" for plain events, or a Lambda kind (lambdalogs.go).
+	Kind string `toml:"kind"`
 }
 
 type baseSQSConfig struct {
@@ -68,10 +102,15 @@ type baseEC2Config struct {
 }
 
 type tierEntry struct {
-	S3   tierS3Extras   `toml:"s3"`
-	EC2  tierEC2Extras  `toml:"ec2"`
-	SQS  tierSQSExtras  `toml:"sqs"`
-	Logs tierLogsExtras `toml:"logs"`
+	S3     tierS3Extras     `toml:"s3"`
+	EC2    tierEC2Extras    `toml:"ec2"`
+	SQS    tierSQSExtras    `toml:"sqs"`
+	Logs   tierLogsExtras   `toml:"logs"`
+	Lambda tierLambdaExtras `toml:"lambda"`
+}
+
+type tierLambdaExtras struct {
+	ExtraFunctions int `toml:"extra_functions"`
 }
 
 type tierLogsExtras struct {
@@ -153,10 +192,16 @@ type tierEC2Extras struct {
 
 // SeedConfig is the fully resolved configuration for a seed run.
 type SeedConfig struct {
-	S3   S3SeedConfig
-	EC2  EC2SeedConfig
-	SQS  SQSSeedConfig
-	Logs LogsSeedConfig
+	S3     S3SeedConfig
+	EC2    EC2SeedConfig
+	SQS    SQSSeedConfig
+	Logs   LogsSeedConfig
+	Lambda LambdaSeedConfig
+}
+
+type LambdaSeedConfig struct {
+	Functions      []functionDef
+	ExtraFunctions int
 }
 
 type LogsSeedConfig struct {
@@ -227,6 +272,10 @@ func loadConfig(tier string) (*SeedConfig, error) {
 			Groups:               f.Base.Logs.Groups,
 			ExtraGroups:          entry.Logs.ExtraGroups,
 			StreamsPerExtraGroup: entry.Logs.StreamsPerExtraGroup,
+		},
+		Lambda: LambdaSeedConfig{
+			Functions:      f.Base.Lambda.Functions,
+			ExtraFunctions: entry.Lambda.ExtraFunctions,
 		},
 	}, nil
 }
