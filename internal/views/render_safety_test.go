@@ -213,6 +213,24 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			deliverItems(v, &v.listCore, []aws.Function{testFunction})
 			return v
 		},
+		"lambda_aliases": func(*testing.T) tea.Model {
+			v := NewLambdaAliases(nil, "fn", "/aws/lambda/fn")
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.Alias{{Name: "live", Version: "1", Weights: map[string]float64{"2": 0.1}}})
+			return v
+		},
+		"lambda_versions": func(*testing.T) tea.Model {
+			v := NewLambdaVersions(nil, "fn", "/aws/lambda/fn")
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.Function{{Name: "fn", Version: "1", Runtime: "python3.12"}})
+			return v
+		},
+		"lambda_triggers": func(*testing.T) tea.Model {
+			v := NewLambdaTriggers(nil, "fn")
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.Trigger{{UUID: "u1", SourceARN: "arn:aws:sqs:us-east-1:1:q", State: "Enabled", BatchSize: 10}})
+			return v
+		},
 		"logs_streams": func(*testing.T) tea.Model {
 			s := NewLogStreams(nil, "g")
 			s.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -265,6 +283,9 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"logs_groups":      func() tea.Model { return NewLogGroups(nil) },
 		"lambda_functions": func() tea.Model { return NewLambdaFunctions(nil) },
 		"logs_streams":     func() tea.Model { return NewLogStreams(nil, "g") },
+		"lambda_aliases":   func() tea.Model { return NewLambdaAliases(nil, "fn", "g") },
+		"lambda_versions":  func() tea.Model { return NewLambdaVersions(nil, "fn", "g") },
+		"lambda_triggers":  func() tea.Model { return NewLambdaTriggers(nil, "fn") },
 		"sqs_messages":     func() tea.Model { v, _ := newTestSQSMessages(); return v },
 		"sqs_queues":       func() tea.Model { v, _ := newQueueList(); return v },
 		"subnet_list":      func() tea.Model { v := newTestSubnetList("vpc-1"); return v },

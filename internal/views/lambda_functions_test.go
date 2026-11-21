@@ -252,7 +252,7 @@ func TestLambdaFunctions_DetailEdges(t *testing.T) {
 	assert.Contains(t, panel.Tabs[0].Content, "Function URL     none")
 	assert.Len(t, panel.Tabs, 3, "no Tags tab without tags")
 
-	_, err := lambdaDetail(context.Background(), nil, testFunction, false)
+	_, err := lambdaDetail(context.Background(), nil, testFunction, "", false)
 	assert.ErrorIs(t, err, errNoClient)
 }
 

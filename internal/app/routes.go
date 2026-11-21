@@ -68,6 +68,15 @@ var routes = map[string]route{
 	"lambda_functions": {root: "lambda_functions", build: func(m Model, _ map[string]string) nav.View {
 		return views.NewLambdaFunctions(m.svc.Lambda)
 	}},
+	"lambda_aliases": {root: "lambda_functions", build: func(m Model, p map[string]string) nav.View {
+		return views.NewLambdaAliases(m.svc.Lambda, p["function"], p["log_group"])
+	}},
+	"lambda_versions": {root: "lambda_functions", build: func(m Model, p map[string]string) nav.View {
+		return views.NewLambdaVersions(m.svc.Lambda, p["function"], p["log_group"])
+	}},
+	"lambda_triggers": {root: "lambda_functions", build: func(m Model, p map[string]string) nav.View {
+		return views.NewLambdaTriggers(m.svc.Lambda, p["function"])
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},

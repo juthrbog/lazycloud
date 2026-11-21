@@ -1,8 +1,8 @@
 # Lambda
 
-Browse Lambda functions and open their logs. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/lambda.md`.
+Browse Lambda functions with their aliases, versions and triggers, and open their logs. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/lambda.md`.
 
-The aliases, versions and triggers lists and the list of recent invocations come in later PRs of that design.
+The list of recent invocations comes in a later PR of that design.
 
 ## Views
 
@@ -32,6 +32,9 @@ The list loads at most 20 pages of 50 functions (1,000 functions). When more fun
 | `enter` | Open the log group of the function in the event viewer |
 | `d` | Open the detail of the function |
 | `$` | Open the detail with the values of the environment variables shown |
+| `a` | Open the aliases of the function |
+| `v` | Open the versions of the function |
+| `t` | Open the triggers of the function |
 | `y` | Copy the ARN of the function |
 | `l` | Load more functions |
 | `/` | Filter the loaded functions |
@@ -51,6 +54,41 @@ The log group is the group in the logging settings of the function, or `/aws/lam
 
 If `GetFunctionUrlConfig` fails, for example because AWS limits the request rate, the URL line shows the error, and the panel still opens.
 
+### Aliases
+
+`a` on a function opens its aliases.
+
+| Column | Description |
+|--------|-------------|
+| Name | The name of the alias |
+| Version | The version that the alias points at |
+| Weights | The other versions that get a part of the calls, for example `2: 10%` |
+| Description | The description of the alias (not on a narrow terminal) |
+
+`enter` opens the log group of the function, because Lambda writes the logs of every alias there. `d` opens the detail, with the routing of the calls, for example `1: 90%, 2: 10%`. `y` copies the name.
+
+### Versions
+
+`v` on a function opens its versions, with `$LATEST`. The columns are Version, Description, Runtime, Size and Modified. A narrow terminal shows only the version, the description and the date. The versions sort as numbers, and `$LATEST` sorts first.
+
+`enter` opens the log group of the function. `d` opens the detail of that version with `GetFunction`. A version has no function URL of its own, so its detail leaves the URL out. The list loads at most 4 pages of 50 versions (200 versions), and `l` loads more. `y` copies the version.
+
+### Triggers
+
+`t` on a function opens its event source mappings: the queues and streams that Lambda reads and passes to the function.
+
+| Column | Description |
+|--------|-------------|
+| Type | SQS, Kinesis, DynamoDB, Kafka, MQ or DocumentDB, from the ARN of the source |
+| Source | The short name of the source, for example the queue name |
+| State | Enabled, Disabled, Creating and so on, in color |
+| Batch | The batch size (not on a narrow terminal) |
+| Modified | The time of the last change (not on a narrow terminal) |
+
+`enter` and `d` open the detail: the UUID, the source ARN, the state with its reason, the last result, the batch size and window, the start position and the filters. For an SQS source, the source line links to the queue in the SQS list.
+
+The list shows only poll-based triggers. API Gateway, S3, SNS and EventBridge call the function directly and are set up on their side. An empty list says so.
+
 ## API calls
 
 | Call | Used for |
@@ -58,6 +96,9 @@ If `GetFunctionUrlConfig` fails, for example because AWS limits the request rate
 | `ListFunctions` | The function list, 50 functions for each page |
 | `GetFunction` | The detail of a function: the state, the configuration, the reserved concurrency and the tags |
 | `GetFunctionUrlConfig` | The function URL in the detail |
+| `ListAliases` | The aliases of a function |
+| `ListVersionsByFunction` | The versions of a function, 50 for each page |
+| `ListEventSourceMappings` | The triggers of a function, 100 for each page |
 
 `GetFunction` has its own quota of 100 calls each second. The other calls share a quota of 15 calls each second with all users and tools of the account.
 
@@ -66,6 +107,7 @@ If `GetFunctionUrlConfig` fails, for example because AWS limits the request rate
 - `lambda:ListFunctions`
 - `lambda:GetFunction`
 - `lambda:GetFunctionUrlConfig` (optional: without it, the URL line shows the error)
+- `lambda:ListAliases`, `lambda:ListVersionsByFunction` and `lambda:ListEventSourceMappings` (for the three lists of a function)
 - `lambda:ListTags` (optional: without it, the Tags tab shows the reason)
 
-`ListFunctions` and `GetFunction` return the values of the environment variables to any role that may call them.
+`ListFunctions`, `ListVersionsByFunction` and `GetFunction` return the values of the environment variables to any role that may call them.

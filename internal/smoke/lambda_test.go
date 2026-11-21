@@ -45,6 +45,29 @@ func TestLambdaFunctionDetailAndLogs(t *testing.T) {
 	h.waitFor("REPORT RequestId: " + requestID)
 }
 
+// The aliases, versions and triggers of the seeded function orders-api
+// (docs/design/lambda.md, PR 3).
+func TestLambdaChildLists(t *testing.T) {
+	h := start(t, "")
+	h.open("lambda", "Lambda Functions")
+	h.filter("orders-api")
+
+	h.keys("a")
+	h.waitFor("orders-api aliases", "live", "2: 10%", "1/1 aliases")
+	h.esc() // back goes through a command, so wait until the list is on top
+	h.waitGone("orders-api aliases")
+
+	h.keys("v")
+	h.waitFor("orders-api versions", "$LATEST", "Takes orders (version 1)", "3/3 versions")
+	h.esc()
+	h.waitGone("orders-api versions")
+
+	h.keys("t")
+	h.waitFor("orders-api triggers", "SQS", "orders-api-jobs", "Enabled", "1/1 triggers")
+	h.keys("d")
+	h.waitFor("Batch size")
+}
+
 // putReportLine writes a REPORT line of now into a new stream of group,
 // and deletes the stream at the end of the test. The seeded lines can be
 // older than the last hour that the event viewer shows.

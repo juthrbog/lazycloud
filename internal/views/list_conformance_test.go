@@ -417,6 +417,115 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[aws.Function]](),
 	},
 	{
+		name: "lambda_aliases",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLambdaService)
+			svc.Test(t)
+			svc.On("ListAliasesPage", mock.MatchedBy(ok), "fn", mock.Anything).Return(&aws.AliasPage{Aliases: []aws.Alias{{Name: "a1"}}}, nil)
+			svc.On("ListAliasesPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewLambdaAliases(svc, "fn", "/aws/lambda/fn")
+		},
+		buildNil: func() nav.View { return NewLambdaAliases(nil, "fn", "/aws/lambda/fn") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LambdaAliases).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Alias]{gen: c.loadGen, items: []aws.Alias{{Name: "a1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Alias]{gen: c.loadGen, items: []aws.Alias{{Name: "a2"}}, page: 2},
+				listPageMsg[aws.Alias]{gen: c.loadGen - 1, items: []aws.Alias{{Name: "old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LambdaAliases).items {
+				ids = append(ids, it.Name)
+			}
+			return ids
+		},
+		wantIDs:  []string{"a1", "a2"},
+		file:     "lambda_children.go",
+		typeName: "LambdaAliases",
+		coreType: reflect.TypeFor[listCore[aws.Alias]](),
+	},
+	{
+		name: "lambda_versions",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLambdaService)
+			svc.Test(t)
+			svc.On("ListVersionsPage", mock.MatchedBy(ok), "fn", mock.Anything).Return(&aws.FunctionPage{Functions: []aws.Function{{Name: "fn", Version: "1"}}}, nil)
+			svc.On("ListVersionsPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			svc.On("GetFunction", mock.Anything, mock.Anything, mock.Anything).Return(&aws.FunctionDetail{}, nil).Maybe()
+			return NewLambdaVersions(svc, "fn", "/aws/lambda/fn")
+		},
+		buildNil: func() nav.View { return NewLambdaVersions(nil, "fn", "/aws/lambda/fn") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LambdaVersions).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Function]{gen: c.loadGen, items: []aws.Function{{Name: "fn", Version: "1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Function]{gen: c.loadGen, items: []aws.Function{{Name: "fn", Version: "2"}}, page: 2},
+				listPageMsg[aws.Function]{gen: c.loadGen - 1, items: []aws.Function{{Name: "fn", Version: "9"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LambdaVersions).items {
+				ids = append(ids, it.Version)
+			}
+			return ids
+		},
+		wantIDs:  []string{"1", "2"},
+		file:     "lambda_children.go",
+		typeName: "LambdaVersions",
+		coreType: reflect.TypeFor[listCore[aws.Function]](),
+	},
+	{
+		name: "lambda_triggers",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockLambdaService)
+			svc.Test(t)
+			svc.On("ListTriggersPage", mock.MatchedBy(ok), "fn", mock.Anything).Return(&aws.TriggerPage{Triggers: []aws.Trigger{{UUID: "u1"}}}, nil)
+			svc.On("ListTriggersPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewLambdaTriggers(svc, "fn")
+		},
+		buildNil: func() nav.View { return NewLambdaTriggers(nil, "fn") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*LambdaTriggers).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.Trigger]{gen: c.loadGen, items: []aws.Trigger{{UUID: "u1"}}, next: &tok, page: 1},
+				listPageMsg[aws.Trigger]{gen: c.loadGen, items: []aws.Trigger{{UUID: "u2"}}, page: 2},
+				listPageMsg[aws.Trigger]{gen: c.loadGen - 1, items: []aws.Trigger{{UUID: "old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*LambdaTriggers).items {
+				ids = append(ids, it.UUID)
+			}
+			return ids
+		},
+		wantIDs:  []string{"u1", "u2"},
+		file:     "lambda_children.go",
+		typeName: "LambdaTriggers",
+		coreType: reflect.TypeFor[listCore[aws.Trigger]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -711,6 +820,9 @@ var loadContexts = map[string]string{
 	"logs_groups":      "listing log groups",
 	"lambda_functions": "listing functions",
 	"logs_streams":     "listing log streams",
+	"lambda_aliases":   "listing aliases",
+	"lambda_versions":  "listing versions",
+	"lambda_triggers":  "listing triggers",
 }
 
 // Every list of the registry runs the conformance cases.
