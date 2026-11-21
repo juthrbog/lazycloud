@@ -77,6 +77,9 @@ var routes = map[string]route{
 	"lambda_triggers": {root: "lambda_functions", build: func(m Model, p map[string]string) nav.View {
 		return views.NewLambdaTriggers(m.svc.Lambda, p["function"])
 	}},
+	"lambda_invocations": {root: "lambda_functions", build: func(m Model, p map[string]string) nav.View {
+		return views.NewLambdaInvocations(m.svc.Logs, p)
+	}},
 	"eventlog": {noSession: true, build: func(Model, map[string]string) nav.View {
 		return views.NewEventLog()
 	}},

@@ -26,21 +26,23 @@ const lambdaHidden = "••••"
 
 // lambdaKeys are the keys of the function list that the core does not have.
 var lambdaKeys = struct {
-	Logs     ui.HintBinding
-	Details  ui.HintBinding
-	Env      ui.HintBinding
-	CopyARN  ui.HintBinding
-	Aliases  ui.HintBinding
-	Versions ui.HintBinding
-	Triggers ui.HintBinding
+	Logs        ui.HintBinding
+	Details     ui.HintBinding
+	Env         ui.HintBinding
+	CopyARN     ui.HintBinding
+	Aliases     ui.HintBinding
+	Versions    ui.HintBinding
+	Triggers    ui.HintBinding
+	Invocations ui.HintBinding
 }{
-	Logs:     ui.NewHintBinding([]string{"enter"}, "enter", "logs"),
-	Details:  ui.NewHintBinding([]string{"d"}, "d", "details"),
-	Env:      ui.NewHintBinding([]string{"$"}, "$", "details with env values"),
-	CopyARN:  ui.NewHintBinding([]string{"y"}, "y", "copy ARN"),
-	Aliases:  ui.NewHintBinding([]string{"a"}, "a", "aliases"),
-	Versions: ui.NewHintBinding([]string{"v"}, "v", "versions"),
-	Triggers: ui.NewHintBinding([]string{"t"}, "t", "triggers"),
+	Logs:        ui.NewHintBinding([]string{"enter"}, "enter", "logs"),
+	Details:     ui.NewHintBinding([]string{"d"}, "d", "details"),
+	Env:         ui.NewHintBinding([]string{"$"}, "$", "details with env values"),
+	CopyARN:     ui.NewHintBinding([]string{"y"}, "y", "copy ARN"),
+	Aliases:     ui.NewHintBinding([]string{"a"}, "a", "aliases"),
+	Versions:    ui.NewHintBinding([]string{"v"}, "v", "versions"),
+	Triggers:    ui.NewHintBinding([]string{"t"}, "t", "triggers"),
+	Invocations: ui.NewHintBinding([]string{"i"}, "i", "invocations"),
 }
 
 // LambdaFunctions displays the Lambda functions.
@@ -82,7 +84,7 @@ func (v *LambdaFunctions) View() tea.View { return tea.NewView(v.render("", ""))
 
 func (v *LambdaFunctions) KeyMap() []ui.HintBinding {
 	return v.hints(lambdaKeys.Logs, lambdaKeys.Details, lambdaKeys.Env, lambdaKeys.Aliases, lambdaKeys.Versions,
-		lambdaKeys.Triggers, lambdaKeys.CopyARN, listKeys.More,
+		lambdaKeys.Triggers, lambdaKeys.Invocations, lambdaKeys.CopyARN, listKeys.More,
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
@@ -103,6 +105,10 @@ func (v *LambdaFunctions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return v, navigate("lambda_versions", lambdaChildParams(*it))
 		case key.Matches(k, lambdaKeys.Triggers.Binding):
 			return v, navigate("lambda_triggers", lambdaChildParams(*it))
+		case key.Matches(k, lambdaKeys.Invocations.Binding):
+			p := lambdaChildParams(*it)
+			p["log_format"], p["system_log_level"] = it.LogFormat, it.SystemLogLevel
+			return v, navigate("lambda_invocations", p)
 		}
 	}
 	return v, v.update(m)
