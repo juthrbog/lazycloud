@@ -270,6 +270,36 @@ name = "legacy-image"
 description = "An image function"
 image_uri = "000000000000.dkr.ecr.us-east-1.amazonaws.com/legacy:latest"
 
+# ECS. Each running task is a Docker container on the host, so only web
+# runs a task. The seeder runs one more task of web and stops it, for the
+# stopped task list. No service crashes: LocalStack would start a new
+# container every few seconds.
+
+[[base.ecs.clusters]]
+name = "prod-cluster"
+tags = { team = "platform" }
+
+[[base.ecs.clusters.services]]
+name = "web"
+image = "nginx:alpine"
+desired = 1
+exec = true
+log_group = "/ecs/web-app"
+env = { DB_HOST = "web.db.internal", DB_PASSWORD = "not-a-real-secret" }
+tags = { team = "web" }
+stopped_task = true
+
+[[base.ecs.clusters.services]]
+name = "worker"
+image = "nginx:alpine"
+revisions = 2
+log_group = "/ecs/worker"
+
+[[base.ecs.clusters.services]]
+name = "scheduler"
+image = "nginx:alpine"
+revisions = 2
+
 # ─── Tier: small ─────────────────────────────────────────────────────────────
 # Base resources only, no extras. Default for quick dev iteration.
 
@@ -284,6 +314,9 @@ streams_per_extra_group = 2
 
 [tiers.medium.lambda]
 extra_functions = 60
+
+[tiers.medium.ecs]
+extra_services = 30
 
 [tiers.medium.sqs]
 extra_queues = 10
@@ -309,6 +342,9 @@ streams_per_extra_group = 2
 [tiers.large.lambda]
 extra_functions = 120
 
+[tiers.large.ecs]
+extra_services = 120
+
 [tiers.large.sqs]
 extra_queues = 50
 
@@ -332,6 +368,9 @@ streams_per_extra_group = 2
 
 [tiers.enterprise.lambda]
 extra_functions = 1100
+
+[tiers.enterprise.ecs]
+extra_services = 1100
 
 [tiers.enterprise.sqs]
 extra_queues = 200

@@ -160,6 +160,7 @@ func mockAllServices(m *Model) {
 	m.svc.S3, m.svc.EC2, m.svc.SQS = new(awstest.MockS3Service), new(awstest.MockEC2Service), new(awstest.MockSQSService)
 	m.svc.Logs = new(awstest.MockLogsService)
 	m.svc.Lambda = new(awstest.MockLambdaService)
+	m.svc.ECS = new(awstest.MockECSService)
 }
 
 func TestMockAllServicesFillsEveryService(t *testing.T) {

@@ -1,6 +1,6 @@
 # ECS: clusters, services, tasks, containers, task definitions and exec
 
-Status: Draft, waiting for approval. PR 0 is this design and its pin tests. The facts below were checked at `c7a867e` with `service/ecs` v1.106.0 and LocalStack 2026.10.4.
+Status: Approved on 2026-11-21 with all proposed answers (#324 merged). PR 0 is this design and its pin tests. The facts below were checked at `c7a867e` with `service/ecs` v1.106.0 and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -177,7 +177,7 @@ These are true today. PR 0 pins the ones that the app code shows.
 - Each page method skips the describe call when the list page is empty (H1). It keys the results by the returned ARN, not by their order.
 - A failure with the reason `MISSING` means that the resource went away between the two calls, and the row is dropped. Any other failure becomes a row with only the ARN, the name from the ARN, and the reason in an `Err` field, as for SQS (H2).
 - Each call passes the cluster ARN, never an empty cluster. Task methods take the full task ARN, which also avoids the LocalStack quirk with bare IDs.
-- Domain types `aws.Cluster`, `aws.ECSService`, `aws.Task`, `aws.Container`, `aws.TaskDefinition` and `aws.ServiceDeployment` keep the fields that the views show, with times as `time.Time` and the family and revision parsed from the ARN. `Task.ID` is the last `/` segment of its ARN, and `Task.Cluster` comes from `ClusterArn` (H4).
+- Domain types `aws.Cluster`, `aws.ClusterService` (the interface has the name `ECSService`), `aws.Task`, `aws.Container`, `aws.TaskDefinition` and `aws.ServiceDeployment` keep the fields that the views show, with times as `time.Time`. `ParseTaskDefinition` and `TaskDefinitionLabel` read the family and the revision from an ARN. `Task.ID` is the last `/` segment of its ARN (`ARNName`), and `Task.ClusterARN` comes from `ClusterArn` (H4).
 - `GuardECS` passes every read. PR 7 adds the three writes, and the guard refuses them in ReadOnly.
 
 ### The cluster list
@@ -271,9 +271,9 @@ All three need ReadWrite. Each view checks ReadOnly again when the reply comes, 
 
 - `cmd/seed/ecs.go` makes the cluster `prod-cluster` with tags, and these services, with `awsvpc` on a default VPC subnet that it looks up:
   - `web`: `nginx:alpine` (multi-arch), desired count 1, exec on, `awslogs` to its own group `/ecs/web-app` with `awslogs-create-group=true` and the prefix `ecs`.
-  - `worker` and `scheduler`: desired count 0, with two revisions of their task definitions.
+  - `worker` and `scheduler`: desired count 0, with two revisions of their task definitions. `worker` logs to `/ecs/worker`, and `scheduler` has no log configuration.
 - One task of `web`'s task definition runs with `RunTask` and stops with `StopTask` and a reason, so the stopped list has a row with a stop code.
-- The tiers add services with a desired count of 0: 30 (medium), 120 (large) and 1,100 (enterprise). They start no container.
+- The tiers add services with a desired count of 0 in their own cluster, `bulk-cluster`: 30 (medium), 120 (large) and 1,100 (enterprise). They share one task definition family and start no container.
 - The seeder never seeds a service that crashes, because LocalStack starts a new container every few seconds for it. It is idempotent, as the other seeders are. It makes its own log group, because the seeders run in parallel.
 - Unit tests in `internal/aws` use an `httptest` fake keyed by `X-Amz-Target`: paging, the batches of 10 and 100, no describe call for an empty page (also for clusters), results out of order, `MISSING` and other failures, both ARN formats, the parse of a task definition ARN, the `Include` values, and the `ServiceName` of `ListTasks` (the bare name, or no field). LocalStack cannot catch a wrong `ServiceName`.
 - Unit tests in `internal/views` cover each list, its keys, the detail tabs, the style of the Tasks, Rollout and Health columns, the stopped toggle, the empty values, the log jump in each case (running, stopping, stopped with and without a stop time, no prefix, another driver, another Region, a failed task definition call), the link to a revision that is not loaded, the exec checks and argv, and the write actions with ReadOnly at the reply.

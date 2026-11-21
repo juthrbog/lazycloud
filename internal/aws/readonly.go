@@ -240,3 +240,15 @@ type guardedLambda struct {
 	LambdaService
 	readOnly func() bool
 }
+
+// GuardECS returns svc with a ReadOnly guard on every mutating method.
+// Every method of ECSService reads, so it passes each call through. The
+// write actions of ECS PR 7 must get a guard here.
+func GuardECS(svc ECSService, readOnly func() bool) ECSService {
+	return guardedECS{ECSService: svc, readOnly: readOnly}
+}
+
+type guardedECS struct {
+	ECSService
+	readOnly func() bool
+}
