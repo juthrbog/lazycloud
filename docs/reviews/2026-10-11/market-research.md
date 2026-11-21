@@ -63,7 +63,7 @@ The safety lead depends on the fixes in the review tracker, especially C2, C3, C
 
 First, fix the safety findings in the review tracker. Then work on the existing issues in this order:
 
-1. CloudWatch Logs (#119), then live tail (#120). Every competitor has logs. Live tail shows the strength of a TUI. Logs also support Lambda and ECS.
+1. CloudWatch Logs (#119), then live tail (#120). Every competitor has logs. Live tail shows the strength of a TUI. Logs also support Lambda and ECS. Done in #310 to #317, as planned in `docs/design/cwlogs.md`.
 2. Lambda (#122 and #124). It is the most used serverless service, and it links to logs.
 3. ECS (#129), then exec (#130). e1s has 939 stars for ECS alone.
 4. Secrets Manager and Parameter Store (#125). The API is small, masked values fit the ReadOnly story, and users look up secrets every day.

@@ -81,6 +81,33 @@ func TestLogEventsFilterPattern(t *testing.T) {
 	h.waitFor("filter: ERROR", "50 events ·")
 }
 
+// LocalStack has no live tail, so F polls FilterLogEvents with the
+// endpoint override (decision D5). An event put after the start shows.
+func TestLogEventsLiveTailPolls(t *testing.T) {
+	group := "/smoke/" + uniqueName("tail")
+	createLogEvents(t, group, "app/1", 20)
+
+	h := start(t, "")
+	h.keys(":logs " + group)
+	h.enter()
+	h.waitFor("20 events ·")
+	h.keys("F")
+	h.waitFor("POLL ")
+
+	logs := services(t).Client.LogsClient()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := logs.PutLogEvents(ctx, &cloudwatchlogs.PutLogEventsInput{
+		LogGroupName: sdkaws.String(group), LogStreamName: sdkaws.String("app/1"),
+		LogEvents: []types.InputLogEvent{{Timestamp: sdkaws.Int64(time.Now().UnixMilli()), Message: sdkaws.String("tail event arrived")}},
+	}); err != nil {
+		t.Fatalf("putting log events: %v", err)
+	}
+	h.waitFor("tail event arrived")
+	h.keys("F")
+	h.waitFor("Live tail stopped.")
+}
+
 // createLogEvents makes group with one stream of n events in the last 20
 // minutes. Every tenth event has ERROR.
 func createLogEvents(t *testing.T, group, stream string, n int) {

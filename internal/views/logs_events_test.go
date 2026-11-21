@@ -856,7 +856,7 @@ func TestLogEvents_KeyMap(t *testing.T) {
 		keys = append(keys, h.Binding.Help().Key)
 		assert.NotEqual(t, ui.ModeReadWrite, h.Mode, "every key reads")
 	}
-	assert.Equal(t, []string{"l", "f", "/", "t", "r", "enter", "y", "V", "w", "G"}, keys)
+	assert.Equal(t, []string{"F", "l", "f", "/", "t", "r", "enter", "y", "V", "w", "G"}, keys)
 }
 
 // A range or a pattern set while a query loads builds on that query, so

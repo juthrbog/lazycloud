@@ -556,15 +556,16 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case appmsg.NavigateBackMsg:
 		m.dismissPanel()
+		var uncovered tea.Cmd
 		if m.nav.Depth() > 1 {
-			m.nav.Pop()
+			uncovered = m.nav.Pop()
 			m.trimCrossNavHistory()
 			m.resizeViews()
 		}
 		if m.nav.Depth() == 1 {
-			return m, m.nav.InitCurrent()
+			return m, tea.Batch(uncovered, m.nav.InitCurrent())
 		}
-		return m, nil
+		return m, uncovered
 
 	case appmsg.TabbedContentMsg:
 		if m.canShowPanel() {
@@ -677,14 +678,14 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.requestQuit()
 			}
 			m.dismissPanel()
-			m.nav.Pop()
+			uncovered := m.nav.Pop()
 			m.trimCrossNavHistory()
 			m.resizeViews()
 			// Restart animation tick when returning to home screen
 			if m.nav.Depth() == 1 {
-				return m, m.nav.InitCurrent()
+				return m, tea.Batch(uncovered, m.nav.InitCurrent())
 			}
-			return m, nil
+			return m, uncovered
 		case key.Matches(msg, m.keys.ThemePicker.Binding):
 			cmd := m.showThemePicker()
 			return m, cmd
@@ -718,8 +719,7 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, m.keys.CrossNavBack.Binding):
 			if m.panels.HasHistory() {
-				m.popCrossNavBack()
-				return m, nil
+				return m, m.popCrossNavBack()
 			}
 			return m, nil
 		}
@@ -984,27 +984,29 @@ func (m *Model) refreshHelp() {
 // popCrossNavBack pops the cross-nav history, goes back to the view that
 // showed the panel, and restores the panel as the user left it. The user can
 // open more views after a link, so it pops to the saved depth, not one level.
-// An entry whose view is gone is dropped.
-func (m *Model) popCrossNavBack() {
+// An entry whose view is gone is dropped. It returns the command of the
+// view that is on top again (see nav.Coverable).
+func (m *Model) popCrossNavBack() tea.Cmd {
 	entry, ok := m.panels.Back(m.nav.Views())
 	if !ok {
-		return
+		return nil
 	}
 
 	m.dismissPanel()
-	m.nav.PopTo(entry.depth)
+	uncovered := m.nav.PopTo(entry.depth)
 	m.resizeViews()
 
 	if !m.canShowPanel() {
 		// The terminal got narrow after the link. The panel opens when the
 		// terminal is wide again.
 		m.panels.StashState(entry.state)
-		return
+		return uncovered
 	}
 	m.panels.Restore(entry.state, !m.capturingInput())
 	m.resizeViews()
 	m.refreshHelp()
 	eventlog.Infof(eventlog.CatUI, "Panel restored: %s", entry.state.title)
+	return uncovered
 }
 
 // trimCrossNavHistory drops the history entries whose view is no longer at

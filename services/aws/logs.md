@@ -95,6 +95,7 @@ The footer shows the count and the loaded time span, for example `1000 events ·
 | `V` | Select lines |
 | `w` | Wrap long lines |
 | `G` | Go to the end and follow it |
+| `F` | Start or stop live tail |
 | `j`, `k`, `ctrl+d`, `ctrl+u`, `g` | Move |
 
 A custom range asks for a start time and an end time. Write a time in local time, for example `2026-11-20 14:00`, or in RFC 3339 form with `Z` or an offset. An empty end time is now.
@@ -102,6 +103,26 @@ A custom range asks for a start time and an end time. Write a time in local time
 If AWS rejects a filter pattern, the status bar shows the AWS error, and the old lines and the old pattern stay. If AWS limits the request rate, the lines stay, and `l` tries the same page again. A page token expires after 24 hours. When a token is more than 23 hours old, `l` starts a new query at the oldest loaded event.
 
 The side panel opens without the focus, so `l`, `f` and the other keys still go to the viewer. Press `tab` to move the focus to the panel. A message over 64 KB shows cut in the panel. Press `y` in the viewer to copy all of it.
+
+### Live tail
+
+`F` starts live tail for the group or the stream of the viewer, with the filter pattern of the viewer. `F` again stops it. While the events of a new query load, `F` waits, because the result replaces the lines. AWS bills each minute of a live tail session. Before the first start in each run of the app, the status bar says so.
+
+New events append at the end, below the loaded history, and the cursor follows the end. When you move up, follow turns off, and new events still append below. Press `G` to follow again.
+
+The header shows `LIVE` and the time since the start, for example `LIVE 02:13 · last 1h · UTC-05:00`. AWS sends at most 500 events each second. When more events match, AWS sends a sample. The header then shows `sampled`, and the footer says that AWS shows a sample.
+
+Live tail stops in these cases. The lines stay.
+
+- You press `F`.
+- You leave the viewer, or another view covers it, for example `:ec2`. When you come back, the status bar says "Live tail stopped. F starts it again." The side panel, the help and the pickers do not cover the viewer.
+- You switch the profile or the region.
+- You start a new query with `f`, `t` or `r`. The new query replaces the lines.
+- AWS ends the session after 3 hours, or with an error. The status bar says why.
+
+Live tail works only on a group of the Standard class. An account can run 15 live tail sessions at the same time, and console users share this limit. When the account has 15, the status bar says "The account already runs 15 live tail sessions."
+
+With an endpoint override (`--endpoint`), the viewer sends `StartLiveTail` to the endpoint host. If the endpoint does not implement it, as LocalStack does not, or does not answer, the viewer polls `FilterLogEvents` every 2 seconds. The header shows `POLL` in place of `LIVE`. Each poll reads at most 2 pages, from 30 seconds before the newest event that it has, and drops the events that it already shows. An event with a time ahead of the local clock does not move this start past the clock. The poll uses the `FilterLogEvents` quota of the account.
 
 ## API calls
 
@@ -113,6 +134,7 @@ The side panel opens without the focus, so `l`, `f` and the other keys still go 
 | `DescribeLogGroups` with a prefix | `:logs NAME`, to find the group with exactly that name |
 | `FilterLogEvents` | The events of a group, and of a stream with a filter pattern, newest first |
 | `GetLogEvents` | The events of a stream, newest first |
+| `StartLiveTail` | Live tail of a group or a stream |
 
 The page tokens of CloudWatch Logs expire after 24 hours. In the group and stream lists, when a kept token is more than 23 hours old, `l` does not send it, and the status bar says to press `r`. The event viewer starts a new query instead (see Log Events).
 
@@ -122,4 +144,5 @@ The page tokens of CloudWatch Logs expire after 24 hours. In the group and strea
 - `logs:DescribeLogStreams`
 - `logs:FilterLogEvents`
 - `logs:GetLogEvents`
+- `logs:StartLiveTail` (optional, for live tail)
 - `logs:ListTagsForResource` (optional, for the Tags tab)

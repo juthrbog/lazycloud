@@ -48,15 +48,15 @@ func (m Model) finishForm(form *ui.FormView, res appmsg.FormResultMsg) (Model, t
 		forms = append(forms, f)
 	}
 	m.forms = forms
-	m.nav.Pop()
+	uncovered := m.nav.Pop()
 	m.resizeViews()
 	if asker == nil {
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T: no view asked for the form", res)
-		return m, nil
+		return m, uncovered
 	}
 	if !m.nav.Contains(asker) {
 		eventlog.Debugf(eventlog.CatNav, "Dropped %T for %s: view no longer exists", res, asker.ID())
-		return m, nil
+		return m, uncovered
 	}
-	return m, m.nav.UpdateView(asker, res)
+	return m, tea.Batch(uncovered, m.nav.UpdateView(asker, res))
 }

@@ -83,7 +83,7 @@ var guardCases = []guardCase{
 		iface: reflect.TypeFor[aws.LogsService](),
 		reads: []string{
 			"ListLogGroupsPage", "GetLogGroup", "ListLogStreamsPage",
-			"GetStreamEvents", "FilterEvents", "ListLogGroupTags",
+			"GetStreamEvents", "FilterEvents", "ListLogGroupTags", "StartLiveTail",
 		},
 		guard: func(readOnly func() bool) (any, *mock.Mock) {
 			m := new(awstest.MockLogsService)

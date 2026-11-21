@@ -230,12 +230,14 @@ For both:
 - Before the first start in each run of the app, the status bar says "Live tail is billed for each minute. F stops it." It does not ask for a confirm (decision D2).
 - The lines of live tail append at the end, so the history above them stays. When the user moves up, follow turns off, and new lines still append below.
 - On a group of another class than Standard, `F` does not start a session. The status bar says that live tail needs the Standard class.
+- A new query (`f`, `t` or `r`) replaces the lines, so it stops live tail. The status bar says "Live tail stopped. F starts it again." While the load of a new query runs, `F` waits (PR 6).
+- On a narrow terminal, enter on a line pushes the event as a view in place of the side panel. That view covers the viewer, so live tail stops (PR 6).
 
 With an endpoint override (decision D5):
 
-- The viewer calls `StartLiveTail` with the host prefix turned off for that call (`smithyhttp.DisableEndpointHostPrefix`).
+- The viewer calls `StartLiveTail` with the host prefix turned off for that call (`smithyhttp.DisableEndpointHostPrefix`). The flag is a stack value, and the SDK clears the stack values when a call starts. So a middleware of the call sets it (PR 6).
 - When that call fails with "not implemented" (501, as LocalStack does) or cannot connect, the viewer polls `FilterLogEvents` every 2 seconds. The header shows `POLL` in place of `LIVE`, and the status bar says once that the poll uses the `FilterLogEvents` quota of the account.
-- Each poll asks from 30 seconds before the newest event time that it has, so an event that arrives late still shows. The viewer drops an event ID that it already has. It keeps the IDs of the last 2 minutes for this.
+- Each poll asks from 30 seconds before the newest event time that it has, so an event that arrives late still shows. The first poll asks from 30 seconds before the start. The start of a poll does not move back, and an event time ahead of the local clock counts as the clock. The viewer drops an event ID that it already has, also an ID of the first load and of an earlier poll session. A line of `GetLogEvents` has no ID, so for it the viewer compares the time and the message. It keeps the events of the last 2 minutes for this (PR 6).
 - A poll reads at most 2 pages.
 - The smoke tests use this path, because LocalStack has no live tail.
 
@@ -270,7 +272,7 @@ Each PR keeps `go test ./...` green and runs golangci-lint with gosec.
 - PR 3. `ui.LogView` with its tests: the ring with both caps, `Append` and `Prepend`, follow, wrap, the local filter, visual select, styles drawn on screen only, `Restyle`, and the look without colors. H4 flips.
 - PR 4. The group and stream lists, the registry entry and the `logs` command, the routes, the icon, the smoke case, `services/aws/logs.md`, and the docs. `TestServiceWordsAreFree` keeps only `events`. H2 and H3 flip for these two lists. The event viewer did not exist yet, so in PR 4 enter on a group opened its streams, as `v` does, and enter on a stream opened its detail, as `d` does. PR 5 moved enter to the events.
 - PR 5. The event viewer: the group and stream modes, `l` with the walk-back limits, `f`, `t` with the time rules, `/`, the event detail, and `:logs NAME` with the change in `executeCommand`. A smoke test pages a stream and sets a filter. The group list sends the group record to the viewer as route parameters (`log_group_arn`, `log_class`, `log_created`, `log_retention`), and the stream list sends `stream_first`. `ui.LogLine` gets a `Data` field that keeps the event for its detail, and `msg.TabbedContentMsg` gets `NoFocus`, so the event detail opens without the focus.
-- PR 6. Live tail: the session context and `AfterFunc` close, the read loop, `nav.Coverable`, `LIVE` and `sampled`, the timeout and errors, the Standard class check, and the polling form with an endpoint override. H5 and H6 are covered. The smoke test starts `F` in its polling form. The tracker marks market research item 3 done.
+- PR 6. Live tail: the session context and `AfterFunc` close, the read loop, `nav.Coverable`, `LIVE` and `sampled`, the timeout and errors, the Standard class check, and the polling form with an endpoint override. H5 and H6 are covered. The smoke test starts `F` in its polling form. The tracker marks item 1 of the roadmap priority in the market research done (the plan first said item 3).
 
 PR 1, PR 2 and PR 3 do not depend on each other. PR 4 needs PR 1 and PR 2. PR 5 needs PR 3 and PR 4. PR 6 needs PR 5.
 
