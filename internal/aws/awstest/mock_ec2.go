@@ -121,6 +121,18 @@ func (m *MockEC2Service) ListSubnetsPage(ctx context.Context, token *string, vpc
 	return val, args.Error(1)
 }
 
+func (m *MockEC2Service) FindSecurityGroupsByName(ctx context.Context, name string) ([]aws.SecurityGroup, error) {
+	args := m.Called(ctx, name)
+	val, _ := args.Get(0).([]aws.SecurityGroup)
+	return val, args.Error(1)
+}
+
+func (m *MockEC2Service) FindInstancesByName(ctx context.Context, name string) ([]aws.Instance, error) {
+	args := m.Called(ctx, name)
+	val, _ := args.Get(0).([]aws.Instance)
+	return val, args.Error(1)
+}
+
 func (m *MockEC2Service) GetSubnet(ctx context.Context, subnetID string) (*aws.Subnet, error) {
 	args := m.Called(ctx, subnetID)
 	val, _ := args.Get(0).(*aws.Subnet)

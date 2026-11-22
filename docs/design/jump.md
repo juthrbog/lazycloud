@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. PR 4 adds the switch to another Region. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. PR 4 adds the switch to another Region. PR 5 adds the jump by name. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -207,7 +207,9 @@ The new session starts with the same mode rules as a Region switch from `R`: the
 
 A bare name runs exact-name reads in the session Region, all at once, each with `callTimeout`:
 
-- Lambda `GetFunction(name)`, ECS `DescribeCluster(name)`, ECS `DescribeTaskDefinition(name)` (the family), SQS `GetQueueURL(name)`, S3 (the bucket is in `ListBuckets` of the session, `s3.go:125-142`, or `HeadBucket(name)` with the session account as the owner, when the name is a valid bucket name), Logs `GetLogGroup(name)`, EC2 security groups by the `group-name` filter, and EC2 instances by the `tag:Name` filter (both new reads).
+- Lambda `GetFunction(name)`, ECS `DescribeCluster(name)`, ECS `DescribeTaskDefinition(name)` (the family), SQS `GetQueueURL(name)`, S3 `HeadBucket(name)` with the session account as the owner, Logs `GetLogGroup(name)`, EC2 security groups by the `group-name` filter, and EC2 instances by the `tag:Name` filter (both new reads, at most 100 results each).
+- A read runs only when the name follows the name rule of its service, so `web server` asks only EC2. A bucket of another account (403) counts as a miss, because a short name such as `web` is often taken.
+- A read that fails is named in the toast when nothing matched: "No resource named web in us-east-1. Some reads failed: Lambda (AccessDeniedException)." When something matched, the failure goes to the event log.
 - No match gives a toast. One match opens it. More than one opens a picker: "Several resources are named web", with one line for each, for example "ECS cluster", "Lambda function", "EC2 instance i-0abc (running)".
 - A name can never come after a bare `:`, because the command bar turns some words into commands (H8). It needs `:go`.
 - `NAME:SUFFIX` (for example `web:3`) asks both Lambda (function and qualifier) and ECS (family and revision).

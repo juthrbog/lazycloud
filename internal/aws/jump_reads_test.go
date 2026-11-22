@@ -176,3 +176,97 @@ func TestDescribeCluster(t *testing.T) {
 	require.NotErrorIs(t, err, ErrClusterNotFound)
 	assert.Contains(t, err.Error(), "ACCESS_DENIED")
 }
+
+// ec2ByName is a fake EC2 that answers the reads by name in two pages: the
+// first holds only a group or instance with another name (as a wildcard
+// match would) and a next token, the second holds the matches. It records
+// the form of each call.
+func ec2ByName(t *testing.T) (*[]map[string][]string, *EC2ServiceImpl) {
+	t.Helper()
+	var mu sync.Mutex
+	var calls []map[string][]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		mu.Lock()
+		calls = append(calls, r.PostForm)
+		mu.Unlock()
+		second := r.PostForm.Get("NextToken") == "t2"
+		switch r.PostForm.Get("Action") {
+		case "DescribeSecurityGroups":
+			if !second {
+				_, _ = w.Write([]byte(`<DescribeSecurityGroupsResponse><securityGroupInfo>
+<item><groupId>sg-0</groupId><groupName>web-old</groupName><vpcId>vpc-1</vpcId></item>
+</securityGroupInfo><nextToken>t2</nextToken></DescribeSecurityGroupsResponse>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<DescribeSecurityGroupsResponse><securityGroupInfo>
+<item><groupId>sg-1</groupId><groupName>web</groupName><vpcId>vpc-1</vpcId></item>
+<item><groupId>sg-2</groupId><groupName>web</groupName><vpcId>vpc-2</vpcId></item>
+</securityGroupInfo></DescribeSecurityGroupsResponse>`))
+		case "DescribeInstances":
+			if !second {
+				_, _ = w.Write([]byte(`<DescribeInstancesResponse><reservationSet>
+<item><instancesSet><item><instanceId>i-0</instanceId><instanceState><name>running</name></instanceState>
+<tagSet><item><key>Name</key><value>web-old</value></item></tagSet></item></instancesSet></item>
+</reservationSet><nextToken>t2</nextToken></DescribeInstancesResponse>`))
+				return
+			}
+			_, _ = w.Write([]byte(`<DescribeInstancesResponse><reservationSet>
+<item><instancesSet><item><instanceId>i-1</instanceId><instanceState><name>running</name></instanceState>
+<tagSet><item><key>Name</key><value>web</value></item></tagSet></item></instancesSet></item>
+<item><instancesSet><item><instanceId>i-2</instanceId><instanceState><name>stopped</name></instanceState>
+<tagSet><item><key>Name</key><value>web</value></item></tagSet></item></instancesSet></item>
+</reservationSet></DescribeInstancesResponse>`))
+		default:
+			http.Error(w, "unexpected", http.StatusNotImplemented)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	isolateConfig(t)
+	c, err := NewClient("", "us-east-1", srv.URL)
+	require.NoError(t, err)
+	return &calls, NewEC2Service(c)
+}
+
+// The read follows the next token, keeps only exact names, and sends no
+// MaxResults, so EC2 filters every page.
+func TestFindSecurityGroupsByName(t *testing.T) {
+	calls, svc := ec2ByName(t)
+	got, err := svc.FindSecurityGroupsByName(context.Background(), "web")
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "sg-1", got[0].ID)
+	assert.Equal(t, "vpc-2", got[1].VpcID)
+	require.Len(t, *calls, 2)
+	form := (*calls)[0]
+	assert.Equal(t, []string{"group-name"}, form["Filter.1.Name"])
+	assert.Equal(t, []string{"web"}, form["Filter.1.Value.1"])
+	assert.Empty(t, form["MaxResults"])
+	assert.Equal(t, []string{"t2"}, (*calls)[1]["NextToken"])
+}
+
+func TestFindInstancesByName(t *testing.T) {
+	calls, svc := ec2ByName(t)
+	got, err := svc.FindInstancesByName(context.Background(), "web")
+	require.NoError(t, err)
+	require.Len(t, got, 2, "web-old is no exact match")
+	assert.Equal(t, "i-1", got[0].ID)
+	assert.Equal(t, "running", got[0].State)
+	assert.Equal(t, "stopped", got[1].State)
+	require.Len(t, *calls, 2)
+	form := (*calls)[0]
+	assert.Equal(t, []string{"tag:Name"}, form["Filter.1.Name"])
+	assert.Equal(t, []string{"web"}, form["Filter.1.Value.1"])
+	assert.Empty(t, form["MaxResults"])
+}
+
+// EC2 filters take * and ? as wildcards, so a name with them is escaped.
+func TestByNameEscapesWildcards(t *testing.T) {
+	calls, svc := ec2ByName(t)
+	_, err := svc.FindSecurityGroupsByName(context.Background(), `w*b?\x`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{`w\*b\?\\x`}, (*calls)[0]["Filter.1.Value.1"])
+	_, err = svc.FindInstancesByName(context.Background(), "*")
+	require.NoError(t, err)
+	assert.Equal(t, []string{`\*`}, (*calls)[len(*calls)-2]["Filter.1.Value.1"])
+}
