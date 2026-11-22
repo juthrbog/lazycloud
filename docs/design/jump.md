@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. PR 4 adds the switch to another Region. PR 5 adds the jump by name. PR 6 adds the tag search, and the plan is done. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Done. Approved 2026-11-22 with all proposed answers, and built in #332 to #338: the design and its pin tests (PR 0), the parser (PR 1), the focus changes (PR 2), `:go` and the lookups (PR 3), the switch to another Region (PR 4), the jump by name (PR 5), and the tag search (PR 6). The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 

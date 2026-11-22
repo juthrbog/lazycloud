@@ -104,7 +104,7 @@ func TestECSTaskDefinitions(t *testing.T) {
 	h.keys("d")
 	h.waitFor("worker:2", "Network mode", "awsvpc")
 
-	h = start(t, "")
+	h = h.restart()
 	h.open("taskdefs", "ECS Task Definitions")
 	h.filter("web")
 	// A family from an older research run can also match, and LocalStack
