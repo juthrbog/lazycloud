@@ -598,10 +598,9 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case ui.ContentLinkActivatedMsg:
-		// Save the panel for back traversal. A link to a row of the view on
-		// top only moves its cursor, so it leaves no entry (decision D3).
-		sameView := msg.Params["focus"] != "" && m.nav.Current().ID() == msg.ViewID
-		if m.panels.IsOpen() && !sameView {
+		// Save the panel for back traversal. A link to the view on top
+		// pushes nothing, so it leaves no entry (decision D3, jump H10).
+		if m.panels.IsOpen() && !m.isTop(appmsg.NavigateMsg{ViewID: msg.ViewID, Params: msg.Params}) {
 			m.panels.Push(m.nav.Depth())
 		}
 		m.closePanel()
@@ -780,6 +779,14 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// isTop reports whether n names the view on top, so navigate pushes
+// nothing for it: the built view has the ID of the view on top
+// (docs/design/jump.md, H10).
+func (m Model) isTop(n appmsg.NavigateMsg) bool {
+	v := m.resolveView(n)
+	return v != nil && v.ID() == m.nav.Current().ID()
+}
+
 // navigate handles a NavigateMsg. The link of a panel and the narrow
 // fallback of TabbedContentMsg call it directly, so no key can change the
 // stack between them and the navigation (H4).
@@ -792,10 +799,12 @@ func (m Model) navigate(msg appmsg.NavigateMsg) (Model, tea.Cmd) {
 	}
 	// Non-content navigation closes the panel
 	m.dismissPanel()
-	if focusID := msg.Params["focus"]; focusID != "" && m.nav.Current().ID() == msg.ViewID {
+	focusID := msg.Params["focus"]
+	focusCmd := func() tea.Msg { return appmsg.FocusResourceMsg{ResourceID: focusID} }
+	if focusID != "" && m.nav.Current().ID() == msg.ViewID {
 		// A link to another row of the view on top only moves its
 		// cursor. Pushing would put the same view on the stack twice.
-		return m, func() tea.Msg { return appmsg.FocusResourceMsg{ResourceID: focusID} }
+		return m, focusCmd
 	}
 	if m.svcErr != nil && needsSession(msg.ViewID) {
 		_, cmd := m.toasts.Add(noSessionText(m.svcErr), ui.ToastError, 0)
@@ -803,12 +812,20 @@ func (m Model) navigate(msg appmsg.NavigateMsg) (Model, tea.Cmd) {
 	}
 	view := m.resolveView(msg)
 	if view != nil {
+		// A view whose ID has parameters (a family, a cluster, a bucket)
+		// is the view on top when the built view has the same ID. ID()
+		// holds the route parameters and never the focus. Then only the
+		// focus goes, and with no focus nothing happens (H10). Building a
+		// view has no side effect, so the copy is dropped.
+		if view.ID() == m.nav.Current().ID() {
+			if focusID == "" {
+				return m, nil
+			}
+			return m, focusCmd
+		}
 		eventlog.Infof(eventlog.CatNav, "Navigate → %s", msg.ViewID)
 		cmd := m.pushView(view)
-		if focusID := msg.Params["focus"]; focusID != "" {
-			focusCmd := func() tea.Msg {
-				return appmsg.FocusResourceMsg{ResourceID: focusID}
-			}
+		if focusID != "" {
 			return m, tea.Batch(cmd, focusCmd)
 		}
 		return m, cmd

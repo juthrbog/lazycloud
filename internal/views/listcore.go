@@ -71,7 +71,7 @@ type listConfig[T any] struct {
 	OnLoaded func(items []T, tag string) tea.Cmd // after a full load ends, with the tag of that load
 	Refresh  refreshFunc[T]                      // r with a selection refreshes the targets; nil: r always reloads
 
-	FocusKey     func(T) string          // what a focus ID matches; nil: Key (sqs focuses by name)
+	FocusKey     func(T) string          // what a focus ID matches first, then Key; nil: Key only (sqs focuses by name)
 	OpenDetail   func(T) tea.Cmd         // enter/d and focus; nil: the keys go to the table
 	FocusMissing func(id string) tea.Cmd // focus on an ID that is not in the list; nil: do nothing
 
@@ -580,6 +580,36 @@ func (c *listCore[T]) detailFetch(item T) tea.Cmd {
 	}
 }
 
+// missingToast is the FocusMissing of a list that loads all of its rows: a
+// focus on an ID that is not there gives a toast that names it
+// (docs/design/jump.md, H3). noun is the kind of one row: "security group".
+func missingToast(noun string) func(id string) tea.Cmd {
+	return func(id string) tea.Cmd {
+		return toastCmd(msg.ToastInfo(fmt.Sprintf("No %s %s in the list", noun, id)))
+	}
+}
+
+// fetchMissing is the FocusMissing of a list with a page budget (D5 of
+// docs/design/jump.md): it reads the one item that id names with read and
+// opens its detail with FetchDetail, as a focus on a row does. The row is
+// not added. A miss or an error of read gives the detail error toast. Both
+// calls share one callTimeout.
+func (c *listCore[T]) fetchMissing(id string, read func(ctx context.Context, id string) (T, error)) tea.Cmd {
+	fetch := c.cfg.FetchDetail
+	ctx := c.viewContext()
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Fetching details for %s, which is not in the list", id)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		item, err := read(ctx, id)
+		if err != nil {
+			return listDetailMsg{err: err}
+		}
+		panel, err := fetch(ctx, item)
+		return listDetailMsg{panel: panel, err: err}
+	}
+}
+
 // onDetailFetched opens the panel that FetchDetail built. An error gives a
 // toast, and the list stays.
 func (c *listCore[T]) onDetailFetched(m listDetailMsg) tea.Cmd {
@@ -658,17 +688,18 @@ func (c *listCore[T]) find(key string) *T {
 	return nil
 }
 
-// findFocus returns the item that a focus ID names, or nil.
+// findFocus returns the item that a focus ID names, or nil. It tries
+// FocusKey first and then Key, so a list that focuses by name also takes
+// the ARN or URL of its rows (docs/design/jump.md, H2).
 func (c *listCore[T]) findFocus(id string) *T {
-	if c.cfg.FocusKey == nil {
-		return c.find(id)
-	}
-	for i := range c.items {
-		if c.cfg.FocusKey(c.items[i]) == id {
-			return &c.items[i]
+	if c.cfg.FocusKey != nil {
+		for i := range c.items {
+			if c.cfg.FocusKey(c.items[i]) == id {
+				return &c.items[i]
+			}
 		}
 	}
-	return nil
+	return c.find(id)
 }
 
 // cursorItem returns the item under the cursor, or nil.
@@ -806,7 +837,7 @@ func (c *listCore[T]) refreshKeys(keys []string) tea.Cmd {
 }
 
 // focus moves the cursor to the row with the given ID and opens its detail.
-// The ID matches FocusKey, or Key without it. A row the filter hides keeps
+// The ID matches FocusKey, then Key. A row the filter hides keeps
 // the cursor where it is, but its detail still opens. An ID that is not in
 // the list goes to FocusMissing.
 func (c *listCore[T]) focus(id string) tea.Cmd {

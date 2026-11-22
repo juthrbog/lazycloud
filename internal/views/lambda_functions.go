@@ -12,6 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/juthrbog/lazycloud/internal/aws"
+	"github.com/juthrbog/lazycloud/internal/eventlog"
+	"github.com/juthrbog/lazycloud/internal/jump"
 	"github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/ui"
 )
@@ -135,14 +137,24 @@ func (v *LambdaFunctions) revealDetail(f aws.Function) tea.Cmd {
 	}
 }
 
-// focusMissing answers a focus on a name that the loaded pages do not
-// have. The list stops after a budget, so the function can still exist.
-func (v *LambdaFunctions) focusMissing(name string) tea.Cmd {
-	text := fmt.Sprintf("No function named %s in the loaded functions", name)
-	if v.more != nil {
-		text += " · l for more"
+// focusMissing answers a focus on a name or ARN that the loaded pages do
+// not have. The list stops after a budget, so the function can still
+// exist: the detail reads it with GetFunction (D5). An ARN with a version
+// or alias opens the detail of that qualifier, not of $LATEST. A missing
+// function gives the detail error toast.
+func (v *LambdaFunctions) focusMissing(id string) tea.Cmd {
+	name, qualifier := id, ""
+	if t := jump.Parse(id); t.Kind == jump.Function {
+		name, qualifier = t.ID, t.Qualifier
 	}
-	return toastCmd(msg.ToastInfo(text))
+	svc, ctx := v.lambda, v.viewContext()
+	return func() tea.Msg {
+		eventlog.Infof(eventlog.CatAWS, "Fetching details for %s, which is not in the list", id)
+		ctx, cancel := context.WithTimeout(ctx, callTimeout)
+		defer cancel()
+		panel, err := lambdaDetail(ctx, svc, aws.Function{Name: name}, qualifier, false)
+		return listDetailMsg{panel: panel, err: err}
+	}
 }
 
 func splitFunctionPage(p *aws.FunctionPage) ([]aws.Function, *string) {

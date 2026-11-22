@@ -3,6 +3,8 @@ package app
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -52,9 +54,11 @@ func TestJumpGuard_PlainSwitchReopensTheRoot(t *testing.T) {
 	assert.Equal(t, msg.NavigateMsg{ViewID: "lambda_functions"}, nav, "the root comes back with no parameters and no focus")
 }
 
-// H10, fixed in PR 2: a view whose ID has parameters never takes the
-// same-view shortcut, so a second focus link to it pushes a second copy.
-func TestJumpHazard_SecondFocusLinkPushesASecondCopy(t *testing.T) {
+// H10, fixed in PR 2: a view whose ID has parameters never took the
+// same-view shortcut, so a second focus link to it pushed a second copy. Now
+// the app compares the ID of the built view with the view on top: a second
+// link only sends the focus, and a link with no focus does nothing.
+func TestJumpSecondLinkToTheViewOnTopPushesNothing(t *testing.T) {
 	m := newTestModel(140, 40)
 	mockAllServices(&m)
 	link := msg.NavigateMsg{ViewID: "ecs_task_definitions", Params: map[string]string{
@@ -64,7 +68,16 @@ func TestJumpHazard_SecondFocusLinkPushesASecondCopy(t *testing.T) {
 	depth := m.nav.Depth()
 	require.Equal(t, "ecs_task_definitions:web", m.nav.Current().ID())
 
-	m, _ = update(t, m, link)
-	assert.Equal(t, depth+1, m.nav.Depth(), "the same family is on the stack twice")
-	assert.Equal(t, "ecs_task_definitions:web", m.nav.Current().ID())
+	m, cmd := update(t, m, link)
+	assert.Equal(t, depth, m.nav.Depth(), "no second copy")
+	assert.Equal(t, []tea.Msg{msg.FocusResourceMsg{ResourceID: "arn:aws:ecs:us-east-1:1:task-definition/web:7"}}, collectMsgs(cmd))
+
+	m, cmd = update(t, m, msg.NavigateMsg{ViewID: "ecs_task_definitions", Params: map[string]string{"family": "web"}})
+	assert.Equal(t, depth, m.nav.Depth(), "no focus: nothing happens")
+	assert.Nil(t, cmd)
+
+	// Another family is another view.
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "ecs_task_definitions", Params: map[string]string{"family": "worker"}})
+	assert.Equal(t, depth+1, m.nav.Depth())
+	assert.Equal(t, "ecs_task_definitions:worker", m.nav.Current().ID())
 }

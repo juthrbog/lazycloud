@@ -38,6 +38,7 @@ func NewSubnetList(ec2 aws.EC2Service, vpcID string) *SubnetList {
 			Fetch:        fetchPages(ec2, list, splitSubnetPage),
 			FetchTimeout: callTimeout,
 			OpenDetail:   subnetDetail,
+			FocusMissing: missingToast("subnet"),
 			Copy:         true,
 		}),
 	}

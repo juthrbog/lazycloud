@@ -33,6 +33,7 @@ func NewVPCList(ec2 aws.EC2Service) *VPCList {
 		Fetch:        fetchPages(ec2, aws.EC2Service.ListVPCsPage, splitVPCPage),
 		FetchTimeout: callTimeout,
 		OpenDetail:   vpcDetail,
+		FocusMissing: missingToast("VPC"),
 		Copy:         true,
 	})}
 }

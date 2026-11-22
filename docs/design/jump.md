@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -192,10 +192,10 @@ In PR 3, the lookup uses the services of the session for the session Region. In 
 ### Focus changes in the list core and the views
 
 - `findFocus` tries `FocusKey` first and then `Key` (H2). Then a focus by ARN works on every list whose row key is the ARN, and a focus by name or task ID keeps working. `TestListCore_FocusKey` changes with it.
-- Each list that loads all of its rows and has no `FocusMissing` gets one that shows a toast: "No security group sg-123 in us-east-1." (security groups, VPCs, subnets, S3, SQS) (H3). The missing-ID cases of the characterization tests change with it.
+- Each list that loads all of its rows and has no `FocusMissing` gets one that shows a toast: "No security group sg-123 in the list" (security groups, VPCs, subnets, S3, SQS) (H3). The text does not name the Region: these views do not know it, and the bucket list holds the buckets of every Region. The header shows the Region. The missing-ID cases of the characterization tests change with it.
 - Lists with a page budget get a `FocusMissing` that fetches the one resource and opens its detail, as EC2 and the task definitions do (H4): Lambda functions with `GetFunction`, Lambda versions with `GetFunction(function, version)`, ECS services with `DescribeService`, ECS tasks with `DescribeTask` (also a stopped task), log groups with `GetLogGroup`. The row is not added, as for EC2. `TestLambdaFunctions_FocusMissing` changes from the toast to the fetch.
 - `s3_objects` handles `FocusResourceMsg`, as the list core does: while it loads, the focus waits, and after the load it moves the cursor to that key. When the key is not on the loaded pages, a toast says so, and `l` loads more (H5). The `focus` route parameter reaches it through the same message.
-- A jump never pushes a second copy of the view on top (H10). The app builds the view of the route and compares its `ID()` with the `ID()` of the view on top. `ID()` holds the route parameters and never the focus. When the IDs match, the app sends only the focus, and with no focus it does nothing. This runs for every `NavigateMsg`, also with no focus (a bucket, a log group).
+- A jump never pushes a second copy of the view on top (H10). The app builds the view of the route and compares its `ID()` with the `ID()` of the view on top. `ID()` holds the route parameters and never the focus. When the IDs match, the app sends only the focus, and with no focus it does nothing. This runs for every `NavigateMsg`, also with no focus (a bucket, a log group). A panel link uses the same check, so a link to the view on top closes the panel and adds no back entry. Before PR 2, a link with no focus to the view on top pushed a copy and added an entry (A6 decision D3, `TestA6Keep_LinksToOtherViewsAddAnEntry`).
 
 ### Another Region
 

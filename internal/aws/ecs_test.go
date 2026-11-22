@@ -434,6 +434,33 @@ func TestDescribeTask(t *testing.T) {
 	assert.Contains(t, err.Error(), "ACCESS_DENIED")
 }
 
+func TestDescribeService(t *testing.T) {
+	f, svc := newFakeECS(t)
+	arn := "arn:aws:ecs:us-east-1:111122223333:service/prod/web"
+	f.reply("DescribeServices", `{"services":[{"serviceArn":"`+arn+`","serviceName":"web","status":"ACTIVE","desiredCount":2,
+		"tags":[{"key":"team","value":"orders"}]}]}`)
+	got, err := svc.DescribeService(context.Background(), ecsCluster, "web")
+	require.NoError(t, err)
+	assert.Equal(t, "web", got.Name)
+	assert.Equal(t, arn, got.ARN)
+	assert.Equal(t, map[string]string{"team": "orders"}, got.Tags)
+	in := f.last(t, "DescribeServices")
+	assert.Equal(t, ecsCluster, in["cluster"])
+	assert.Equal(t, []string{"web"}, strs(in["services"]))
+	assert.Equal(t, []string{"TAGS"}, strs(in["include"]))
+
+	f.reply("DescribeServices", `{"services":[],"failures":[{"arn":"`+arn+`","reason":"MISSING"}]}`)
+	_, err = svc.DescribeService(context.Background(), ecsCluster, arn)
+	require.ErrorIs(t, err, ErrServiceNotFound)
+	assert.Contains(t, err.Error(), "web")
+
+	f.reply("DescribeServices", `{"services":[],"failures":[{"arn":"`+arn+`","reason":"ACCESS_DENIED"}]}`)
+	_, err = svc.DescribeService(context.Background(), ecsCluster, arn)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrServiceNotFound)
+	assert.Contains(t, err.Error(), "ACCESS_DENIED")
+}
+
 func TestTaskDefinitionLists(t *testing.T) {
 	f, svc := newFakeECS(t)
 	f.reply("ListTaskDefinitionFamilies", `{"families":["web","worker"],"nextToken":"f2"}`)

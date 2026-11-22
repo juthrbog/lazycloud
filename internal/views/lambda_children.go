@@ -190,7 +190,8 @@ type LambdaVersions struct {
 // NewLambdaVersions creates the version list of a function. It stops after
 // 4 pages, and l loads more.
 func NewLambdaVersions(svc aws.LambdaService, function, logGroup string) *LambdaVersions {
-	return &LambdaVersions{function: function, logGroup: logGroup, listCore: newListCore(listConfig[aws.Function]{
+	v := &LambdaVersions{function: function, logGroup: logGroup}
+	v.listCore = newListCore(listConfig[aws.Function]{
 		Noun:         "versions",
 		LoadingLabel: "Loading versions...",
 		ErrContext:   "listing versions",
@@ -204,10 +205,17 @@ func NewLambdaVersions(svc aws.LambdaService, function, logGroup string) *Lambda
 		FetchDetail: func(ctx context.Context, f aws.Function) (msg.TabbedContentMsg, error) {
 			return lambdaDetail(ctx, svc, f, f.Version, false)
 		},
+		// A version past the page budget still opens its detail (D5).
+		FocusMissing: func(version string) tea.Cmd {
+			return v.fetchMissing(version, func(context.Context, string) (aws.Function, error) {
+				return aws.Function{Name: function, Version: version}, nil
+			})
+		},
 		PageBudget: lambdaVersionBudget,
 		MoreKey:    true,
 		Copy:       true,
-	})}
+	})
+	return v
 }
 
 func (v *LambdaVersions) ID() string     { return "lambda_versions:" + v.function }

@@ -114,14 +114,15 @@ func NewSQSQueues(sqs aws.SQSService) *SQSQueues {
 			Label:   "Loading attributes for %d queues...",
 			Context: "fetching SQS queue attributes",
 		},
-		Derive:      markDLQQueues,
-		OnLoaded:    func(queues []aws.Queue, _ string) tea.Cmd { return unreadableToast(queues) },
-		Refresh:     refreshEach(sqs, aws.SQSService.GetQueueAttributes, callTimeout),
-		FocusKey:    func(q aws.Queue) string { return q.Name }, // DLQ links name a queue
-		OpenDetail:  func(q aws.Queue) tea.Cmd { return s.fetchQueueDetail(q.URL) },
-		MultiSelect: true,
-		Copy:        true,
-		CopyNoun:    "queue URL",
+		Derive:       markDLQQueues,
+		OnLoaded:     func(queues []aws.Queue, _ string) tea.Cmd { return unreadableToast(queues) },
+		Refresh:      refreshEach(sqs, aws.SQSService.GetQueueAttributes, callTimeout),
+		FocusKey:     func(q aws.Queue) string { return q.Name }, // DLQ links name a queue
+		OpenDetail:   func(q aws.Queue) tea.Cmd { return s.fetchQueueDetail(q.URL) },
+		FocusMissing: missingToast("queue"),
+		MultiSelect:  true,
+		Copy:         true,
+		CopyNoun:     "queue URL",
 	})
 	return s
 }

@@ -265,15 +265,17 @@ func TestA6_H3_DetailOfTheNewRowStays(t *testing.T) {
 	assert.Equal(t, 0, historyLenOf(m))
 }
 
-// D3. A link to another view, or a same-view link without a focus row, still
-// adds an entry.
+// D3. A link to another view adds an entry. Since jump PR 2, a link to the
+// view on top with no focus row pushes no copy and adds no entry
+// (docs/design/jump.md, H10).
 func TestA6Keep_LinksToOtherViewsAddAnEntry(t *testing.T) {
 	m := followLink(t, sqsWithDLQPanel(t), "eventlog", nil)
 	assert.Equal(t, 1, historyLenOf(m), "another view")
 
 	m = followLink(t, sqsWithDLQPanel(t), "sqs_queues", nil)
-	assert.Equal(t, 1, historyLenOf(m), "the same view ID without a focus row pushes a view")
-	assert.Equal(t, 3, m.nav.Depth())
+	assert.Equal(t, 0, historyLenOf(m), "the view on top without a focus row")
+	assert.Equal(t, 2, m.nav.Depth(), "no second copy")
+	assert.False(t, panelShown(m), "the link still closes the panel")
 }
 
 // I3. Back skips an entry whose view is gone from its depth, also when no
@@ -284,7 +286,7 @@ func TestA6Keep_BackSkipsAnEntryOfAReplacedView(t *testing.T) {
 	require.Equal(t, 1, historyLenOf(m))
 	m.nav.PopTo(1)
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
-	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "sg_list"})
 	require.Equal(t, 3, m.nav.Depth())
 	require.Equal(t, 1, historyLenOf(m), "the stale entry is still there")
 
@@ -408,7 +410,7 @@ func TestA6_H6_NoBackLabelOverAForm(t *testing.T) {
 	m := newTestModel(panelWide, 40)
 	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
 	openA6Panel(&m, "dlq")
-	m = followLink(t, m, "eventlog", nil)
+	m = followLink(t, m, "sg_list", nil)
 	require.Equal(t, 1, historyLenOf(m))
 	require.Contains(t, ansi.Strip(m.View().Content), "← bksp dlq")
 	m = openA6Form(t, m)
@@ -606,7 +608,7 @@ func TestA6Keep_ChainOfTwoLinks(t *testing.T) {
 	m = followLink(t, m, "eventlog", nil)
 	require.Equal(t, 3, m.nav.Depth())
 	openA6Panel(&m, "second")
-	m = followLink(t, m, "eventlog", nil)
+	m = followLink(t, m, "sg_list", nil)
 	require.Equal(t, 4, m.nav.Depth())
 	require.Equal(t, 2, historyLenOf(m))
 
@@ -625,7 +627,7 @@ func TestA6Keep_ChainOfTwoLinks(t *testing.T) {
 func TestA6Keep_BackPopsToTheDepthOfTheEntry(t *testing.T) {
 	m := panelOnEC2(t)
 	m = followLink(t, m, "eventlog", nil)
-	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "sg_list"})
 	require.Equal(t, 4, m.nav.Depth())
 
 	m, _ = update(t, m, keyBackspace)
@@ -640,7 +642,7 @@ func TestA6Keep_BackPopsToTheDepthOfTheEntry(t *testing.T) {
 func TestA6Keep_EntryStaysWhenAViewAboveCloses(t *testing.T) {
 	m := panelOnEC2(t)
 	m = followLink(t, m, "eventlog", nil)
-	m, _ = update(t, m, msg.NavigateMsg{ViewID: "eventlog"})
+	m, _ = update(t, m, msg.NavigateMsg{ViewID: "sg_list"})
 	m, _ = update(t, m, press("q"))
 	require.Equal(t, 3, m.nav.Depth())
 	require.Equal(t, 1, historyLenOf(m))
@@ -674,7 +676,8 @@ func TestA6Keep_TheDepthCap(t *testing.T) {
 	m := panelOnEC2(t)
 	for i := range historyMax + 2 {
 		openA6Panel(&m, "p"+string(rune('a'+i)))
-		m = followLink(t, m, "eventlog", nil)
+		// Two targets in turn: a link to the view on top pushes nothing.
+		m = followLink(t, m, []string{"eventlog", "sg_list"}[i%2], nil)
 	}
 	require.Equal(t, historyMax, historyLenOf(m))
 

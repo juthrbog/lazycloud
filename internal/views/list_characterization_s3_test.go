@@ -669,9 +669,10 @@ func TestCharS3_FocusMovesCursor(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.Equal(t, "b-tmp", charS3Browsed(t, v), "focus moves the cursor")
 
-	// Focus on a bucket that is not listed does nothing and fetches nothing.
+	// Focus on a bucket that is not listed gives a toast and fetches
+	// nothing (jump H3).
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "zz-missing"})
-	assert.Nil(t, cmd)
+	assert.Equal(t, []tea.Msg{msg.ToastInfo("No bucket zz-missing in the list")}, collectMsgs(cmd))
 	assert.Equal(t, "2/2 buckets", v.Footer())
 	svc.AssertNumberOfCalls(t, "ListBuckets", 1)
 	svc.AssertNotCalled(t, "GetBucketProperties", mock.Anything, mock.Anything)

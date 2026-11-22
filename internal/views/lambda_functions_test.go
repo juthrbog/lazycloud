@@ -256,21 +256,40 @@ func TestLambdaFunctions_DetailEdges(t *testing.T) {
 	assert.ErrorIs(t, err, errNoClient)
 }
 
-// :lambda NAME with a name that the loaded pages do not have says so, and
-// points at l when more pages are left.
+// :lambda NAME with a name that the loaded pages do not have opens its
+// detail with GetFunction, with no row (jump D5, H4). An ARN with a version
+// opens the detail of that version.
 func TestLambdaFunctions_FocusMissing(t *testing.T) {
-	f := &fakeLambda{pages: [][]aws.Function{{testFunction}}}
+	// A name past the page budget opens its detail with GetFunction, with no
+	// row (jump D5, H4).
+	f := &fakeLambda{pages: [][]aws.Function{{testFunction}}, detail: testDetail()}
 	v := newFunctions(t, f, 160)
-	_, cmd := v.Update(msg.FocusResourceMsg{ResourceID: "nope"})
-	assert.Equal(t, []msg.ToastMsg{msg.ToastInfo("No function named nope in the loaded functions")}, toasts(pump(v, cmd, 3)))
+	_, cmd := v.Update(msg.FocusResourceMsg{ResourceID: "billing"})
+	assert.NotEmpty(t, detailPanel(t, v, cmd).Tabs)
+	assert.Equal(t, []string{"billing:"}, f.gets)
+	assert.Len(t, v.items, 1, "no row is added")
 
-	v2 := NewLambdaFunctions(&fakeLambda{})
-	v2.more = new("next")
-	assert.Equal(t, []tea.Msg{msg.ToastInfo("No function named nope in the loaded functions · l for more")},
-		collectMsgs(v2.focusMissing("nope")))
+	// An ARN asks for the name in it.
+	f.gets = nil
+	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "arn:aws:lambda:us-east-1:123456789012:function:billing"})
+	detailPanel(t, v, cmd)
+	assert.Equal(t, []string{"billing:"}, f.gets)
+
+	// A version ARN opens that version, also when the function is loaded.
+	f.gets = nil
+	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "arn:aws:lambda:us-east-1:123456789012:function:orders-api:3"})
+	assert.Equal(t, "orders-api:3", detailPanel(t, v, cmd).PanelTitle)
+	assert.Equal(t, []string{"orders-api:3"}, f.gets)
+
+	// A function that does not exist gives the detail error toast.
+	f.getErr = errors.New("ResourceNotFoundException: Function not found")
+	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "nope"})
+	ts := toasts(pump(v, cmd, 3))
+	require.Len(t, ts, 1)
+	assert.Equal(t, "Details failed: ResourceNotFoundException: Function not found", ts[0].Text)
 
 	// A loaded name opens its detail.
-	f.detail = testDetail()
+	f.getErr = nil
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "orders-api"})
 	assert.NotEmpty(t, detailPanel(t, v, cmd).Tabs)
 }

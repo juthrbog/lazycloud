@@ -240,11 +240,14 @@ type S3Objects struct {
 	copySrcKey string    // source key for copy/move
 	loading    bool
 	loadGen    int // generation of the current full load; see startLoad
-	pageNum    int
-	err        error
-	width      int
-	height     int
-	widthTier  ui.WidthTier
+	// pendingFocus is the key that a focus names while the list loads. It
+	// moves the cursor when the load ends (docs/design/jump.md, H5).
+	pendingFocus string
+	pageNum      int
+	err          error
+	width        int
+	height       int
+	widthTier    ui.WidthTier
 }
 
 func (s *S3Objects) ID() string {
@@ -715,7 +718,18 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		s.spinner.Hide()
 		eventlog.Infof(eventlog.CatAWS, "Loaded %d objects, %d folders in s3://%s/%s (%d pages)",
 			len(s.objects), len(s.prefixes), s.bucket, s.prefix, s.pageNum)
+		if id := s.pendingFocus; id != "" {
+			s.pendingFocus = ""
+			return s, s.focus(id)
+		}
 		return s, nil
+
+	case msg.FocusResourceMsg:
+		if s.loading {
+			s.pendingFocus = m.ResourceID
+			return s, nil
+		}
+		return s, s.focus(m.ResourceID)
 
 	case s3PreviewCheckMsg:
 		meta := m.meta
@@ -761,6 +775,8 @@ func (s *S3Objects) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		)
 
 	case msg.ErrorMsg:
+		// The focus that waits stays: the error can come from a head or
+		// read call, or from an older load, and the list core keeps it too.
 		s.loading = false
 		s.spinner.Hide()
 		s.err = m.Err
@@ -1069,6 +1085,17 @@ func (s *S3Objects) selectedEntry() *s3TableEntry {
 		return nil
 	}
 	return &e
+}
+
+// focus moves the cursor to the object or folder with the full path key.
+// A key that is not in the list gives a toast. A row that the filter hides
+// keeps the cursor where it is.
+func (s *S3Objects) focus(key string) tea.Cmd {
+	if _, ok := s.entries[key]; !ok {
+		return toastCmd(msg.ToastInfo(fmt.Sprintf("No object %s in the list", key)))
+	}
+	s.table.SetCursorByKey(key)
+	return nil
 }
 
 // rebuildRows replaces all rows with the loaded folders, then the objects.

@@ -508,7 +508,7 @@ func TestCharSG_FocusAfterLoad(t *testing.T) {
 	assert.Equal(t, "db-sg (sg-222)", tm.PanelTitle)
 
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "sg-missing"})
-	assert.Nil(t, cmd, "focus on a missing ID does nothing")
+	assert.Equal(t, []tea.Msg{msg.ToastInfo("No security group sg-missing in the list")}, collectMsgs(cmd), "jump H3")
 	assert.Equal(t, []string{"Copied: sg-222"}, netCopied(v), "the cursor stays")
 }
 
