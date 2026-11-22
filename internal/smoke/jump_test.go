@@ -32,7 +32,9 @@ func TestJumpToAnInstance(t *testing.T) {
 	h := start(t, "")
 	h.keys(":" + id)
 	h.enter()
-	h.waitFor("Instance ID", "Security Groups", id)
+	// The first instance can be one that another test launched, with no
+	// security group, so the test waits only for text of every detail.
+	h.waitFor("1:Info", "Launch Time", id)
 }
 
 // :go with a Lambda ARN opens the function list with the detail, and a
