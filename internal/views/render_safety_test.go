@@ -251,6 +251,12 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			deliverItems(v, &v.listCore, []aws.Task{testTask})
 			return v
 		},
+		"ecs_containers": func(*testing.T) tea.Model {
+			v := NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1")
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, testContainers())
+			return v
+		},
 		"lambda_triggers": func(*testing.T) tea.Model {
 			v := NewLambdaTriggers(nil, "fn")
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -315,6 +321,7 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"ecs_clusters":     func() tea.Model { return NewECSClusters(nil) },
 		"ecs_services":     func() tea.Model { return NewECSServices(nil, testClusterARN) },
 		"ecs_tasks":        func() tea.Model { return NewECSTasks(nil, testClusterARN, "web") },
+		"ecs_containers":   func() tea.Model { return NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1") },
 		"lambda_invocations": func() tea.Model {
 			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})
 			v.Update(lambdaGroupMsg{group: &aws.LogGroup{}})

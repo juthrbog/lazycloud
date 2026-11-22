@@ -29,8 +29,7 @@ var ecsTaskKeys = struct {
 	Stopped ui.HintBinding
 	Running ui.HintBinding
 }{
-	// enter opens the detail until the container list exists (PR 4).
-	Open:    ui.NewHintBinding([]string{"enter"}, "enter", "details"),
+	Open:    ui.NewHintBinding([]string{"enter"}, "enter", "containers"),
 	Stopped: ui.NewHintBinding([]string{"x"}, "x", "stopped tasks"),
 	Running: ui.NewHintBinding([]string{"x"}, "x", "running tasks"),
 }
@@ -113,7 +112,7 @@ func (v *ECSTasks) KeyMap() []ui.HintBinding {
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
-// Update returns the view itself. enter opens the detail, as d does. x
+// Update returns the view itself. enter opens the containers. x
 // switches between the running and the stopped tasks; it also works on the
 // error screen, because it loads the other list.
 func (v *ECSTasks) Update(m tea.Msg) (tea.Model, tea.Cmd) {
@@ -123,7 +122,7 @@ func (v *ECSTasks) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return v, v.toggle()
 		case v.err == nil && key.Matches(k, ecsTaskKeys.Open.Binding):
 			if it := v.cursorItem(); it != nil {
-				return v, v.detailFetch(*it)
+				return v, navigate("ecs_containers", map[string]string{"cluster": v.cluster, "task": it.ARN})
 			}
 		}
 	}

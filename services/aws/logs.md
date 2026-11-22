@@ -69,6 +69,8 @@ The list loads at most 4 pages of 50 streams (200 streams), and `l` loads the ne
 
 The viewer shows the events of a whole group, or of one stream. Open it with enter on a group or a stream, or with `:logs NAME` for a group. With `:logs NAME`, the viewer first looks for a group with exactly that name. When no group has it, the viewer says "No log group named NAME".
 
+When the group exists but the stream does not, the viewer says "No log stream named NAME in GROUP". AWS gives the same error for a missing group, so the viewer says this only when it found the group. Otherwise it shows the error of AWS. `r` tries again, because a stream can come later. An ECS container writes its stream when it starts.
+
 The viewer shows the newest hour first, in local time. The header shows the range, the time zone and the filter pattern, for example `last 1h · UTC-05:00 · filter: ERROR`. Each line shows the time, the stream (for a group, on a terminal of 70 columns or more) and the first line of the message.
 
 `l` loads older events, at most 1,000 events or 10 pages for each press. When the range has no more events, `l` moves the range back by its length. The walk stops at the oldest time that can hold events, and the footer then says "start of group" or "start of stream". For a group, that time is the latest of these:

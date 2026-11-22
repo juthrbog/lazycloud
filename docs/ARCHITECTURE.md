@@ -309,7 +309,7 @@ Home
 ├── Lambda
 │   └── Functions        (list → logs, aliases, versions, triggers, invocations → log lines; detail with tabs: Info / Environment / Network / Tags)
 └── ECS
-    └── Clusters         (list → services → tasks, or tasks of the cluster; running or stopped tasks. Details: cluster Info / Tags; service Info / Deployments / Events / Network / Tags; task Info / Containers / Network / Tags)
+    └── Clusters         (list → services → tasks, or tasks of the cluster; running or stopped tasks → containers → log stream. Details: cluster Info / Tags; service Info / Deployments / Events / Network / Tags; task Info / Containers / Network / Tags; container Info / Network / Agents / Logs)
 ```
 
 A Tags tab shows only when the resource has tags, and an IPv6 tab only when it has IPv6 blocks. A log group always shows its Tags tab, because its tags come from a separate call that can fail, and the tab then shows the error. A Lambda function shows its Tags tab also when AWS says why it sent no tags. New services follow the same structure. These services are planned:
@@ -319,7 +319,6 @@ Home
 ├── Lambda
 │   └── Layers           (list → detail)
 ├── ECS
-│   ├── Clusters         (services → tasks → containers → logs, in docs/design/ecs.md)
 │   └── Task Definitions (list → revisions → detail, in docs/design/ecs.md)
 ├── IAM
 │   ├── Users            (list → detail with policies)
