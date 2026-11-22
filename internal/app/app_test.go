@@ -583,8 +583,9 @@ func TestRoutes(t *testing.T) {
 		"s3_objects": "s3_list", "s3_versions": "s3_list", "sqs_messages": "sqs_queues", "logs_streams": "logs_groups",
 		"lambda_aliases": "lambda_functions", "lambda_versions": "lambda_functions", "lambda_triggers": "lambda_functions",
 		"lambda_invocations": "lambda_functions", "ecs_services": "ecs_clusters", "ecs_tasks": "ecs_clusters",
-		"ecs_containers": "ecs_clusters",
-		"eventlog":       "", "content": "",
+		"ecs_containers":       "ecs_clusters",
+		"ecs_task_definitions": "ecs_task_families",
+		"eventlog":             "", "content": "",
 	} {
 		assert.Equalf(t, root, routes[id].root, "the root of %q", id)
 	}

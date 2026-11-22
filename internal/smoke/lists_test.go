@@ -27,6 +27,7 @@ func TestListsLoad(t *testing.T) {
 		{"logs", "Log Groups", "/aws/lambda/orders-api", "Delete protected"},
 		{"lambda", "Lambda Functions", "orders-api", "Last update"},
 		{"ecs", "ECS Clusters", "prod-cluster", "Insights"},
+		{"taskdefs", "ECS Task Definitions", "worker", "Network mode"},
 	}
 	// Each list of the registry has a case, so a new service gets a smoke
 	// test with a seed resource.

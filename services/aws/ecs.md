@@ -1,6 +1,6 @@
 # ECS
 
-Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Task definitions, exec and the write actions come in later PRs of that design.
+Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Browse the task definitions by family and revision. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Exec and the write actions come in later PRs of that design.
 
 ## Views
 
@@ -73,7 +73,7 @@ Each page is one `ListServices` call of up to 100 services and up to 10 `Describ
 
 `d` opens a panel with these tabs:
 
-1. Info: the name, the ARN, the status, the task counts, the launch type or the capacity provider strategy, the platform version, the task definition, the scheduling strategy, the deployment controller, the deployment strategy with its percentages, the circuit breaker, exec on or off, Express Mode, the creation time and the creator.
+1. Info: the name, the ARN, the status, the task counts, the launch type or the capacity provider strategy, the platform version, the task definition (a link to its revision), the scheduling strategy, the deployment controller, the deployment strategy with its percentages, the circuit breaker, exec on or off, Express Mode, the creation time and the creator.
 2. Deployments: the current service deployment, with its status, lifecycle stage, target revision, rollback, circuit breaker and alarms. Then each deployment of the service, with its task definition, counts, failed tasks, rollout state and times.
 3. Events: the events of the service, newest first. AWS keeps the 100 latest events.
 4. Network: the subnets and the security groups, each a link to its list, the public IP setting, the load balancers and the service registries.
@@ -130,7 +130,7 @@ A terminal of 80 to 119 columns leaves out Started. A narrow terminal shows only
 
 `d` opens a panel from the data of the row, with no call:
 
-1. Info: the ID, the ARN, the status (and the desired status when it differs), the health, the stop code and reason, the task definition, the launch type or capacity provider, the platform, CPU, memory, ephemeral storage, the zone, the group, the started-by, the connectivity, exec on or off, and the times of the task.
+1. Info: the ID, the ARN, the status (and the desired status when it differs), the health, the stop code and reason, the task definition (a link to its revision), the launch type or capacity provider, the platform, CPU, memory, ephemeral storage, the zone, the group, the started-by, the connectivity, exec on or off, and the times of the task.
 2. Containers: the image, the status, the health, the exit code and the reason of each container.
 3. Network: the network interface, its private IP and its subnet, which is a link to the subnet list.
 4. Tags: the tags of the task, when it has tags.
@@ -188,3 +188,43 @@ Without a stream prefix, which only the EC2 launch type allows, each stream has 
 2. Network: the private IPs and the port bindings.
 3. Agents: the managed agents, for example the `ExecuteCommandAgent` of ECS Exec, when the container has agents.
 4. Logs: the log driver, the stream and the options of the log configuration.
+
+### Task Definition Families
+
+Open the list from the Task definitions tile of ECS on the home screen, or with `:taskdefs` (alias `:td`). The list shows the active families, one column with the name. It loads at most 10 pages (1,000 families), with `l` for more.
+
+| Key | Action |
+|-----|--------|
+| `enter` | Open the revisions of the family |
+| `d` | Open the detail of the latest active revision |
+| `$` | Open the detail of the latest active revision, with the environment values shown |
+| `y` | Copy the name of the family |
+| `l` | Load more families |
+| `/` | Filter the loaded families |
+| `s`, `S` | Sort |
+| `r` | Load the list again from the first page |
+
+### Revisions
+
+`enter` on a family opens its active revisions, newest first, with the revision number and the ARN. `ListTaskDefinitions` returns only the ARNs, so the list has no other columns. The Revision column sorts as a number. The list loads at most 4 pages (400 revisions), with `l` for more.
+
+The Task def line in the detail of a service or a task is a link. It opens the revisions of the family, with the cursor on that revision, and opens its detail. When the revision is not in the list, because it is inactive or past the loaded pages, its detail still opens. When AWS cannot read it, a message says why.
+
+| Key | Action |
+|-----|--------|
+| `enter`, `d` | Open the detail of the revision |
+| `$` | Open the detail with the environment values shown |
+| `y` | Copy the ARN of the revision |
+| `l` | Load more revisions |
+| `/` | Filter the loaded revisions |
+| `s`, `S` | Sort |
+| `r` | Load the list again from the first page |
+
+### Task Definition Detail (side panel)
+
+`d` opens a panel with one `DescribeTaskDefinition` call:
+
+1. Info: the family, the revision, the ARN, the status, the registration and deregistration times, the registrant, CPU, memory, the network mode, the required and compatible launch types, the platform, the ephemeral storage, the task role, the execution role and the volumes.
+2. Containers: for each container, the image, essential or not, CPU and memory, the entry point and the command, the environment files, the ports (or port ranges), the log configuration, and the secrets as names and sources. The panel never shows the value of a secret.
+3. Environment: the environment variables of each container. The values show as `••••`. `$` opens the panel with the values shown, and with this tab first.
+4. Tags: the tags of the revision, when it has tags.

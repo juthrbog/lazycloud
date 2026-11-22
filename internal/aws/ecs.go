@@ -342,8 +342,11 @@ type ContainerDefinition struct {
 type PortMapping struct {
 	Name          string
 	ContainerPort int32
-	HostPort      int32
-	Protocol      string
+	// ContainerPortRange is a range such as 8000-8010, set in place of
+	// ContainerPort.
+	ContainerPortRange string
+	HostPort           int32
+	Protocol           string
 }
 
 // SecretRef is a secret of a container: a name and the ARN of its source.
@@ -906,10 +909,11 @@ func containerDefinitionFrom(c *ecstypes.ContainerDefinition) ContainerDefinitio
 	}
 	for _, p := range c.PortMappings {
 		out.Ports = append(out.Ports, PortMapping{
-			Name:          aws.ToString(p.Name),
-			ContainerPort: aws.ToInt32(p.ContainerPort),
-			HostPort:      aws.ToInt32(p.HostPort),
-			Protocol:      string(p.Protocol),
+			Name:               aws.ToString(p.Name),
+			ContainerPort:      aws.ToInt32(p.ContainerPort),
+			ContainerPortRange: aws.ToString(p.ContainerPortRange),
+			HostPort:           aws.ToInt32(p.HostPort),
+			Protocol:           string(p.Protocol),
 		})
 	}
 	if len(c.Environment) > 0 {

@@ -56,6 +56,7 @@ var Services = []Service{
 	}},
 	{Name: "ECS", Icon: ui.IconECS, Features: []Feature{
 		{Name: "Clusters", ViewID: "ecs_clusters", Icon: ui.IconECS},
+		{Name: "Task definitions", ViewID: "ecs_task_families", Icon: ui.IconECS},
 	}},
 }
 
@@ -73,6 +74,7 @@ var Commands = []Command{
 	{Name: "logs", Aliases: []string{"log"}, Description: "CloudWatch log groups (:logs NAME for the events of a group)", ViewID: "logs_groups"},
 	{Name: "lambda", Aliases: []string{"functions", "fn"}, Description: "Lambda functions (:lambda NAME to open a function)", ViewID: "lambda_functions"},
 	{Name: "ecs", Aliases: []string{"clusters"}, Description: "ECS clusters (:ecs NAME to open a cluster)", ViewID: "ecs_clusters"},
+	{Name: "taskdefs", Aliases: []string{"td"}, Description: "ECS task definition families", ViewID: "ecs_task_families"},
 	{Name: "eventlog", Description: "Event log of the app", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},
 	{Name: "theme", Description: "Switch theme"},
