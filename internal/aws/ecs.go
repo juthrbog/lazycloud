@@ -20,6 +20,10 @@ import (
 type ECSService interface {
 	// ListClustersPage lists one page of clusters and describes them.
 	ListClustersPage(ctx context.Context, token *string) (*ClusterPage, error)
+	// DescribeCluster reads one cluster by its name or ARN, with its tags,
+	// settings and configuration. It returns ErrClusterNotFound when no
+	// cluster has the name.
+	DescribeCluster(ctx context.Context, cluster string) (*Cluster, error)
 	// ListServicesPage lists one page of the services of a cluster (up to
 	// 100) and describes them in batches of 10.
 	ListServicesPage(ctx context.Context, cluster string, token *string) (*ServicePage, error)
@@ -73,6 +77,10 @@ var _ ECSService = (*ECSServiceImpl)(nil)
 // ErrTaskNotFound is returned by DescribeTask when AWS no longer knows the
 // task. AWS keeps a stopped task for about an hour.
 var ErrTaskNotFound = errors.New("task not found")
+
+// ErrClusterNotFound is returned by DescribeCluster when no cluster has the
+// name or ARN.
+var ErrClusterNotFound = errors.New("cluster not found")
 
 // ErrServiceNotFound is returned by DescribeService when the cluster has no
 // service of that name or ARN.
@@ -539,6 +547,29 @@ func (svc *ECSServiceImpl) ListClustersPage(ctx context.Context, token *string) 
 		return Cluster{Name: ARNName(arn), ARN: arn, Err: reason}
 	})
 	return page, nil
+}
+
+// DescribeCluster reads one cluster. A missing cluster comes back in
+// Failures with the reason MISSING, not as an error. A deleted cluster
+// comes back with the status INACTIVE, and counts as missing.
+func (svc *ECSServiceImpl) DescribeCluster(ctx context.Context, cluster string) (*Cluster, error) {
+	d, err := svc.client.ECSClient().DescribeClusters(ctx, &ecs.DescribeClustersInput{
+		Clusters: []string{cluster},
+		Include: []ecstypes.ClusterField{ecstypes.ClusterFieldTags, ecstypes.ClusterFieldSettings,
+			ecstypes.ClusterFieldConfigurations},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DescribeClusters: %w", err)
+	}
+	if len(d.Clusters) > 0 && aws.ToString(d.Clusters[0].Status) != "INACTIVE" {
+		c := clusterFrom(&d.Clusters[0])
+		return &c, nil
+	}
+	// ecsFailures leaves out MISSING, so any reason left is another failure.
+	for _, reason := range ecsFailures(d.Failures) {
+		return nil, fmt.Errorf("DescribeClusters: %s: %s", ARNName(cluster), reason)
+	}
+	return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, ARNName(cluster))
 }
 
 func clusterFrom(c *ecstypes.Cluster) Cluster {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -66,6 +67,48 @@ func (svc *S3ServiceImpl) lookupBucketRegion(ctx context.Context, bucket string)
 		return "", lerr
 	}
 	return locationRegion(loc.LocationConstraint), nil
+}
+
+// ErrBucketNotFound is returned by HeadBucket when no bucket has the name.
+var ErrBucketNotFound = errors.New("bucket not found")
+
+// ErrBucketDenied is returned by HeadBucket when S3 answers 403: the bucket
+// belongs to another account (or to no account named by the owner), or the
+// identity may not read it. S3 does not tell these apart.
+var ErrBucketDenied = errors.New("bucket not in this account, or access denied")
+
+// HeadBucket confirms that a bucket exists, on the client of its region.
+// With owner, S3 checks that the account owner owns the bucket
+// (ExpectedBucketOwner). It makes a call also with an endpoint, unlike
+// GetBucketRegion (docs/design/jump.md, H11).
+func (svc *S3ServiceImpl) HeadBucket(ctx context.Context, bucket, owner string) error {
+	s3c, err := svc.s3ClientForBucket(ctx, bucket)
+	if err != nil {
+		return bucketError(bucket, err)
+	}
+	in := &s3.HeadBucketInput{Bucket: aws.String(bucket)}
+	if owner != "" {
+		in.ExpectedBucketOwner = aws.String(owner)
+	}
+	if _, err := s3c.HeadBucket(ctx, in); err != nil {
+		return bucketError(bucket, err)
+	}
+	return nil
+}
+
+// bucketError turns a failed bucket read into ErrBucketNotFound for a 404
+// (HeadBucket has no body, and GetBucketLocation says NoSuchBucket with a
+// 404), and ErrBucketDenied for a 403. Other errors stay as they are.
+func bucketError(bucket string, err error) error {
+	if re, ok := errors.AsType[*awshttp.ResponseError](err); ok {
+		switch re.HTTPStatusCode() {
+		case http.StatusNotFound:
+			return fmt.Errorf("%w: %s", ErrBucketNotFound, bucket)
+		case http.StatusForbidden:
+			return fmt.Errorf("%w: %s", ErrBucketDenied, bucket)
+		}
+	}
+	return err
 }
 
 // regionHeader returns the x-amz-bucket-region header of a failed S3 call,

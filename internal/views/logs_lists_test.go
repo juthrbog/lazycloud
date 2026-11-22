@@ -267,14 +267,14 @@ func TestLogGroups_EnterOpensEventsWithTheRecord(t *testing.T) {
 		"log_created":   strconv.FormatInt(testGroupOrders.Created.UnixMilli(), 10),
 	}}}, collectMsgs(cmd))
 
-	ev := NewLogEvents(nil, logGroupParams(testGroupOrders))
+	ev := NewLogEvents(nil, LogGroupParams(testGroupOrders))
 	require.NotNil(t, ev.group, "the viewer builds the record from the parameters")
 	assert.Equal(t, testGroupOrders.ARN, ev.group.ARN)
 	assert.Equal(t, 14, ev.group.RetentionDays)
 	assert.True(t, testGroupOrders.Created.Equal(ev.group.Created))
 
 	// A zero creation time sends no parameter.
-	assert.NotContains(t, logGroupParams(testGroupWeb), "log_created")
+	assert.NotContains(t, LogGroupParams(testGroupWeb), "log_created")
 }
 
 // Enter on a stream opens its events, with the time of its first event.

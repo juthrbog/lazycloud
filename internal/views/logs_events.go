@@ -268,8 +268,9 @@ func paramMillis(s string) time.Time {
 	return time.UnixMilli(ms)
 }
 
-// logGroupParams are the route parameters that open the events of g.
-func logGroupParams(g aws.LogGroup) map[string]string {
+// LogGroupParams are the route parameters that open the events of g. The
+// jump of the app uses them too.
+func LogGroupParams(g aws.LogGroup) map[string]string {
 	p := map[string]string{
 		"log_group":     g.Name,
 		"log_group_arn": g.ARN,

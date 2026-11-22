@@ -21,6 +21,12 @@ func (m *MockECSService) ListClustersPage(ctx context.Context, token *string) (*
 	return val, args.Error(1)
 }
 
+func (m *MockECSService) DescribeCluster(ctx context.Context, cluster string) (*aws.Cluster, error) {
+	args := m.Called(ctx, cluster)
+	val, _ := args.Get(0).(*aws.Cluster)
+	return val, args.Error(1)
+}
+
 func (m *MockECSService) ListServicesPage(ctx context.Context, cluster string, token *string) (*aws.ServicePage, error) {
 	args := m.Called(ctx, cluster, token)
 	val, _ := args.Get(0).(*aws.ServicePage)

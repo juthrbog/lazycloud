@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -63,7 +63,7 @@ This design has four parts:
 
 ### Lookup APIs
 
-- Direct reads that confirm one resource exist for most services, and many are already in the AWS layer: `GetInstanceDetail` (`internal/aws/ec2.go:294-311`), `RefreshAMIs` (`ec2.go:470-473`), `GetSecurityGroup` (`ec2.go:527-531`), `GetLogGroup` (`internal/aws/logs.go:138-155`), `GetFunction` (`internal/aws/lambda.go:278-289`), `DescribeTask` and `DescribeTaskDefinition` (`internal/aws/ecs.go`). There is no read for one VPC, one subnet, one queue URL, one bucket, one ECS cluster or one ECS service.
+- Direct reads that confirm one resource exist for most services, and many are already in the AWS layer: `GetInstanceDetail` (`internal/aws/ec2.go:294-311`), `RefreshAMIs` (`ec2.go:470-473`), `GetSecurityGroup` (`ec2.go:527-531`), `GetLogGroup` (`internal/aws/logs.go:138-155`), `GetFunction` (`internal/aws/lambda.go:278-289`), `DescribeTask` and `DescribeTaskDefinition` (`internal/aws/ecs.go`). There is no read for one queue URL, one bucket, one ECS cluster or one ECS service. (`GetVPC` and `GetSubnet` exist too, in `internal/aws/ec2.go`: PR 3 found them.)
 - `GetBucketRegion` (`internal/aws/s3_region.go:22-40`) does not confirm a bucket. With an endpoint it makes no call (`s3_region.go:24-30`). It answers from its cache (`:32-34`). On AWS it takes the Region from the header of a denied HeadBucket (`:43-57`), and S3 sends that header for a bucket of another account.
 - The Resource Groups Tagging API (`service/resourcegroupstaggingapi@v1.42.0`) returns ARNs and tags of tagged resources in the calling Region only (`api_op_GetResources.go:14-15`, `:33`). It has no name, type or state. `TagFilters` AND the keys and OR the values of a key (`:132-170`). The module is not in `go.mod`.
 - That module defaults to the Smithy RPC v2 CBOR protocol since v1.42.0 (`api_client.go:216`; `CHANGELOG.md:1-3`). LocalStack 2026.10.4 rejects CBOR with HTTP 500 and answers the same call over JSON 1.1. `Options.Protocol` is public and the option functions run after the default (`api_client.go:216-220`, `options.go:122`), so a client can set `awsjson.New11(...)`, as ECS and Logs use by default (`service/ecs@v1.106.0/api_client.go:220`). Dependabot bumps the AWS modules weekly as a group (`.github/dependabot.yml:1-20`), so pinning an older version does not last.
@@ -164,14 +164,14 @@ An ARN of a known service with a resource that the parser cannot read (`function
 
 ### The lookup
 
-After the checks, one read confirms the resource and gets the route parameters. It runs in a `tea.Cmd` with `callTimeout`, and the footer shows "Finding RESOURCE...". A missing resource gives one toast that names it and the Region: "No Lambda function named orders in us-east-1." An access error gives the text of `aws.ErrorText`.
+After the checks, one read confirms the resource and gets the route parameters. It runs as an operation with a timeout of 30 seconds, so the operations line shows "Find RESOURCE" and ctrl+x cancels it. A result that comes after a session switch is dropped. A missing resource gives one toast that names it and the Region: "No Lambda function named orders in us-east-1." An access error gives the text of `aws.ErrorText`.
 
 | Kind | Read | Route |
 |---|---|---|
 | Instance | `GetInstanceDetail` | `ec2_list` with focus ID |
 | AMI | `RefreshAMIs` | `ami_list` with focus ID |
 | SecurityGroup | `GetSecurityGroup` | `sg_list` with focus ID |
-| VPC, Subnet | new `GetVPC`, `GetSubnet` | `vpc_list`, `subnet_list` with focus ID |
+| VPC, Subnet | `GetVPC`, `GetSubnet` | `vpc_list`, `subnet_list` with focus ID |
 | Bucket | new `HeadBucket` | `s3_objects{bucket}` |
 | Object | new `HeadBucket` | `s3_objects{bucket, prefix: the folder of the key, focus: the key}` |
 | Queue | new `GetQueueURL` | `sqs_queues` with focus URL |
@@ -249,7 +249,7 @@ Each PR needs the one before it.
 - PR 0. This design, and pin tests: `TestJumpHazard_*` pins H1 (`:go` and `:ARN` give "Unknown command"), H2 (a Lambda focus by ARN misses), H3 (a security group focus on a missing ID shows nothing), H5 (`s3_objects` does not move its cursor to a focus), H7 (the input stops at 256 runes), H10 (a second focus link to `ecs_task_definitions` pushes a second copy) and H11 (`GetBucketRegion` does not confirm a bucket). `TestJumpGuard_*` pins two facts that stay: H6 (a plain session switch reopens the root with no focus) and H8 (a bare word runs a command by fuzzy match). `TestLambdaFunctions_FocusMissing` already pins H4.
 - PR 1. `internal/jump`: the parser, the cleaning of the input, and the checks, with table tests. The only UI change is the input limit in `internal/ui/query.go:15`, which goes from 256 to 2,048 runes for the command bar, the picker and the help filter. H7 flips. The input still keeps format characters, and the parser removes them.
 - PR 2. The focus changes: `findFocus` falls back to `Key`, the toasts and fetches of `FocusMissing`, the focus of `s3_objects`, and the same-view check by `ID()`. The new read `DescribeService`. H2, H3, H4, H5 and H10 flip, and `TestListCore_FocusKey` and the missing-ID cases of the characterization tests change with them. Unit tests only.
-- PR 3. `:go` and the bare `:` form for IDs, ARNs and URLs in the session Region: the lookup, the routes, and the messages. The new reads `GetVPC`, `GetSubnet`, `GetQueueURL`, `HeadBucket` and `DescribeCluster`. H1 and H11 flip. Smoke tests for an instance, a Lambda ARN, a queue URL, a log group, an ECS service ARN, a task definition ARN and an S3 object.
+- PR 3. `:go` and the bare `:` form for IDs, ARNs and URLs in the session Region: the lookup, the routes, and the messages. The new reads `GetQueueURL`, `HeadBucket` and `DescribeCluster`. Until PR 4, a resource in another Region gives "The resource is in eu-west-1. Press R to switch to eu-west-1, then jump again." H1 and H11 flip. Smoke tests for an instance, a Lambda ARN, a queue URL, a log group, an ECS service ARN, a task definition ARN and an S3 object.
 - PR 4. Another Region: the lookup clients for the target Region, the lookup before the prompt, the prompt, the follow-up of `switchSession`, and S3 without a switch. The H6 guard stays. New tests check that the follow-up replaces the root `NavigateMsg`, waits when an operation runs, and does not run when the switch fails, and that a miss in the other Region keeps the session and the stack.
 - PR 5. Exact names across services, with the picker, and the reads by name for security groups and instances.
 - PR 6. Tag search: the Tagging API module with the JSON 1.1 protocol and its pin, the `jump_tags` view, the "Resources" service with the "Tag search" feature, the `:tags` command, and the smoke test. H9 is pinned in this PR, because the module comes with it.

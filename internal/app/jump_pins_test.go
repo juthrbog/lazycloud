@@ -19,21 +19,21 @@ import (
 // internal/aws. H4 is pinned by TestLambdaFunctions_FocusMissing, which
 // PR 2 flips. H9 comes with the Tagging API module in PR 6.
 
-// H1, fixed in PR 3: :go and a bare ARN, ID or URL after : give "Unknown
-// command".
-func TestJumpHazard_NoJumpCommand(t *testing.T) {
+// H1, fixed in PR 3: :go and a bare ARN, ID or URL after : gave "Unknown
+// command". Now they start a jump. jump_test.go tests the jump itself.
+func TestJumpCommandsAreKnown(t *testing.T) {
 	for _, input := range []string{
 		"go i-0123456789abcdef0",
-		"jump arn:aws:lambda:us-east-1:1:function:orders",
-		"arn:aws:lambda:us-east-1:1:function:orders",
+		"jump arn:aws:lambda:us-east-1:123456789012:function:orders",
+		"arn:aws:lambda:us-east-1:123456789012:function:orders",
 		"i-0123456789abcdef0",
-		"https://sqs.us-east-1.amazonaws.com/1/orders",
+		"https://sqs.us-east-1.amazonaws.com/123456789012/orders",
 	} {
 		m := newTestModel(200, 40)
-		m, cmd := m.executeCommand(input)
-		assert.Contains(t, rendered(m), "Unknown command: "+input, input)
-		assert.Nil(t, findOf[msg.NavigateMsg](collectMsgs(cmd)), input)
-		assert.Equal(t, 1, m.nav.Depth(), input)
+		mockAllServices(&m)
+		m, _ = m.executeCommand(input)
+		assert.NotContains(t, rendered(m), "Unknown command", input)
+		assert.Equal(t, 1, m.ops.Count(), "a read runs: %s", input)
 	}
 }
 

@@ -64,6 +64,11 @@ func (m *MockSQSService) DeleteQueue(ctx context.Context, queueURL string) error
 	return args.Error(0)
 }
 
+func (m *MockSQSService) GetQueueURL(ctx context.Context, name, owner string) (string, error) {
+	args := m.Called(ctx, name, owner)
+	return args.String(0), args.Error(1)
+}
+
 func (m *MockSQSService) ListDeadLetterSourceQueues(ctx context.Context, queueURL string) ([]string, error) {
 	args := m.Called(ctx, queueURL)
 	val, _ := args.Get(0).([]string)

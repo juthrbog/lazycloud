@@ -34,6 +34,10 @@ type S3Service interface {
 	ListObjectVersions(ctx context.Context, bucket, key string) ([]ObjectVersion, error)
 	GetBucketProperties(ctx context.Context, bucket string) (*BucketProperties, error)
 	GetBucketRegion(ctx context.Context, bucket string) (string, error)
+	// HeadBucket confirms that a bucket exists. With owner, it also
+	// confirms that the account owner owns it. It returns ErrBucketNotFound
+	// or ErrBucketDenied.
+	HeadBucket(ctx context.Context, bucket, owner string) error
 	DeleteObject(ctx context.Context, bucket, key string) error
 	DeleteObjects(ctx context.Context, bucket string, keys []string) error
 	DeleteObjectVersions(ctx context.Context, bucket string, versions []ObjectVersion) error

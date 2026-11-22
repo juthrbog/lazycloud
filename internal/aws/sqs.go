@@ -3,6 +3,7 @@ package aws
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -18,6 +19,10 @@ import (
 type SQSService interface {
 	ListQueuesPage(ctx context.Context, token *string) (*QueuePage, error)
 	GetQueueAttributes(ctx context.Context, queueURL string) (*Queue, error)
+	// GetQueueURL returns the URL of a queue by its name. owner is the
+	// account of the queue, or "" for the account of the session. It
+	// returns ErrQueueNotFound for a missing queue.
+	GetQueueURL(ctx context.Context, name, owner string) (string, error)
 	FetchAllQueueAttributes(ctx context.Context, urls []string) ([]Queue, error)
 	ReceiveMessages(ctx context.Context, queueURL string, maxMessages int32) ([]SQSMessage, error)
 	SendMessage(ctx context.Context, queueURL, body string, delaySeconds int32, groupID, dedupID string) error
@@ -144,6 +149,26 @@ func (svc *SQSServiceImpl) ListQueuesPage(ctx context.Context, token *string) (*
 		HasMorePages: out.NextToken != nil,
 		Token:        out.NextToken,
 	}, nil
+}
+
+// ErrQueueNotFound is returned by GetQueueURL when no queue has the name.
+var ErrQueueNotFound = errors.New("queue not found")
+
+// GetQueueURL returns the URL of a queue by its name, the URL that
+// ListQueues gives for it.
+func (svc *SQSServiceImpl) GetQueueURL(ctx context.Context, name, owner string) (string, error) {
+	in := &sqs.GetQueueUrlInput{QueueName: aws.String(name)}
+	if owner != "" {
+		in.QueueOwnerAWSAccountId = aws.String(owner)
+	}
+	out, err := svc.client.SQSClient().GetQueueUrl(ctx, in)
+	if err != nil {
+		if _, ok := errors.AsType[*sqstypes.QueueDoesNotExist](err); ok {
+			return "", fmt.Errorf("%w: %s", ErrQueueNotFound, name)
+		}
+		return "", fmt.Errorf("GetQueueUrl: %w", err)
+	}
+	return aws.ToString(out.QueueUrl), nil
 }
 
 // GetQueueAttributes fetches and parses all attributes for a queue.
