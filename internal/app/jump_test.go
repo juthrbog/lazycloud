@@ -268,7 +268,6 @@ func TestJumpCommandRefusesBeforeAnyCall(t *testing.T) {
 		{"arn:aws:rds:us-east-1:" + jumpAcct + ":db:orders", "LazyCloud has no view for rds resources: arn:aws:rds:us-east-1:" + jumpAcct + ":db:orders"},
 		{"arn:aws-cn:lambda:cn-north-1:" + jumpAcct + ":function:orders", "The resource is in the aws-cn partition. The session uses aws."},
 		{"arn:aws:lambda:us-east-1:444455556666:function:orders", "The resource is in account 444455556666. The session uses account " + jumpAcct + "."},
-		{"arn:aws:lambda:eu-west-1:" + jumpAcct + ":function:orders", "The resource is in eu-west-1. Press R to switch to eu-west-1, then jump again."},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

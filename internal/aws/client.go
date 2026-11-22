@@ -79,6 +79,16 @@ type Client struct {
 	copyHTTP *awshttp.BuildableClient // see copyReadTimeout
 }
 
+// ForRegion returns a copy of c for another region. It shares the
+// credentials, the HTTP clients and the middleware of c, so it loads no
+// configuration and makes no call. The jump uses it to read a resource in
+// another region before it switches the session (docs/design/jump.md).
+func (c *Client) ForRegion(region string) *Client {
+	cfg := c.Config.Copy()
+	cfg.Region = region
+	return &Client{Config: cfg, Profile: c.Profile, Region: region, Endpoint: c.Endpoint, copyHTTP: c.copyHTTP}
+}
+
 // NewClient creates a client using the specified profile, region, and optional endpoint override.
 // An empty region lets the SDK resolve it (env vars, then the profile in ~/.aws/config).
 func NewClient(profile, region, endpoint string) (*Client, error) {
