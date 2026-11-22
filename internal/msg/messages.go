@@ -15,6 +15,12 @@ type NavigateMsg struct {
 // NavigateBackMsg tells the root model to pop the current view.
 type NavigateBackMsg struct{}
 
+// JumpMsg asks the root model to jump to the resource that Text names, as
+// :go TEXT does: the checks, the read and the route (docs/design/jump.md).
+type JumpMsg struct {
+	Text string
+}
+
 // FocusResourceMsg tells a list view to select and show detail for a specific resource.
 // Sent after cross-resource navigation to auto-open the detail panel.
 type FocusResourceMsg struct {

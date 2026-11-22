@@ -251,6 +251,12 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			deliverItems(v, &v.listCore, []aws.Task{testTask})
 			return v
 		},
+		"jump_tags": func(*testing.T) tea.Model {
+			v := NewJumpTags(nil, "team=orders")
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.TaggedResource{{ARN: "arn:aws:lambda:us-east-1:1:function:f", Tags: map[string]string{"team": "orders"}}})
+			return v
+		},
 		"ecs_task_families": func(*testing.T) tea.Model {
 			v := NewECSTaskFamilies(nil)
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -335,6 +341,7 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"ecs_tasks":            func() tea.Model { return NewECSTasks(nil, nil, testClusterARN, "web") },
 		"ecs_containers":       func() tea.Model { return NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1") },
 		"ecs_task_families":    func() tea.Model { return NewECSTaskFamilies(nil) },
+		"jump_tags":            func() tea.Model { return NewJumpTags(nil, "") },
 		"ecs_task_definitions": func() tea.Model { return NewECSTaskDefinitions(nil, "web") },
 		"lambda_invocations": func() tea.Model {
 			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})

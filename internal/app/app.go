@@ -296,7 +296,7 @@ func (m Model) handleRouted(r nav.Routed) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case appmsg.NavigateMsg, appmsg.NavigateBackMsg, appmsg.TabbedContentMsg,
-		appmsg.RequestFeaturePickerMsg, ui.ContentLinkActivatedMsg:
+		appmsg.RequestFeaturePickerMsg, ui.ContentLinkActivatedMsg, appmsg.JumpMsg:
 		// Navigation, overlays, and the side panel act on what the user sees.
 		// A late result from a view that is no longer on top must not move
 		// the user or open a dialog or panel over an unrelated view.
@@ -607,6 +607,9 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case jumpResultMsg:
 		return m.onJumpResult(msg)
+
+	case appmsg.JumpMsg:
+		return m.jumpCommand(msg.Text)
 
 	case ui.ContentLinkActivatedMsg:
 		// Save the panel for back traversal. A link to the view on top

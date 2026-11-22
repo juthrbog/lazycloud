@@ -127,6 +127,27 @@ func TestJumpByNamePicker(t *testing.T) {
 	h.waitFor("SQS Queues", "1:Info", "Last Modified", name)
 }
 
+// :go tag:team=orders lists the tagged resources of the seed. LocalStack
+// leaves tagged log groups out of the Tagging API, so the test expects the
+// function. enter on it jumps to the function (PR 6).
+func TestJumpByTag(t *testing.T) {
+	h := start(t, "")
+	h.keys(":go tag:team=orders")
+	h.enter()
+	h.waitFor("Tags tag:team=orders", "orders-api", "team=orders")
+	h.waitLoaded()
+	h.filter("orders-api")
+	h.enter()
+	h.waitFor("Lambda Functions", "Last update")
+
+	// A key alone matches any value of the key. LocalStack fails when the
+	// request leaves the values out, so this pins the empty list.
+	h = start(t, "")
+	h.keys(":go tag:team")
+	h.enter()
+	h.waitFor("Tags tag:team", "orders-api", "prod-cluster")
+}
+
 // An S3 object ARN with a space in its key opens its folder with the
 // cursor on it. A missing bucket gives a message and opens nothing.
 func TestJumpToAnObject(t *testing.T) {

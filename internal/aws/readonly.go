@@ -241,6 +241,18 @@ type guardedLambda struct {
 	readOnly func() bool
 }
 
+// GuardTagging returns svc with a ReadOnly guard on every mutating method.
+// Every method of TaggingService reads, so it passes each call through.
+// TagResources and UntagResources must get a guard here.
+func GuardTagging(svc TaggingService, readOnly func() bool) TaggingService {
+	return guardedTagging{TaggingService: svc, readOnly: readOnly}
+}
+
+type guardedTagging struct {
+	TaggingService
+	readOnly func() bool
+}
+
 // GuardECS returns svc with a ReadOnly guard on every mutating method:
 // ForceDeployment, SetDesiredCount and StopTask.
 func GuardECS(svc ECSService, readOnly func() bool) ECSService {

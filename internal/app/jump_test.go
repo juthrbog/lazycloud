@@ -263,7 +263,6 @@ func anyOf(m any) []any {
 func TestJumpCommandRefusesBeforeAnyCall(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"go", "Type what to jump to. " + jump.Forms},
-		{"go tag:team=orders", "LazyCloud cannot search by tag yet. " + jump.Forms},
 		{"arn:aws:rds:us-east-1:" + jumpAcct + ":db:orders", "LazyCloud has no view for rds resources: arn:aws:rds:us-east-1:" + jumpAcct + ":db:orders"},
 		{"arn:aws-cn:lambda:cn-north-1:" + jumpAcct + ":function:orders", "The resource is in the aws-cn partition. The session uses aws."},
 		{"arn:aws:lambda:us-east-1:444455556666:function:orders", "The resource is in account 444455556666. The session uses account " + jumpAcct + "."},
