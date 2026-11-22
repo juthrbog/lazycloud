@@ -766,9 +766,9 @@ var conformanceCases = []conformanceCase{
 			svc.On("GetResourcesPage", mock.MatchedBy(ok), mock.Anything, mock.Anything).
 				Return(&aws.TaggedPage{Resources: []aws.TaggedResource{{ARN: "arn:aws:sqs:us-east-1:1:q1"}}}, nil)
 			svc.On("GetResourcesPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
-			return NewJumpTags(svc, "")
+			return NewJumpTags(svc, "team=orders")
 		},
-		buildNil: func() nav.View { return NewJumpTags(nil, "") },
+		buildNil: func() nav.View { return NewJumpTags(nil, "team=orders") },
 		coreMsgs: func(v nav.View) []tea.Msg {
 			c := &v.(*JumpTags).listCore
 			tok := "t2"

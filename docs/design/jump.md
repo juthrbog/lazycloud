@@ -220,8 +220,9 @@ A bare name runs exact-name reads in the session Region, all at once, each with 
 - Columns: Service, Type, Name (the last part of the ARN), Region, and the tags. A page budget of 10 pages of 100, with `l` for more.
 - enter runs the jump of that ARN. A resource with no view shows the message of Unsupported.
 - The client sets `o.Protocol = awsjson.New11(...)`, and a pin test checks the `X-Amz-Target` header of a request, so a Dependabot bump that changes the protocol fails the test (H9).
-- The registry gets a service "Resources" with the feature "Tag search", ViewID `jump_tags`, and a nav command `tags` ("Search the resources of the Region by tag"). `jump_tags` is its own root (`internal/app/app_test.go:566-601`). `:go tag:team=orders` opens it with the filter.
-- Changed in PR 6: with no tag filter, the view lists every tagged resource of the Region (`GetResources` with no filter), and `t` opens a form for the filter. A form on open would not fit the rules that every list follows (the conformance, safety and smoke tests load the list at once). The answer of the form opens a new search, so Back returns to the old one. enter jumps to the resource of the row with a `JumpMsg`, as `:go ARN` does.
+- The registry gets a service "Resources" with the feature "Tag search", ViewID `jump_tags`, and a nav command `tags` ("Search the resources of the Region by tag"). `jump_tags` is its own root (`internal/app/app_test.go:566-601`). With no tag filter it loads nothing and opens a form for the filter, so the route builds with no parameters and a large account does not load a thousand resources at once. `r` asks for a filter too. The first answer loads in the same view. `:go tag:team=orders` opens it with the filter.
+- `t` changes the filter: the answer opens a new search, so Back returns to the old one. enter jumps to the resource of the row with a `JumpMsg`, as `:go ARN` does.
+- The list tests load each list at once, so they use the view with a filter. The smoke test of the form is `TestJumpTagSearchForm`.
 - The text of the toast for a missing permission names the action: "tag:GetResources is not allowed for this identity."
 
 ### Seed and tests

@@ -341,7 +341,7 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"ecs_tasks":            func() tea.Model { return NewECSTasks(nil, nil, testClusterARN, "web") },
 		"ecs_containers":       func() tea.Model { return NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1") },
 		"ecs_task_families":    func() tea.Model { return NewECSTaskFamilies(nil) },
-		"jump_tags":            func() tea.Model { return NewJumpTags(nil, "") },
+		"jump_tags":            func() tea.Model { return NewJumpTags(nil, "team=orders") },
 		"ecs_task_definitions": func() tea.Model { return NewECSTaskDefinitions(nil, "web") },
 		"lambda_invocations": func() tea.Model {
 			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})

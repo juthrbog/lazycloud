@@ -148,6 +148,22 @@ func TestJumpByTag(t *testing.T) {
 	h.waitFor("Tags tag:team", "orders-api", "prod-cluster")
 }
 
+// :tags asks for a filter when it opens and loads nothing before. The
+// answer loads the resources in the same view, and d shows the tags.
+func TestJumpTagSearchForm(t *testing.T) {
+	h := start(t, "")
+	h.keys(":tags")
+	h.enter()
+	h.waitFor("Tag filter", formHint)
+	h.keys("team=orders")
+	h.submitForm()
+	h.waitFor("Tags team=orders", "orders-api")
+	h.waitLoaded()
+	h.filter("orders-api")
+	h.keys("d")
+	h.waitFor("2:Tags")
+}
+
 // An S3 object ARN with a space in its key opens its folder with the
 // cursor on it. A missing bucket gives a message and opens nothing.
 func TestJumpToAnObject(t *testing.T) {

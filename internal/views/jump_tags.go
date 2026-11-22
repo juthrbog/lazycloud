@@ -18,8 +18,9 @@ import (
 
 // The tag search of the jump (docs/design/jump.md, "Tag search (PR 6)"): the
 // tagged resources of the session Region from the Resource Groups Tagging
-// API. With no filter it lists every tagged resource. t sets a filter, and
-// enter jumps to the resource of the row.
+// API. With no filter it loads nothing and asks for one, so a large account
+// does not load a thousand resources before the user can narrow them. t
+// changes the filter, and enter jumps to the resource of the row.
 
 // jumpTagsPageBudget is 10 pages of 100: 1,000 resources.
 const jumpTagsPageBudget = 10
@@ -28,25 +29,29 @@ const jumpTagsPageBudget = 10
 const jumpTagsForm = "jump_tags_filter"
 
 var jumpTagsKeys = struct {
-	Open   ui.HintBinding
-	Filter ui.HintBinding
+	Open      ui.HintBinding
+	Filter    ui.HintBinding
+	FilterOnR ui.HintBinding
 }{
-	Open:   ui.NewHintBinding([]string{"enter"}, "enter", "jump"),
-	Filter: ui.NewHintBinding([]string{"t"}, "t", "tag filter"),
+	Open:      ui.NewHintBinding([]string{"enter"}, "enter", "jump"),
+	Filter:    ui.NewHintBinding([]string{"t"}, "t", "tag filter"),
+	FilterOnR: ui.NewHintBinding([]string{"r"}, "r", "tag filter"),
 }
 
 // JumpTags lists the tagged resources of the session Region.
 type JumpTags struct {
 	listCore[aws.TaggedResource]
 	tagText string // the tag terms, as typed: "team=orders env"
+	filters []aws.TagFilter
 }
 
 // NewJumpTags creates the tag search for filter, a list of KEY=VALUE or
-// KEY terms with or without "tag:". An empty filter lists every tagged
-// resource. The row key is the ARN, so y copies it.
+// KEY terms with or without "tag:". With an empty filter, the view loads
+// nothing and asks for a filter when it opens. The row key is the ARN, so
+// y copies it.
 func NewJumpTags(svc aws.TaggingService, filter string) *JumpTags {
 	filters, _ := ParseTagFilter(filter)
-	v := &JumpTags{tagText: strings.TrimSpace(filter)}
+	v := &JumpTags{tagText: strings.TrimSpace(filter), filters: filters}
 	v.listCore = newListCore(listConfig[aws.TaggedResource]{
 		Noun:         "resources",
 		LoadingLabel: "Loading tagged resources...",
@@ -55,7 +60,7 @@ func NewJumpTags(svc aws.TaggingService, filter string) *JumpTags {
 		Columns:      jumpTagsColumns,
 		Row:          jumpTagsRow,
 		Fetch: fetchPages(svc, func(s aws.TaggingService, ctx context.Context, tok *string) (*aws.TaggedPage, error) {
-			return s.GetResourcesPage(ctx, filters, tok)
+			return s.GetResourcesPage(ctx, v.filters, tok)
 		}, func(p *aws.TaggedPage) ([]aws.TaggedResource, *string) {
 			if p == nil {
 				return nil, nil
@@ -69,6 +74,9 @@ func NewJumpTags(svc aws.TaggingService, filter string) *JumpTags {
 		Copy:         true,
 		CopyNoun:     "ARN",
 	})
+	if v.tagText == "" {
+		v.loading = false // nothing loads until there is a filter
+	}
 	return v
 }
 
@@ -168,11 +176,17 @@ func (v *JumpTags) Title() string {
 	return "Tags " + v.tagText
 }
 
-func (v *JumpTags) Init() tea.Cmd { return v.init() }
+// Init loads the resources of the filter, or asks for a filter.
+func (v *JumpTags) Init() tea.Cmd {
+	if v.tagText == "" {
+		return v.filterForm()
+	}
+	return v.init()
+}
 
 func (v *JumpTags) Footer() string {
 	if v.tagText == "" {
-		return v.footer() + " · every tagged resource of the Region · t to filter by tag"
+		return "No tag filter · press t to enter one"
 	}
 	return v.footer()
 }
@@ -180,9 +194,14 @@ func (v *JumpTags) Footer() string {
 func (v *JumpTags) View() tea.View { return tea.NewView(v.render("", "")) }
 
 func (v *JumpTags) KeyMap() []ui.HintBinding {
-	// enter jumps, so d alone opens the detail.
+	// enter jumps, so d alone opens the detail. With no filter, r asks for
+	// one, and the hint says so.
+	refresh := listKeys.Refresh
+	if v.tagText == "" {
+		refresh = jumpTagsKeys.FilterOnR
+	}
 	return v.hints(jumpTagsKeys.Open, listKeys.Describe, jumpTagsKeys.Filter, listKeys.CopyID,
-		listKeys.More, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+		listKeys.More, listKeys.Sort, listKeys.Filter, refresh)
 }
 
 // filterForm asks for the tag terms, with the current filter filled in.
@@ -201,7 +220,8 @@ func (v *JumpTags) filterForm() tea.Cmd {
 }
 
 // Update returns the view itself. enter jumps to the resource of the row,
-// and t asks for a tag filter, which opens a new search.
+// and t asks for a tag filter. The first filter loads in this view; a new
+// filter opens a new search, so Back returns to the old one.
 func (v *JumpTags) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := m.(type) {
 	case msg.FormResultMsg:
@@ -209,12 +229,25 @@ func (v *JumpTags) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 			return v, nil
 		}
 		text := strings.TrimSpace(m.Values["tags"])
-		return v, navigate("jump_tags", map[string]string{"filter": text})
+		filters, err := ParseTagFilter(text)
+		if err != nil || len(filters) == 0 {
+			return v, nil // the form validated it
+		}
+		if v.tagText != "" {
+			return v, navigate("jump_tags", map[string]string{"filter": text})
+		}
+		v.tagText, v.filters = text, filters
+		return v, v.reload("Loading tagged resources...")
 	case tea.KeyPressMsg:
 		if v.filter.Active() {
 			break
 		}
 		if key.Matches(m, jumpTagsKeys.Filter.Binding) {
+			return v, v.filterForm()
+		}
+		// With no filter, r would load every tagged resource of the
+		// Region: it asks for a filter instead.
+		if v.tagText == "" && key.Matches(m, listKeys.Refresh.Binding) {
 			return v, v.filterForm()
 		}
 		if it := v.cursorItem(); it != nil && v.err == nil && key.Matches(m, jumpTagsKeys.Open.Binding) {
