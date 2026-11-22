@@ -58,6 +58,9 @@ var Services = []Service{
 		{Name: "Clusters", ViewID: "ecs_clusters", Icon: ui.IconECS},
 		{Name: "Task definitions", ViewID: "ecs_task_families", Icon: ui.IconECS},
 	}},
+	{Name: "Resources", Icon: ui.IconTag, Features: []Feature{
+		{Name: "Tag search", ViewID: "jump_tags", Icon: ui.IconTag},
+	}},
 }
 
 // Commands is the ordered list of commands available in the command palette.
@@ -75,6 +78,7 @@ var Commands = []Command{
 	{Name: "lambda", Aliases: []string{"functions", "fn"}, Description: "Lambda functions (:lambda NAME to open a function)", ViewID: "lambda_functions"},
 	{Name: "ecs", Aliases: []string{"clusters"}, Description: "ECS clusters (:ecs NAME to open a cluster)", ViewID: "ecs_clusters"},
 	{Name: "taskdefs", Aliases: []string{"td"}, Description: "ECS task definition families", ViewID: "ecs_task_families"},
+	{Name: "tags", Description: "Search the resources of the Region by tag", ViewID: "jump_tags"},
 	{Name: "go", Aliases: []string{"jump"}, Description: "Jump to a resource by ID, ARN, URL or name (:go TEXT)"},
 	{Name: "eventlog", Description: "Event log of the app", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},

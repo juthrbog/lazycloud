@@ -101,6 +101,11 @@ func ErrorText(err error) string {
 		return "no AWS credentials found. Press P to pick a profile, or set up credentials in ~/.aws"
 	}
 
+	// A denied tag search names the action that the identity needs, which
+	// the generic text of an access error does not.
+	if errors.Is(err, ErrTagSearchDenied) {
+		return ErrTagSearchDenied.Error()
+	}
 	if apiErr, ok := errors.AsType[smithy.APIError](err); ok {
 		return apiErrorText(err, apiErr)
 	}

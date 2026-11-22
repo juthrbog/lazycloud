@@ -758,6 +758,44 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[string]](),
 	},
 	{
+		name: "jump_tags",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockTaggingService)
+			svc.Test(t)
+			svc.On("GetResourcesPage", mock.MatchedBy(ok), mock.Anything, mock.Anything).
+				Return(&aws.TaggedPage{Resources: []aws.TaggedResource{{ARN: "arn:aws:sqs:us-east-1:1:q1"}}}, nil)
+			svc.On("GetResourcesPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewJumpTags(svc, "team=orders")
+		},
+		buildNil: func() nav.View { return NewJumpTags(nil, "team=orders") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*JumpTags).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.TaggedResource]{gen: c.loadGen, items: []aws.TaggedResource{{ARN: "arn:r1"}}, next: &tok, page: 1},
+				listPageMsg[aws.TaggedResource]{gen: c.loadGen, items: []aws.TaggedResource{{ARN: "arn:r2"}}, page: 2},
+				listPageMsg[aws.TaggedResource]{gen: c.loadGen - 1, items: []aws.TaggedResource{{ARN: "arn:old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*JumpTags).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:r1", "arn:r2"},
+		rowKeys:  []string{"enter"},
+		file:     "jump_tags.go",
+		typeName: "JumpTags",
+		coreType: reflect.TypeFor[listCore[aws.TaggedResource]](),
+	},
+	{
 		name: "ecs_task_definitions",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -1099,6 +1137,7 @@ var loadContexts = map[string]string{
 	"ecs_containers":       "listing containers",
 	"ecs_task_families":    "listing task definition families",
 	"ecs_task_definitions": "listing task definitions",
+	"jump_tags":            "searching tagged resources",
 }
 
 // Every list of the registry runs the conformance cases.

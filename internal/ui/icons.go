@@ -37,6 +37,7 @@ var (
 	IconLogs    = ServiceIcon{Nerd: "\U000f0219", Fallback: "¶"} // nf-md-file_document
 	IconLambda  = ServiceIcon{Nerd: "\U000f0627", Fallback: "λ"} // nf-md-lambda
 	IconECS     = ServiceIcon{Nerd: "\U000f0868", Fallback: "▣"} // nf-md-docker
+	IconTag     = ServiceIcon{Nerd: "\U000f04f9", Fallback: "#"} // nf-md-tag
 
 	// IconLock marks a session that a rule locks to ReadOnly. Its fallback
 	// makes the mode badge read RO*.

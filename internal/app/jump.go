@@ -103,6 +103,10 @@ func (m Model) jumpCommand(text string) (Model, tea.Cmd) {
 		_, cmd := m.toasts.Add(noSessionText(m.svcErr), ui.ToastError, 0)
 		return m, cmd
 	}
+	// A tag search opens its list, which reads the resources itself.
+	if t.Kind == jump.Tags {
+		return m.navigate(appmsg.NavigateMsg{ViewID: "jump_tags", Params: map[string]string{"filter": t.Raw}})
+	}
 	// A resource in another Region is read there first, so a miss gives
 	// its message and no switch. The read uses a copy of the client for
 	// that Region, and the messages name that Region.

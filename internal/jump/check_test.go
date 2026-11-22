@@ -75,7 +75,7 @@ func TestCheck(t *testing.T) {
 		{"unsupported", "arn:aws:rds:us-east-1:" + own + ":db:orders", s,
 			"LazyCloud has no view for rds resources: arn:aws:rds:us-east-1:111111111111:db:orders"},
 		{"name", "orders-api", s, ""},
-		{"tags", "tag:team=orders", s, "LazyCloud cannot search by tag yet. " + Forms},
+		{"tags", "tag:team=orders", s, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

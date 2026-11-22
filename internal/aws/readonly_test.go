@@ -103,6 +103,15 @@ var guardCases = []guardCase{
 		},
 	},
 	{
+		name:  "Tagging",
+		iface: reflect.TypeFor[aws.TaggingService](),
+		reads: []string{"GetResourcesPage"},
+		guard: func(readOnly func() bool) (any, *mock.Mock) {
+			m := new(awstest.MockTaggingService)
+			return aws.GuardTagging(m, readOnly), &m.Mock
+		},
+	},
+	{
 		name:  "ECS",
 		iface: reflect.TypeFor[aws.ECSService](),
 		reads: []string{

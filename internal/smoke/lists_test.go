@@ -31,7 +31,9 @@ func TestListsLoad(t *testing.T) {
 	}
 	// Each list of the registry has a case, so a new service gets a smoke
 	// test with a seed resource.
-	covered := map[string]bool{}
+	// The tag search asks for a filter when it opens, so it has its own
+	// smoke test: TestJumpTagSearchForm in jump_test.go.
+	covered := map[string]bool{"jump_tags": true}
 	for _, c := range cases {
 		if cmd := registry.LookupCommand(c.command); cmd != nil {
 			covered[cmd.ViewID] = true

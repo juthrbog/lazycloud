@@ -161,6 +161,7 @@ func mockAllServices(m *Model) {
 	m.svc.Logs = new(awstest.MockLogsService)
 	m.svc.Lambda = new(awstest.MockLambdaService)
 	m.svc.ECS = new(awstest.MockECSService)
+	m.svc.Tagging = new(awstest.MockTaggingService)
 }
 
 func TestMockAllServicesFillsEveryService(t *testing.T) {
@@ -219,6 +220,7 @@ func TestReadOnlyBlocksEveryReadWriteKey(t *testing.T) {
 		{"ecs_containers", map[string]string{"cluster": "arn:aws:ecs:us-east-1:1:cluster/c", "task": "arn:aws:ecs:us-east-1:1:task/c/t1"}, []string{"o"}},
 		{"ecs_task_families", nil, nil},
 		{"ecs_task_definitions", map[string]string{"family": "web"}, nil},
+		{"jump_tags", nil, nil},
 		{"logs_streams", map[string]string{"log_group": "g"}, nil},
 		{"logs_events", map[string]string{"log_group": "g", "log_group_arn": "arn"}, nil},
 		{"eventlog", nil, nil},
@@ -289,6 +291,7 @@ func TestViewsWithFiltersCaptureInput(t *testing.T) {
 		"ecs_containers":       {"cluster": "arn:aws:ecs:us-east-1:1:cluster/c", "task": "arn:aws:ecs:us-east-1:1:task/c/t1"},
 		"ecs_task_families":    nil,
 		"ecs_task_definitions": {"family": "web"},
+		"jump_tags":            nil,
 		"logs_streams":         {"log_group": "g"},
 		"logs_events":          {"log_group": "g", "log_group_arn": "arn"},
 		"eventlog":             nil,

@@ -4,13 +4,14 @@ package aws
 // the services that the views use. Add a new service here and in
 // NewServices: the app builds every session through NewServices.
 type Services struct {
-	Client *Client
-	S3     S3Service
-	EC2    EC2Service
-	SQS    SQSService
-	Logs   LogsService
-	Lambda LambdaService
-	ECS    ECSService
+	Client  *Client
+	S3      S3Service
+	EC2     EC2Service
+	SQS     SQSService
+	Logs    LogsService
+	Lambda  LambdaService
+	ECS     ECSService
+	Tagging TaggingService
 }
 
 // ForRegion returns services for another region of the same session, for
@@ -20,13 +21,14 @@ func (s Services) ForRegion(region string) Services {
 	c := s.Client.ForRegion(region)
 	readOnly := func() bool { return true }
 	return Services{
-		Client: c,
-		S3:     GuardS3(NewS3Service(c), readOnly),
-		EC2:    GuardEC2(NewEC2Service(c), readOnly),
-		SQS:    GuardSQS(NewSQSService(c), readOnly),
-		Logs:   GuardLogs(NewLogsService(c), readOnly),
-		Lambda: GuardLambda(NewLambdaService(c), readOnly),
-		ECS:    GuardECS(NewECSService(c), readOnly),
+		Client:  c,
+		S3:      GuardS3(NewS3Service(c), readOnly),
+		EC2:     GuardEC2(NewEC2Service(c), readOnly),
+		SQS:     GuardSQS(NewSQSService(c), readOnly),
+		Logs:    GuardLogs(NewLogsService(c), readOnly),
+		Lambda:  GuardLambda(NewLambdaService(c), readOnly),
+		ECS:     GuardECS(NewECSService(c), readOnly),
+		Tagging: GuardTagging(NewTaggingService(c), readOnly),
 	}
 }
 
@@ -40,12 +42,13 @@ func NewServices(profile, region, endpoint string, readOnly func() bool) (Servic
 		return Services{}, err
 	}
 	return Services{
-		Client: c,
-		S3:     GuardS3(NewS3Service(c), readOnly),
-		EC2:    GuardEC2(NewEC2Service(c), readOnly),
-		SQS:    GuardSQS(NewSQSService(c), readOnly),
-		Logs:   GuardLogs(NewLogsService(c), readOnly),
-		Lambda: GuardLambda(NewLambdaService(c), readOnly),
-		ECS:    GuardECS(NewECSService(c), readOnly),
+		Client:  c,
+		S3:      GuardS3(NewS3Service(c), readOnly),
+		EC2:     GuardEC2(NewEC2Service(c), readOnly),
+		SQS:     GuardSQS(NewSQSService(c), readOnly),
+		Logs:    GuardLogs(NewLogsService(c), readOnly),
+		Lambda:  GuardLambda(NewLambdaService(c), readOnly),
+		ECS:     GuardECS(NewECSService(c), readOnly),
+		Tagging: GuardTagging(NewTaggingService(c), readOnly),
 	}, nil
 }

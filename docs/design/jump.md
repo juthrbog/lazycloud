@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. PR 4 adds the switch to another Region. PR 5 adds the jump by name. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. PR 4 adds the switch to another Region. PR 5 adds the jump by name. PR 6 adds the tag search, and the plan is done. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -216,11 +216,13 @@ A bare name runs exact-name reads in the session Region, all at once, each with 
 
 ### Tag search (PR 6)
 
-- `:go tag:team=orders` opens `jump_tags`, a list of the tagged resources of the session Region from `GetResources` with `TagFilters`. Several `tag:` terms are ANDed.
+- `:go tag:team=orders` opens `jump_tags`, a list of the tagged resources of the session Region from `GetResources` with `TagFilters`. Terms of different keys are ANDed. Terms of one key OR their values, as the API does (`env=dev env=prod` matches either), and `KEY` alone matches any value of the key.
 - Columns: Service, Type, Name (the last part of the ARN), Region, and the tags. A page budget of 10 pages of 100, with `l` for more.
 - enter runs the jump of that ARN. A resource with no view shows the message of Unsupported.
 - The client sets `o.Protocol = awsjson.New11(...)`, and a pin test checks the `X-Amz-Target` header of a request, so a Dependabot bump that changes the protocol fails the test (H9).
-- The registry gets a service "Resources" with the feature "Tag search", ViewID `jump_tags`, and a nav command `tags` ("Search the resources of the Region by tag"). `jump_tags` is its own root (`internal/app/app_test.go:566-601`). With no tag filter it opens a form for the filter, so the route builds with no parameters. `:go tag:team=orders` opens it with the filter.
+- The registry gets a service "Resources" with the feature "Tag search", ViewID `jump_tags`, and a nav command `tags` ("Search the resources of the Region by tag"). `jump_tags` is its own root (`internal/app/app_test.go:566-601`). With no tag filter it loads nothing and opens a form for the filter, so the route builds with no parameters and a large account does not load a thousand resources at once. `r` asks for a filter too. The first answer loads in the same view. `:go tag:team=orders` opens it with the filter.
+- `t` changes the filter: the answer opens a new search, so Back returns to the old one. enter jumps to the resource of the row with a `JumpMsg`, as `:go ARN` does.
+- The list tests load each list at once, so they use the view with a filter. The smoke test of the form is `TestJumpTagSearchForm`.
 - The text of the toast for a missing permission names the action: "tag:GetResources is not allowed for this identity."
 
 ### Seed and tests

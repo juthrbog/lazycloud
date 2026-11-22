@@ -61,7 +61,9 @@ func TestECSTasksAndStoppedTasks(t *testing.T) {
 	h.keys("t")
 	h.waitFor("prod-cluster tasks", "RUNNING")
 	h.keys("x")
-	h.waitFor("prod-cluster stopped tasks", "UserInitiated", reason, "AWS keeps stopped tasks")
+	h.waitFor("prod-cluster stopped tasks", "UserInitiated", "AWS keeps stopped tasks")
+	// Older runs can leave more stopped tasks than the screen shows, so the
+	// test filters before it looks for its own task.
 	h.filter(reason)
 	h.keys("d")
 	h.waitFor("Stop reason", "lazycloud-smoke")

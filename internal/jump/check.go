@@ -16,7 +16,7 @@ type Session struct {
 
 // Forms names the forms that a jump takes, for the message of an empty or
 // unreadable text.
-const Forms = "Use an ID (i-..., sg-...), an ARN, an SQS queue URL, s3://BUCKET/KEY, a log group path, or :go NAME."
+const Forms = "Use an ID (i-..., sg-...), an ARN, an SQS queue URL, s3://BUCKET/KEY, a log group path, :go NAME, or :go tag:KEY=VALUE."
 
 // partitions maps the Region names of each partition, as the SDK does in
 // internal/endpoints/awsrulesfn/partitions.json. A Region that matches none
@@ -56,8 +56,6 @@ func Check(t Target, s Session) string {
 		return fmt.Sprintf("LazyCloud cannot read %q. %s", short(t.Raw), Forms)
 	case Unsupported:
 		return fmt.Sprintf("LazyCloud has no view for %s resources: %s", t.Service, short(t.Raw))
-	case Tags:
-		return "LazyCloud cannot search by tag yet. " + Forms
 	default:
 		// A resource kind: the checks below.
 	}
