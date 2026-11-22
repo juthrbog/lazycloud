@@ -9,7 +9,9 @@ import (
 	"time"
 
 	sdkaws "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 // The jump to a resource against the seed (docs/design/jump.md, PR 3). All
@@ -81,6 +83,48 @@ func TestJumpToECS(t *testing.T) {
 	h.keys(":jump arn:aws:ecs:" + region + ":" + lsAccount + ":task-definition/worker:1")
 	h.enter()
 	h.waitFor("worker revisions", "Network mode")
+}
+
+// :go NAME with the name of one resource opens it (PR 5).
+func TestJumpByName(t *testing.T) {
+	h := start(t, "")
+	h.keys(":go orders-api")
+	h.enter()
+	h.waitFor("Lambda Functions", "Last update", "Active")
+}
+
+// A name that a queue and a log group share opens a picker, and the pick
+// opens the queue.
+func TestJumpByNamePicker(t *testing.T) {
+	name := uniqueName("dup")
+	svc := services(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	q, err := svc.Client.SQSClient().CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: sdkaws.String(name)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = svc.Client.SQSClient().DeleteQueue(ctx, &sqs.DeleteQueueInput{QueueUrl: q.QueueUrl})
+	})
+	logs := svc.Client.LogsClient()
+	if _, err := logs.CreateLogGroup(ctx, &cloudwatchlogs.CreateLogGroupInput{LogGroupName: sdkaws.String(name)}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = logs.DeleteLogGroup(ctx, &cloudwatchlogs.DeleteLogGroupInput{LogGroupName: sdkaws.String(name)})
+	})
+
+	h := start(t, "")
+	h.keys(":go " + name)
+	h.enter()
+	h.waitFor("Several resources are named "+name, "SQS queue", "log group")
+	h.pick("SQS queue")
+	h.waitFor("SQS Queues", "1:Info", "Last Modified", name)
 }
 
 // An S3 object ARN with a space in its key opens its folder with the

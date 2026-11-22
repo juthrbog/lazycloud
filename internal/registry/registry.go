@@ -75,7 +75,7 @@ var Commands = []Command{
 	{Name: "lambda", Aliases: []string{"functions", "fn"}, Description: "Lambda functions (:lambda NAME to open a function)", ViewID: "lambda_functions"},
 	{Name: "ecs", Aliases: []string{"clusters"}, Description: "ECS clusters (:ecs NAME to open a cluster)", ViewID: "ecs_clusters"},
 	{Name: "taskdefs", Aliases: []string{"td"}, Description: "ECS task definition families", ViewID: "ecs_task_families"},
-	{Name: "go", Aliases: []string{"jump"}, Description: "Jump to a resource by ID, ARN or URL (:go TEXT)"},
+	{Name: "go", Aliases: []string{"jump"}, Description: "Jump to a resource by ID, ARN, URL or name (:go TEXT)"},
 	{Name: "eventlog", Description: "Event log of the app", ViewID: "eventlog"},
 	{Name: "mode", Description: "Toggle ReadOnly/ReadWrite"},
 	{Name: "theme", Description: "Switch theme"},

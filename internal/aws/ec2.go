@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -38,6 +39,12 @@ type EC2Service interface {
 	RefreshAMIs(ctx context.Context, ids []string) ([]AMI, error)
 	ListSecurityGroups(ctx context.Context) ([]SecurityGroup, error)
 	GetSecurityGroup(ctx context.Context, groupID string) (*SecurityGroup, error)
+	// FindSecurityGroupsByName returns the security groups with exactly
+	// this name, in every VPC of the region.
+	FindSecurityGroupsByName(ctx context.Context, name string) ([]SecurityGroup, error)
+	// FindInstancesByName returns the instances whose Name tag is exactly
+	// name, also stopped and terminated ones.
+	FindInstancesByName(ctx context.Context, name string) ([]Instance, error)
 	ListVPCsPage(ctx context.Context, token *string) (*VPCPage, error)
 	GetVPC(ctx context.Context, vpcID string) (*VPC, error)
 	ListSubnetsPage(ctx context.Context, token *string, vpcID string) (*SubnetPage, error)
@@ -540,6 +547,71 @@ func (svc *EC2ServiceImpl) GetSecurityGroup(ctx context.Context, groupID string)
 
 	sg := mapSecurityGroup(output.SecurityGroups[0])
 	return &sg, nil
+}
+
+// maxByName caps the results of a read by name, and maxByNamePages its
+// pages, so a name that many resources share cannot read a whole region.
+const (
+	maxByName      = 100
+	maxByNamePages = 10
+)
+
+// filterValue escapes a name for an EC2 filter value, which takes * and ?
+// as wildcards and \ as their escape. The reads by name match exactly.
+var filterValue = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`).Replace
+
+// FindSecurityGroupsByName returns the security groups with exactly this
+// name. A name is unique in a VPC, so it can match one group in each VPC.
+// EC2 filters each page, so a page can hold no match and still have a next
+// token: the read follows the tokens.
+func (svc *EC2ServiceImpl) FindSecurityGroupsByName(ctx context.Context, name string) ([]SecurityGroup, error) {
+	in := &ec2.DescribeSecurityGroupsInput{
+		Filters: []ec2types.Filter{{Name: aws.String("group-name"), Values: []string{filterValue(name)}}},
+	}
+	var groups []SecurityGroup
+	for range maxByNamePages {
+		out, err := svc.client.EC2Client().DescribeSecurityGroups(ctx, in)
+		if err != nil {
+			return nil, fmt.Errorf("DescribeSecurityGroups: %w", err)
+		}
+		for _, g := range out.SecurityGroups {
+			if aws.ToString(g.GroupName) == name && len(groups) < maxByName {
+				groups = append(groups, mapSecurityGroup(g))
+			}
+		}
+		if out.NextToken == nil || len(groups) >= maxByName {
+			break
+		}
+		in.NextToken = out.NextToken
+	}
+	return groups, nil
+}
+
+// FindInstancesByName returns the instances whose Name tag is exactly name,
+// following the tokens as FindSecurityGroupsByName does.
+func (svc *EC2ServiceImpl) FindInstancesByName(ctx context.Context, name string) ([]Instance, error) {
+	in := &ec2.DescribeInstancesInput{
+		Filters: []ec2types.Filter{{Name: aws.String("tag:Name"), Values: []string{filterValue(name)}}},
+	}
+	var instances []Instance
+	for range maxByNamePages {
+		out, err := svc.client.EC2Client().DescribeInstances(ctx, in)
+		if err != nil {
+			return nil, fmt.Errorf("DescribeInstances: %w", err)
+		}
+		for _, r := range out.Reservations {
+			for _, inst := range r.Instances {
+				if i := mapInstance(inst); i.Name == name && len(instances) < maxByName {
+					instances = append(instances, i)
+				}
+			}
+		}
+		if out.NextToken == nil || len(instances) >= maxByName {
+			break
+		}
+		in.NextToken = out.NextToken
+	}
+	return instances, nil
 }
 
 func mapSecurityGroup(sg ec2types.SecurityGroup) SecurityGroup {

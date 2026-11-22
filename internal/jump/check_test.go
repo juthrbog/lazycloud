@@ -74,7 +74,7 @@ func TestCheck(t *testing.T) {
 		{"invalid", "arn:aws:lambda", s, `LazyCloud cannot read "arn:aws:lambda". ` + Forms},
 		{"unsupported", "arn:aws:rds:us-east-1:" + own + ":db:orders", s,
 			"LazyCloud has no view for rds resources: arn:aws:rds:us-east-1:111111111111:db:orders"},
-		{"name", "orders-api", s, "LazyCloud cannot find a resource by name yet. " + Forms},
+		{"name", "orders-api", s, ""},
 		{"tags", "tag:team=orders", s, "LazyCloud cannot search by tag yet. " + Forms},
 	}
 	for _, tt := range tests {

@@ -26,7 +26,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 - Multi-select with bulk actions (start/stop/delete across selections)
 - Syntax-highlighted content viewer with visual selection and yank
 - In-app event log, command bar, and fuzzy-search pickers
-- Jump to a resource: paste an ID, an ARN or a URL after `:` (or use `:go TEXT`), and LazyCloud opens it with its detail
+- Jump to a resource: paste an ID, an ARN or a URL after `:`, or type `:go NAME`, and LazyCloud opens it with its detail. When several resources have the name, a picker asks which one
 - Multiple AWS profiles and regions — switch at runtime
 - 6 color themes: Catppuccin, Dracula, Nord, and Tokyo Night, plus the light themes Catppuccin Latte and Tokyo Night Day. The default `auto` picks Catppuccin or Catppuccin Latte for the background of the terminal
 - TOML config with XDG support, Nerd Font icons with Unicode fallbacks

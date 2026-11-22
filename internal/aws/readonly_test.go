@@ -49,7 +49,7 @@ var guardCases = []guardCase{
 		reads: []string{
 			"ListInstances", "ListInstancesPage", "GetInstanceDetail", "RefreshInstances",
 			"ListOwnedAMIs", "SearchAMIs", "RefreshAMIs", "ListSecurityGroups",
-			"GetSecurityGroup", "ListVPCsPage", "GetVPC", "ListSubnetsPage", "GetSubnet",
+			"GetSecurityGroup", "FindSecurityGroupsByName", "FindInstancesByName", "ListVPCsPage", "GetVPC", "ListSubnetsPage", "GetSubnet",
 		},
 		mutations: []string{
 			"StartInstance", "StopInstance", "RebootInstance", "TerminateInstance",

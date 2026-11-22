@@ -37,9 +37,11 @@ var regionServices = aws.Services.ForRegion
 // jumpResultMsg is the answer of a jump read: the navigation to the
 // resource, or the text of a toast. Both are empty when the user cancelled.
 type jumpResultMsg struct {
-	session string // the session that the read ran in, for the event log
-	gen     int    // the sessionGen of that session
-	region  string // the other Region that the resource is in, or ""
+	session string          // the session that the read ran in, for the event log
+	gen     int             // the sessionGen of that session
+	region  string          // the other Region that the resource is in, or ""
+	name    string          // the name of a jump by name
+	cands   []nameCandidate // the matches of a jump by name, when more than one
 	nav     *appmsg.NavigateMsg
 	text    string
 }
@@ -111,6 +113,9 @@ func (m Model) jumpCommand(text string) (Model, tea.Cmd) {
 		s.Region = region
 	}
 	label := "Find " + t.Kind.Noun() + " " + targetName(t)
+	if t.Kind == jump.Name {
+		label = "Find resources named " + t.Raw
+	}
 	session, gen := m.sessionLabel(), m.sessionGen
 	op := m.ops.Begin(label, session)
 	eventlog.Infof(eventlog.CatNav, "Jump: %s", label)
@@ -118,6 +123,9 @@ func (m Model) jumpCommand(text string) (Model, tea.Cmd) {
 		defer op.Done()
 		ctx, cancel := context.WithTimeout(op.Ctx, jumpTimeout)
 		defer cancel()
+		if t.Kind == jump.Name {
+			return nameResult(ctx, op.Ctx, svc, t, s, jumpResultMsg{session: session, gen: gen})
+		}
 		nav, err := lookup(ctx, svc, t, s)
 		switch {
 		case err == nil:
@@ -149,6 +157,8 @@ func (m Model) onJumpResult(r jumpResultMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	switch {
+	case len(r.cands) > 1:
+		return m.pickName(r.name, r.cands)
 	case r.nav != nil && r.region != "":
 		return m.askRegionSwitch(r.region, *r.nav)
 	case r.nav != nil:
