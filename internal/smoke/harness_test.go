@@ -153,6 +153,7 @@ type harness struct {
 		CancelAll()
 		Wait(time.Duration) bool
 	}
+	done bool // quit ran
 }
 
 // start runs the app against LocalStack in ReadWrite mode. ep overrides
@@ -199,13 +200,28 @@ func startWith(t *testing.T, ep string, edit func(*config.Config), mode string) 
 	return h
 }
 
+// quit stops the app and waits for it and its operations. A second call
+// does nothing, so restart can quit before the cleanup of the test does.
 func (h *harness) quit() {
+	if h.done {
+		return
+	}
+	h.done = true
 	if err := h.tm.Quit(); err != nil {
 		h.t.Errorf("quit: %v", err)
 	}
 	h.tm.WaitFinished(h.t, teatest.WithFinalTimeout(5*time.Second))
 	h.ops.CancelAll()
 	h.ops.Wait(5 * time.Second)
+}
+
+// restart quits the app and starts a new one for the same test. Two apps
+// at once share the global styles of the ui package, and the race detector
+// fails the test when one draws while the other rebuilds them.
+func (h *harness) restart() *harness {
+	h.t.Helper()
+	h.quit()
+	return start(h.t, "")
 }
 
 // screenText returns the text of the last frame.

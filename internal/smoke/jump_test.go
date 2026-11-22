@@ -48,7 +48,7 @@ func TestJumpToALambdaFunction(t *testing.T) {
 	h.enter()
 	h.waitFor("Last update", "Active", "Lambda Functions")
 
-	h = start(t, "")
+	h = h.restart()
 	h.keys(":" + arn + ":$LATEST")
 	h.enter()
 	h.waitFor("orders-api versions", "orders-api:$LATEST")
@@ -79,7 +79,7 @@ func TestJumpToECS(t *testing.T) {
 	h.enter()
 	h.waitFor("prod-cluster services", "Circuit breaker")
 
-	h = start(t, "")
+	h = h.restart()
 	h.keys(":jump arn:aws:ecs:" + region + ":" + lsAccount + ":task-definition/worker:1")
 	h.enter()
 	h.waitFor("worker revisions", "Network mode")
@@ -142,7 +142,7 @@ func TestJumpByTag(t *testing.T) {
 
 	// A key alone matches any value of the key. LocalStack fails when the
 	// request leaves the values out, so this pins the empty list.
-	h = start(t, "")
+	h = h.restart()
 	h.keys(":go tag:team")
 	h.enter()
 	h.waitFor("Tags tag:team", "orders-api", "prod-cluster")
@@ -197,7 +197,7 @@ func TestJumpToAnObject(t *testing.T) {
 	h.keys("y")
 	h.waitFor("Copied: s3://test-bucket-1/" + key)
 
-	h = start(t, "")
+	h = h.restart()
 	h.keys(":s3://no-such-bucket-" + uniqueName("b"))
 	h.enter()
 	h.waitFor("No bucket named no-such-bucket-")
