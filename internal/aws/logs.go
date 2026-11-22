@@ -39,6 +39,11 @@ var _ LogsService = (*LogsServiceImpl)(nil)
 // ErrLogGroupNotFound is returned by GetLogGroup when no group has the name.
 var ErrLogGroupNotFound = errors.New("log group not found")
 
+// ErrLogStreamNotFound is returned by GetStreamEvents for
+// ResourceNotFoundException. AWS gives the same exception when the group
+// does not exist, so a caller trusts it only after it found the group.
+var ErrLogStreamNotFound = errors.New("log stream not found")
+
 // ─── Domain types ───────────────────────────────────────────────────────────
 
 // LogGroup is a CloudWatch Logs log group.
@@ -211,7 +216,8 @@ func (svc *LogsServiceImpl) ListLogStreamsPage(ctx context.Context, group string
 // first: the first call reads the newest page, and Next goes back. At the
 // start of the stream, AWS returns the token that the call sent, and the
 // page has End set. It uses LogGroupName, because LocalStack does not find
-// a stream through the group ARN.
+// a stream through the group ARN. A missing stream or group gives
+// ErrLogStreamNotFound.
 func (svc *LogsServiceImpl) GetStreamEvents(ctx context.Context, q EventQuery) (*EventPage, error) {
 	in := &cloudwatchlogs.GetLogEventsInput{
 		LogGroupName:  aws.String(q.Group),
@@ -225,6 +231,11 @@ func (svc *LogsServiceImpl) GetStreamEvents(ctx context.Context, q EventQuery) (
 		in.Limit = aws.Int32(q.Limit)
 	}
 	out, err := svc.client.LogsClient().GetLogEvents(ctx, in)
+	if rnf, ok := errors.AsType[*cwltypes.ResourceNotFoundException](err); ok {
+		// The AWS error stays in the chain, so its text still says
+		// whether the group or the stream is missing.
+		return nil, fmt.Errorf("%w: %s in %s: %w", ErrLogStreamNotFound, q.Stream, q.Group, rnf)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("GetLogEvents: %w", err)
 	}

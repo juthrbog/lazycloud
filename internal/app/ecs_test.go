@@ -55,3 +55,33 @@ func TestECSFocusOpensTheDetailAndEnterTheServices(t *testing.T) {
 	assert.Equal(t, "ecs_services:"+arn, m.nav.Current().ID())
 	assert.Contains(t, rendered(m), "prod-cluster services")
 }
+
+// The container route passes the Region of the session, so a log group in
+// another Region shows its Region, and enter says so in place of opening
+// the viewer (docs/design/ecs.md, PR 4).
+func TestECSContainersKnowTheSessionRegion(t *testing.T) {
+	m := newTestModel(160, 40)
+	mockAllServices(&m)
+	svc := new(awstest.MockECSService)
+	m.svc.ECS = svc
+	other := "eu-west-1"
+	if m.activeRegion() == other {
+		other = "ap-south-1"
+	}
+	cluster, taskARN := "arn:aws:ecs:r:1:cluster/c", "arn:aws:ecs:r:1:task/c/t1"
+	task := &aws.Task{ARN: taskARN, ID: "t1", TaskDefinition: "arn:td", Containers: []aws.Container{{Name: "app", ARN: "arn:app"}}}
+	def := &aws.TaskDefinition{Containers: []aws.ContainerDefinition{{Name: "app", Log: &aws.LogConfig{Driver: "awslogs",
+		Options: map[string]string{"awslogs-group": "/ecs/x", "awslogs-region": other, "awslogs-stream-prefix": "ecs"}}}}}
+	svc.On("DescribeTask", mock.Anything, cluster, taskARN).Return(task, nil)
+	svc.On("DescribeTaskDefinition", mock.Anything, "arn:td").Return(def, nil)
+
+	m, cmd := update(t, m, msg.NavigateMsg{ViewID: "ecs_containers", Params: map[string]string{"cluster": cluster, "task": taskARN}})
+	m = pump(t, m, cmd)
+	require.Equal(t, "ecs_containers:"+taskARN, m.nav.Current().ID())
+	assert.Contains(t, rendered(m), "/ecs/x ("+other+")")
+
+	m, cmd = update(t, m, press("enter"))
+	m = pump(t, m, cmd)
+	assert.Equal(t, "ecs_containers:"+taskARN, m.nav.Current().ID(), "the viewer does not open")
+	assert.Contains(t, rendered(m), "The logs are in "+other)
+}

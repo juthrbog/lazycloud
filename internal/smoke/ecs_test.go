@@ -4,10 +4,12 @@ package smoke
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
 	sdkaws "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/aws/aws-sdk-go-v2/service/ecs"
@@ -65,9 +67,32 @@ func TestECSTasksAndStoppedTasks(t *testing.T) {
 	h.waitFor("Stop reason", "lazycloud-smoke")
 }
 
-// stopOwnTask runs a task of web in prod-cluster and stops it with a reason
-// that no other task has, and returns the reason.
-func stopOwnTask(t *testing.T) string {
+// enter on a task opens its containers, and enter on app opens the log
+// stream of the container in the event viewer (docs/design/ecs.md, PR 4).
+// The stream is <prefix>/<container>/<task ID>. The test runs a task of its
+// own and waits for its first lines, because the lines of the seeded task
+// can be older than the first hour of the viewer.
+func TestECSContainerLogs(t *testing.T) {
+	arn := runOwnTask(t)
+	id := arn[strings.LastIndex(arn, "/")+1:]
+	stream := "ecs/app/" + id
+	waitForStream(t, "/ecs/web-app", stream)
+
+	h := start(t, "")
+	h.open("ecs", "ECS Clusters")
+	h.filter("prod-cluster")
+	h.keys("t")
+	h.waitFor("prod-cluster tasks", id)
+	h.filter(id)
+	h.enter()
+	h.waitFor(id+" containers", "nginx:alpine", "/ecs/web-app", "1/1 containers")
+	h.enter()
+	h.waitFor(stream, "docker-entrypoint")
+}
+
+// runOwnTask runs a task of web in prod-cluster and returns its ARN. The
+// task stops at the end of the test.
+func runOwnTask(t *testing.T) string {
 	t.Helper()
 	svc := services(t)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -91,9 +116,46 @@ func stopOwnTask(t *testing.T) string {
 	if err != nil || len(run.Tasks) == 0 {
 		t.Fatalf("running a task: %v", err)
 	}
+	arn := sdkaws.ToString(run.Tasks[0].TaskArn)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		// A task that the test stopped itself gives an error here; that
+		// is fine.
+		_, _ = client.StopTask(ctx, &ecs.StopTaskInput{Cluster: sdkaws.String("prod-cluster"), Task: &arn})
+	})
+	return arn
+}
+
+// waitForStream waits until the stream of the group has events.
+func waitForStream(t *testing.T, group, stream string) {
+	t.Helper()
+	client := services(t).Client.LogsClient()
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		out, err := client.DescribeLogStreams(ctx, &cloudwatchlogs.DescribeLogStreamsInput{
+			LogGroupName: sdkaws.String(group), LogStreamNamePrefix: sdkaws.String(stream),
+		})
+		cancel()
+		if err == nil && len(out.LogStreams) > 0 && out.LogStreams[0].LastEventTimestamp != nil {
+			return
+		}
+		time.Sleep(time.Second)
+	}
+	t.Fatalf("no events in %s %s after a minute", group, stream)
+}
+
+// stopOwnTask runs a task of web in prod-cluster and stops it with a reason
+// that no other task has, and returns the reason.
+func stopOwnTask(t *testing.T) string {
+	t.Helper()
+	arn := runOwnTask(t)
 	reason := uniqueName("stop")
-	if _, err := client.StopTask(ctx, &ecs.StopTaskInput{
-		Cluster: sdkaws.String("prod-cluster"), Task: run.Tasks[0].TaskArn, Reason: sdkaws.String(reason),
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := services(t).Client.ECSClient().StopTask(ctx, &ecs.StopTaskInput{
+		Cluster: sdkaws.String("prod-cluster"), Task: &arn, Reason: sdkaws.String(reason),
 	}); err != nil {
 		t.Fatalf("stopping the task: %v", err)
 	}

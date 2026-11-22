@@ -1,6 +1,6 @@
 # ECS
 
-Browse ECS clusters, their services and their tasks, with the stopped tasks and their stop reasons. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Containers, logs, task definitions, exec and the write actions come in later PRs of that design.
+Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Task definitions, exec and the write actions come in later PRs of that design.
 
 ## Views
 
@@ -117,7 +117,8 @@ A terminal of 80 to 119 columns leaves out Started. A narrow terminal shows only
 
 | Key | Action |
 |-----|--------|
-| `enter`, `d` | Open the detail of the task. In a later PR, `enter` opens the containers |
+| `enter` | Open the containers of the task |
+| `d` | Open the detail of the task |
 | `x` | Switch between the running and the stopped tasks |
 | `y` | Copy the ARN of the task |
 | `l` | Load more tasks |
@@ -134,3 +135,56 @@ A terminal of 80 to 119 columns leaves out Started. A narrow terminal shows only
 3. Network: the network interface, its private IP and its subnet, which is a link to the subnet list.
 4. Tags: the tags of the task, when it has tags.
 
+### Containers
+
+`enter` on a task opens its containers. The list reads the task with `DescribeTasks`, and then its task definition with `DescribeTaskDefinition`, because the log configuration is in the task definition. `r` repeats both calls.
+
+| Column | Description |
+|--------|-------------|
+| Name | The name of the container |
+| Image | The image |
+| Status | `PENDING`, `RUNNING` or `STOPPED` |
+| Exit | The exit code, when the container exited |
+| Health | `HEALTHY` in green, `UNHEALTHY` in red, `UNKNOWN` in gray |
+| Reason | Why the container stopped (wide terminals) |
+| Logs | The log group, with its Region when the group is in another Region. The log driver when it is not `awslogs` |
+
+A terminal of 80 to 119 columns leaves out Reason. A narrow terminal shows only the name, the status and the logs.
+
+When AWS no longer knows the task, the list says "The task is gone. AWS keeps stopped tasks for about an hour." When the task definition call fails, the list still shows the containers. The Logs column then shows `?`, and a message shows the error.
+
+| Key | Action |
+|-----|--------|
+| `enter` | Open the log stream of the container |
+| `d` | Open the detail of the container |
+| `y` | Copy the ARN of the container |
+| `/` | Filter the containers |
+| `s`, `S` | Sort |
+| `r` | Load the list again |
+
+### The log stream of a container
+
+`enter` on a container opens its stream in the log event viewer. The stream is `PREFIX/CONTAINER/TASK-ID`, from the `awslogs` options of the task definition. The time range starts one minute before the task was made or pulled its image:
+
+- For a stopped task, the range ends one minute after the task stopped.
+- For a task that has not stopped, the viewer shows the last hour, and `l` walks back to the start of the task.
+
+When the group does not exist, the viewer says that the task definition sends the logs to a group that does not exist. When the stream does not exist yet, the viewer says that the task writes the stream when its container starts.
+
+In these cases, `enter` shows a message and does not open the viewer:
+
+- The container sends its logs with another driver, for example `awsfirelens` or `splunk`.
+- The log group is in another Region. Press `R` to switch the Region.
+- The container has no log configuration, or the configuration names no group.
+- The task definition call failed.
+
+Without a stream prefix, which only the EC2 launch type allows, each stream has the Docker container ID as its name. `enter` then opens the whole group, with the same time range, and a message says why.
+
+### Container Detail (side panel)
+
+`d` opens a panel from the data of the row, with no call:
+
+1. Info: the name, the ARN, the image and its digest, the runtime ID, the status, the health, the exit code, the reason, CPU and memory.
+2. Network: the private IPs and the port bindings.
+3. Agents: the managed agents, for example the `ExecuteCommandAgent` of ECS Exec, when the container has agents.
+4. Logs: the log driver, the stream and the options of the log configuration.

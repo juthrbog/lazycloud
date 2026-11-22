@@ -681,6 +681,47 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[aws.Task]](),
 	},
 	{
+		name: "ecs_containers",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockECSService)
+			svc.Test(t)
+			task := &aws.Task{ARN: "arn:t1", ID: "t1", TaskDefinition: "arn:td", Containers: []aws.Container{{Name: "c1", ARN: "arn:c1"}}}
+			svc.On("DescribeTask", mock.MatchedBy(ok), "arn:c", "arn:t1").Return(task, nil)
+			svc.On("DescribeTask", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			svc.On("DescribeTaskDefinition", mock.MatchedBy(ok), "arn:td").Return(&aws.TaskDefinition{}, nil)
+			svc.On("DescribeTaskDefinition", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewECSContainers(svc, "arn:c", "arn:t1", "us-east-1")
+		},
+		buildNil: func() nav.View { return NewECSContainers(nil, "arn:c", "arn:t1", "us-east-1") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*ECSContainers).listCore
+			tok := "t2"
+			task := &aws.Task{ID: "t1"}
+			return []tea.Msg{
+				listPageMsg[ecsContainer]{gen: c.loadGen, items: []ecsContainer{{Container: aws.Container{ARN: "arn:c1"}, Task: task}}, next: &tok, page: 1},
+				listPageMsg[ecsContainer]{gen: c.loadGen, items: []ecsContainer{{Container: aws.Container{ARN: "arn:c2"}, Task: task}}, page: 2},
+				listPageMsg[ecsContainer]{gen: c.loadGen - 1, items: []ecsContainer{{Container: aws.Container{ARN: "arn:old"}, Task: task}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*ECSContainers).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:c1", "arn:c2"},
+		rowKeys:  []string{"enter"},
+		file:     "ecs_containers.go",
+		typeName: "ECSContainers",
+		coreType: reflect.TypeFor[listCore[ecsContainer]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -982,6 +1023,7 @@ var loadContexts = map[string]string{
 	"ecs_clusters":       "listing clusters",
 	"ecs_services":       "listing services",
 	"ecs_tasks":          "listing tasks",
+	"ecs_containers":     "listing containers",
 }
 
 // Every list of the registry runs the conformance cases.

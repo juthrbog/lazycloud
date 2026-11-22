@@ -178,10 +178,11 @@ type LogEvents struct {
 	logs      aws.LogsService
 	groupName string
 	stream    string // "": the whole group
-	// missingHint follows the text for a group that does not exist.
-	missingHint string
-	group       *aws.LogGroup // nil until known
-	streamAt    time.Time     // the first event of the stream, when known
+	// missingHint follows the text for a group that does not exist, and
+	// missingStreamHint the text for a stream that does not exist.
+	missingHint, missingStreamHint string
+	group                          *aws.LogGroup // nil until known
+	streamAt                       time.Time     // the first event of the stream, when known
 
 	lv          ui.LogView
 	input       ui.Filter // the pattern or a custom time; one at a time
@@ -201,6 +202,9 @@ type LogEvents struct {
 	failed   bool // the first query failed with no events
 	full     bool // the view has no room for older lines
 	notFound bool
+	// noStream is true when the first query found no stream (H6). r tries
+	// again, because the stream can come later.
+	noStream bool
 
 	oldest     time.Time       // the time of the oldest loaded event
 	oldestMsgs map[string]bool // the messages of the events at oldest
@@ -227,19 +231,21 @@ type LogEvents struct {
 // log_start and log_end (ms) open a custom range, for example the lines of
 // one Lambda invocation. missing_hint follows the text for a group that
 // does not exist, for example why a Lambda function has no group yet.
+// missing_stream_hint follows the text for a stream that does not exist.
 func NewLogEvents(logs aws.LogsService, p map[string]string) *LogEvents {
 	rng := logRange{dur: time.Hour}
 	if start, end := paramMillis(p["log_start"]), paramMillis(p["log_end"]); !start.IsZero() && end.After(start) {
 		rng = logRange{start: start, end: end}
 	}
 	v := &LogEvents{
-		logs:        logs,
-		groupName:   p["log_group"],
-		stream:      p["log_stream"],
-		missingHint: p["missing_hint"],
-		lv:          ui.NewLogView(),
-		walk:        eventWalk{rng: rng},
-		want:        logQuery{rng: rng},
+		logs:              logs,
+		groupName:         p["log_group"],
+		stream:            p["log_stream"],
+		missingHint:       p["missing_hint"],
+		missingStreamHint: p["missing_stream_hint"],
+		lv:                ui.NewLogView(),
+		walk:              eventWalk{rng: rng},
+		want:              logQuery{rng: rng},
 	}
 	if arn := p["log_group_arn"]; arn != "" {
 		g := aws.LogGroup{Name: v.groupName, ARN: arn, Class: p["log_class"]}
@@ -385,7 +391,7 @@ func (v *LogEvents) query(rng logRange, pattern string) tea.Cmd {
 	if v.notFound {
 		return nil
 	}
-	v.want, v.failed = logQuery{rng: rng, pattern: pattern}, false
+	v.want, v.failed, v.noStream = logQuery{rng: rng, pattern: pattern}, false, false
 	now := logsNow()
 	filter := v.stream == "" || pattern != ""
 	w := eventWalk{rng: rng, pattern: pattern, filter: filter}
@@ -485,6 +491,9 @@ func (v *LogEvents) onEvents(m logsEventsMsg) tea.Cmd {
 	v.loading, v.replacing = false, false
 	var cmds []tea.Cmd
 	if m.err != nil {
+		if v.streamMissing(m) {
+			return nil
+		}
 		err := m.err
 		cmds = append(cmds, func() tea.Msg { return msg.ErrorMsg{Err: err, Context: "loading log events"} })
 		if len(m.events) == 0 {
@@ -514,6 +523,27 @@ func (v *LogEvents) onEvents(m logsEventsMsg) tea.Cmd {
 		v.walk.atStart = true
 	}
 	return tea.Batch(cmds...)
+}
+
+// streamMissing shows the text for a missing stream when the first query
+// of a stream found none (H6). AWS gives the same error for a missing
+// group, so it counts only when the group is known. It returns false for
+// any other failure.
+func (v *LogEvents) streamMissing(m logsEventsMsg) bool {
+	if v.loaded || v.group == nil || v.stream == "" || len(m.events) > 0 ||
+		!errors.Is(m.err, aws.ErrLogStreamNotFound) {
+		return false
+	}
+	v.noStream = true
+	if m.replace {
+		v.want = logQuery{rng: v.walk.rng, pattern: v.walk.pattern}
+	}
+	text := "No log stream named " + v.stream + " in " + v.groupName
+	if v.missingStreamHint != "" {
+		text += ". " + v.missingStreamHint
+	}
+	v.lv.SetEmptyText(text)
+	return true
 }
 
 // noteHead keeps the newest lines of a first load, for the poll.
@@ -911,8 +941,14 @@ func (v *LogEvents) Footer() string {
 	switch {
 	case v.notFound:
 		return "No log group named " + v.groupName
+	case !v.loaded && v.lv.Len() > 0:
+		// Live tail shows lines after a first query that failed, for
+		// example while it waits for a stream that did not exist yet.
+		return fmt.Sprintf("%d events from live tail · r to load the range", v.lv.Len())
 	case v.loading && !v.loaded:
 		return "Loading events..."
+	case v.noStream:
+		return "No log stream named " + v.stream + " · r to try again"
 	case v.failed:
 		return "could not load events · r to try again"
 	case !v.loaded:

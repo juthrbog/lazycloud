@@ -199,16 +199,19 @@ func TestECSTasks_ToggleOnTheErrorScreen(t *testing.T) {
 	assert.True(t, v.stopped, "x goes to the filter while it is open")
 }
 
-func TestECSTasks_KeysOpenTheDetail(t *testing.T) {
+func TestECSTasks_Keys(t *testing.T) {
 	v, _ := newTasks(t, "web")
-	for _, k := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, keyPress('d')} {
-		_, cmd := v.Update(k)
-		require.NotNil(t, cmd)
-		d, ok := cmd().(listDetailMsg)
-		require.True(t, ok)
-		assert.Equal(t, "0123456789abcdef", d.panel.PanelTitle)
-	}
-	_, cmd := v.Update(keyPress('y'))
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	assert.Equal(t, msg.NavigateMsg{ViewID: "ecs_containers",
+		Params: map[string]string{"cluster": testClusterARN, "task": testTaskARN}}, cmd(), "enter opens the containers")
+	_, cmd = v.Update(keyPress('d'))
+	require.NotNil(t, cmd)
+	d, ok := cmd().(listDetailMsg)
+	require.True(t, ok)
+	assert.Equal(t, "0123456789abcdef", d.panel.PanelTitle)
+
+	_, cmd = v.Update(keyPress('y'))
 	ts := toasts(collectMsgs(cmd))
 	require.NotEmpty(t, ts)
 	assert.Contains(t, ts[0].Text, testTaskARN)
@@ -223,8 +226,8 @@ func TestECSTasks_KeysOpenTheDetail(t *testing.T) {
 	v.Update(keyPress('/'))
 	_, cmd = v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	for _, m := range collectMsgs(cmd) {
-		_, isDetail := m.(listDetailMsg)
-		assert.False(t, isDetail, "enter closes the filter")
+		_, isNav := m.(msg.NavigateMsg)
+		assert.False(t, isNav, "enter closes the filter")
 	}
 }
 
