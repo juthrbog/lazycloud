@@ -11,8 +11,10 @@ import (
 	"github.com/rivo/uniseg"
 )
 
-// maxQueryRunes limits the length of a query. A large paste stops there.
-const maxQueryRunes = 256
+// maxQueryRunes limits the length of a query. A large paste stops there. It
+// is room for a long S3 object ARN, which a jump takes (docs/design/jump.md,
+// H7): an S3 key has at most 1,024 bytes.
+const maxQueryRunes = 2048
 
 // queryInput is the one-line text that the picker, the command bar, and the
 // help overlay type into (A9, L12). It takes the text of a key press, also

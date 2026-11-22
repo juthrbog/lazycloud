@@ -85,8 +85,8 @@ func TestQueryInputPaste(t *testing.T) {
 
 func TestQueryInputLimitsLength(t *testing.T) {
 	var q queryInput
-	q.update(tea.PasteMsg{Content: strings.Repeat("ü", 1000)})
-	assert.Equal(t, maxQueryRunes, utf8.RuneCountInString(q.String()))
+	q.update(tea.PasteMsg{Content: strings.Repeat("ü", 3000)})
+	assert.Equal(t, 2048, utf8.RuneCountInString(q.String()))
 	assert.False(t, q.update(textKey("x")), "a full input takes no more text")
 }
 

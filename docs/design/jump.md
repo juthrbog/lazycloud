@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Proposed. PR 0 is this design and its pin tests. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -112,21 +112,23 @@ These are true today. PR 0 pins the ones that the app code shows.
 
 ```go
 type Target struct {
-	Kind      Kind   // Instance, AMI, SecurityGroup, VPC, Subnet, Bucket, Object, Queue,
+	Kind      Kind   // Empty, Invalid (an ARN or URL it cannot read), Unsupported,
+	                 // Instance, AMI, SecurityGroup, VPC, Subnet, Bucket, Object, Queue,
 	                 // LogGroup, LogStream, Function, Cluster, Service, Task, TaskDefinition,
-	                 // Name (a bare name), Tags, Unsupported
+	                 // Name (a bare name), Tags
 	Partition string // from an ARN, else ""
 	Region    string // from an ARN or a URL, else ""
 	Account   string // from an ARN or a URL, else ""
 	Service   string // the ARN service, for Unsupported
 	ID        string // the main ID or name: i-..., the bucket, the queue name, the group name, ...
 	Parent    string // the bucket of an object, the group of a stream, the cluster of a service or task
-	Qualifier string // a Lambda version or alias, an ECS revision
+	Qualifier string // a Lambda version or alias, an ECS revision, the SUFFIX of NAME:SUFFIX
+	Tags      []Tag  // the tag:KEY=VALUE terms (PR 6)
 	Raw       string // the cleaned input
 }
 ```
 
-Before it parses, the parser trims spaces, removes format characters (Cf, such as U+200B, U+FEFF and bidi marks), and turns U+00A0 into a space. The input turns a line break into a plain space (`internal/ui/query.go:65-66`), so the parser cannot tell it from a real space. For an ARN of any service except S3, the parser removes the spaces after `arn:`, because those ARNs have no spaces. An S3 ARN or an `s3://` URL keeps its spaces, because a key can hold them.
+Before it parses, the parser trims spaces, removes format characters (Cf, such as U+200B, U+FEFF and bidi marks), and turns U+00A0 into a space. The input turns a line break into a plain space (`internal/ui/query.go:65-66`), so the parser cannot tell it from a real space. The parser removes the spaces from an ARN, with two exceptions, because an S3 key and a log stream name can hold spaces: a bucket ARN keeps the spaces after `BUCKET/`, and a log stream ARN keeps the spaces after `:log-stream:`. An `s3://` URL keeps its spaces. An ARN with no partition, service or resource, or with an account that is not 12 digits, is Invalid.
 
 `executeCommand` checks the whole trimmed input with `jump.Looks(input)` before it cuts the input at the first space (`app.go:842`). When the input starts with `arn:`, `s3://` or `http`, or is an EC2 ID, the whole input goes to the jump.
 
@@ -142,21 +144,23 @@ The order of the checks:
    - Any other service is Unsupported, with the service name kept for the message.
 2. A partial Lambda ARN `ACCOUNT:function:NAME[:QUALIFIER]`.
 3. A URL: an SQS queue URL (two path parts, the first is 12 digits), or `s3://BUCKET[/KEY]`. The Region of a queue URL comes from a host `sqs.REGION.amazonaws.com` or `sqs.REGION.localhost.localstack.cloud`. Any other host gives no Region, and the session Region is used.
-4. An EC2 ID: `^(i|ami|sg|vpc|subnet)-[0-9a-f]{8}([0-9a-f]{9})?$`. Other lengths and LocalStack IDs are checked in PR 1 against the seed (not verified now).
+4. An EC2 ID: `^(i|ami|sg|vpc|subnet)-[0-9a-f]{8}([0-9a-f]{9})?$`. LocalStack 2026.10.4 makes IDs of the same form: 17 hex digits for instances, groups, VPCs and subnets, and 8 for its AMIs (checked against the seed in PR 1).
 5. A path that starts with `/`: a log group name.
 6. `tag:KEY=VALUE`, one or more, separated by spaces: Tags (PR 6).
-7. Anything else: a Name (PR 5). Before PR 5, a name gives a message that names the accepted forms.
+7. Anything else: a Name (PR 5). Before PR 5, a name gives a message that names the accepted forms. Before PR 6, tags do too.
+
+An ARN of a known service with a resource that the parser cannot read (`function:` with no name, a `cluster/` with two names), an `http` URL that is not a queue URL, and a path with characters that a log group cannot hold are Invalid. Empty text is Empty (Q2). Both give a message that names the accepted forms.
 
 ### The checks before the jump
 
 `jump.Check(target, session)` returns a refusal message, or nothing. An empty field in the target means the input does not name it, and the check of that field is skipped. S3 ARNs, EC2 image ARNs (`arn:aws:ec2:REGION::image/ami-...`), EC2 IDs, names, paths and partial Lambda ARNs have an empty Region, an empty account, or both.
 
-- A partition other than the partition of the session Region: refused. "The ARN is in the aws-cn partition. LazyCloud uses aws."
-- An account in the target other than the session account, when STS knows the account: refused. When a profile in the config names that account, the message says so: "The resource is in account 111122223333, the profile prod. Press P to switch." The app does not switch the profile (decision D4).
+- A partition other than the partition of the session Region: refused. "The resource is in the aws-cn partition. The session uses aws." A queue URL has no partition, so the check uses the partition of its Region.
+- An account in the target other than the session account, when STS knows the account: refused. When a profile in the config names that account, the message says so: "The resource is in account 111122223333, the profile prod. Press P to switch." When no profile names it: "The resource is in account 111122223333. The session uses account 444455556666." The app does not switch the profile (decision D4).
 - When the account is not known yet (checking, sign-in needed, unknown), the jump goes on. The lookup then fails with the error of AWS if the account is wrong.
 - With an endpoint (LocalStack), the account check is skipped, because LocalStack ARNs have the account `000000000000`.
-- A Region in the target other than the session Region, for every kind except S3: the app asks with a y/n prompt, "The resource is in eu-west-1. Switch to eu-west-1 and open it?" On yes, it switches the session and opens the resource after the switch (see "Another Region"). On no, nothing happens.
-- Unsupported: "LazyCloud has no view for SERVICE resources." with the ARN in the message, so the user can copy it.
+- A Region in the target other than the session Region, for every kind except S3, is not a refusal. `jump.OtherRegion(target, session)` returns that Region, and the app asks with a y/n prompt, "The resource is in eu-west-1. Switch to eu-west-1 and open it?" On yes, it switches the session and opens the resource after the switch (see "Another Region"). On no, nothing happens.
+- Unsupported: "LazyCloud has no view for SERVICE resources: ARN", so the user can copy the ARN. A message shows at most 120 runes of the text.
 
 ### The lookup
 
