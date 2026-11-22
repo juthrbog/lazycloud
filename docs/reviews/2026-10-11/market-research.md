@@ -65,7 +65,7 @@ First, fix the safety findings in the review tracker. Then work on the existing 
 
 1. CloudWatch Logs (#119), then live tail (#120). Every competitor has logs. Live tail shows the strength of a TUI. Logs also support Lambda and ECS. Done in #310 to #317, as planned in `docs/design/cwlogs.md`.
 2. Lambda (#122 and #124). It is the most used serverless service, and it links to logs. Done in #318 to #323, as planned in `docs/design/lambda.md`.
-3. ECS (#129), then exec (#130). e1s has 939 stars for ECS alone.
+3. ECS (#129), then exec (#130). e1s has 939 stars for ECS alone. Done in #324 to #331, as planned in `docs/design/ecs.md`.
 4. Secrets Manager and Parameter Store (#125). The API is small, masked values fit the ReadOnly story, and users look up secrets every day.
 5. CloudFormation (#138). Stack events explain failed deploys, and stack resources can link to the services that LazyCloud has.
 
