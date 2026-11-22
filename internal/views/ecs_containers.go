@@ -67,15 +67,17 @@ func (c ecsContainer) key() string {
 // ECSContainers lists the containers of one task.
 type ECSContainers struct {
 	listCore[ecsContainer]
-	cluster string // ARN
-	task    string // ARN
-	region  string // the Region of the session
+	client  *aws.Client // for exec; nil without a session
+	cluster string      // ARN
+	task    string      // ARN
+	region  string      // the Region of the session
 }
 
 // NewECSContainers creates the container list of a task. region is the
-// Region of the session, to see logs that are in another Region.
-func NewECSContainers(svc aws.ECSService, cluster, task, region string) *ECSContainers {
-	v := &ECSContainers{cluster: cluster, task: task, region: region}
+// Region of the session, to see logs that are in another Region. client
+// starts exec sessions.
+func NewECSContainers(svc aws.ECSService, client *aws.Client, cluster, task, region string) *ECSContainers {
+	v := &ECSContainers{client: client, cluster: cluster, task: task, region: region}
 	v.listCore = newListCore(listConfig[ecsContainer]{
 		Noun:         "containers",
 		LoadingLabel: "Loading containers...",
@@ -147,16 +149,23 @@ func (v *ECSContainers) Footer() string { return v.footer() }
 func (v *ECSContainers) View() tea.View { return tea.NewView(v.render("", "")) }
 
 func (v *ECSContainers) KeyMap() []ui.HintBinding {
-	return v.hints(ecsContainerKeys.Logs, ecsKeys.Details, ecsKeys.CopyARN,
+	return v.hints(ecsContainerKeys.Logs, ecsKeys.Details, ecsExecKey, ecsKeys.CopyARN,
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
-// Update returns the view itself. enter opens the logs of the container.
+// Update returns the view itself. enter opens the logs of the container,
+// and o a shell in it.
 func (v *ECSContainers) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil &&
-		key.Matches(k, ecsContainerKeys.Logs.Binding) {
-		if it := v.cursorItem(); it != nil {
+	if f, ok := m.(ecsExecFinishedMsg); ok {
+		return v, onExecFinished(f)
+	}
+	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil {
+		switch it := v.cursorItem(); {
+		case it == nil:
+		case key.Matches(k, ecsContainerKeys.Logs.Binding):
 			return v, ecsLogJump(*it, v.region)
+		case key.Matches(k, ecsExecKey.Binding):
+			return v, ecsExecContainer(v.client, v.cluster, *it.Task, it.Container)
 		}
 	}
 	return v, v.update(m)

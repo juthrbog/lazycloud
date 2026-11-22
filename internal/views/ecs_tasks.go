@@ -40,14 +40,16 @@ var ecsTaskKeys = struct {
 type ECSTasks struct {
 	listCore[aws.Task]
 	ecs     aws.ECSService
-	cluster string // ARN
-	service string // name, or ""
+	client  *aws.Client // for exec; nil without a session
+	cluster string      // ARN
+	service string      // name, or ""
 	stopped bool
 }
 
 // NewECSTasks creates the task list. The row key is the ARN, so y copies it.
-func NewECSTasks(svc aws.ECSService, cluster, service string) *ECSTasks {
-	v := &ECSTasks{ecs: svc, cluster: cluster, service: service}
+// client starts exec sessions.
+func NewECSTasks(svc aws.ECSService, client *aws.Client, cluster, service string) *ECSTasks {
+	v := &ECSTasks{ecs: svc, client: client, cluster: cluster, service: service}
 	v.listCore = newListCore(listConfig[aws.Task]{
 		Noun:         "tasks",
 		LoadingLabel: "Loading tasks...",
@@ -108,7 +110,7 @@ func (v *ECSTasks) KeyMap() []ui.HintBinding {
 	if v.stopped {
 		toggle = ecsTaskKeys.Running
 	}
-	return v.hints(ecsTaskKeys.Open, ecsKeys.Details, toggle, ecsKeys.CopyARN, listKeys.More,
+	return v.hints(ecsTaskKeys.Open, ecsKeys.Details, toggle, ecsExecKey, ecsKeys.CopyARN, listKeys.More,
 		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
@@ -116,8 +118,20 @@ func (v *ECSTasks) KeyMap() []ui.HintBinding {
 // switches between the running and the stopped tasks; it also works on the
 // error screen, because it loads the other list.
 func (v *ECSTasks) Update(m tea.Msg) (tea.Model, tea.Cmd) {
+	switch m := m.(type) {
+	case msg.PickerResultMsg:
+		if tag, ok := m.Tag.(*ecsExecTag); ok {
+			return v, onExecPicked(v.client, tag, m)
+		}
+	case ecsExecFinishedMsg:
+		return v, onExecFinished(m)
+	}
 	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() {
 		switch {
+		case v.err == nil && key.Matches(k, ecsExecKey.Binding):
+			if it := v.cursorItem(); it != nil {
+				return v, ecsExecTask(v.client, v.cluster, *it)
+			}
 		case key.Matches(k, ecsTaskKeys.Stopped.Binding):
 			return v, v.toggle()
 		case v.err == nil && key.Matches(k, ecsTaskKeys.Open.Binding):

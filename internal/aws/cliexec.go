@@ -114,18 +114,46 @@ func exitCode(err error) int {
 // Requires the AWS CLI and session-manager-plugin to be installed.
 // The label is displayed as a banner before the session starts (e.g. "my-server (i-abc123)").
 func (c *Client) SSMSessionCmd(instanceID, label string) *CLIExec {
-	args := []string{"ssm", "start-session", "--target", instanceID}
-	if c.Region != "" {
-		args = append(args, "--region", c.Region)
-	}
-	if c.Profile != "" {
-		args = append(args, "--profile", c.Profile)
-	}
+	args := c.sessionArgs("ssm", "start-session", "--target="+instanceID)
 	// The user ends the session, so no context cancels it.
 	return &CLIExec{
 		banner: fmt.Sprintf("\033[1;36m── SSM Session: %s ──\033[0m\n", stripControl(label)),
 		cmd:    exec.CommandContext(context.Background(), "aws", args...), //nolint:gosec // fixed binary, no shell; args are argv elements, never parsed. Keep the label out of args.
 	}
+}
+
+// ECSExecCmd returns a command that opens a shell (/bin/sh) in a container
+// of a task with ECS Exec. Requires the AWS CLI and session-manager-plugin
+// to be installed. The label is displayed as a banner before the session
+// starts. See docs/design/ecs.md, "Exec" (decision D6). When the CLI
+// fails, its error stays on the screen until the user presses Enter.
+func (c *Client) ECSExecCmd(cluster, task, container, label string) *CLIExec {
+	args := c.sessionArgs("ecs", "execute-command", "--cluster="+cluster, "--task="+task,
+		"--container="+container, "--interactive", "--command=/bin/sh")
+	// The user ends the session, so no context cancels it.
+	return &CLIExec{
+		banner:   fmt.Sprintf("\033[1;36m── ECS Exec: %s ──\033[0m\nType exit to return.\n", stripControl(label)),
+		cmd:      exec.CommandContext(context.Background(), "aws", args...), //nolint:gosec // fixed binary, no shell; args are argv elements, never parsed. Keep the label out of args.
+		failText: "Exec failed (exit %d). Press Enter to return.",
+	}
+}
+
+// sessionArgs adds the Region, the profile and the endpoint of the client
+// to the arguments of a session command. Without the endpoint, a session
+// started against LocalStack would go to AWS (H7 of docs/design/ecs.md).
+// Each value is in the same argument as its flag, so a value that starts
+// with "-" is not read as a flag.
+func (c *Client) sessionArgs(args ...string) []string {
+	if c.Region != "" {
+		args = append(args, "--region="+c.Region)
+	}
+	if c.Profile != "" {
+		args = append(args, "--profile="+c.Profile)
+	}
+	if c.Endpoint != "" {
+		args = append(args, "--endpoint-url="+c.Endpoint)
+	}
+	return args
 }
 
 // signInWaitDelay limits the wait for the error output after the CLI
