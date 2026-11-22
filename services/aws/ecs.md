@@ -1,6 +1,6 @@
 # ECS
 
-Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Browse the task definitions by family and revision. Every call reads, so ReadOnly mode allows all of them. The design is in `docs/design/ecs.md`. Exec and the write actions come in later PRs of that design.
+Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Browse the task definitions by family and revision. Open a shell in a container with ECS Exec. Every call reads, so ReadOnly mode allows all of them. Exec is not a call of the app, and ReadOnly mode blocks it. The design is in `docs/design/ecs.md`. The write actions come in a later PR of that design.
 
 ## Views
 
@@ -120,6 +120,7 @@ A terminal of 80 to 119 columns leaves out Started. A narrow terminal shows only
 | `enter` | Open the containers of the task |
 | `d` | Open the detail of the task |
 | `x` | Switch between the running and the stopped tasks |
+| `o` | Open a shell in a container of the task (see [Exec](#exec)). ReadWrite mode only |
 | `y` | Copy the ARN of the task |
 | `l` | Load more tasks |
 | `/` | Filter the loaded tasks |
@@ -157,6 +158,7 @@ When AWS no longer knows the task, the list says "The task is gone. AWS keeps st
 |-----|--------|
 | `enter` | Open the log stream of the container |
 | `d` | Open the detail of the container |
+| `o` | Open a shell in the container (see [Exec](#exec)). ReadWrite mode only |
 | `y` | Copy the ARN of the container |
 | `/` | Filter the containers |
 | `s`, `S` | Sort |
@@ -188,6 +190,23 @@ Without a stream prefix, which only the EC2 launch type allows, each stream has 
 2. Network: the private IPs and the port bindings.
 3. Agents: the managed agents, for example the `ExecuteCommandAgent` of ECS Exec, when the container has agents.
 4. Logs: the log driver, the stream and the options of the log configuration.
+
+### Exec
+
+`o` on a container, or on a task, opens `/bin/sh` in the container with ECS Exec. This suspends the TUI, opens an interactive terminal session, and restores the TUI when you exit. On a task with more than one container, `o` asks for the container first.
+
+A shell can change the container, so ReadOnly mode blocks `o`. Press `W` to switch to ReadWrite mode first.
+
+LazyCloud runs `aws ecs execute-command --cluster=CLUSTER --task=TASK --container=NAME --interactive --command=/bin/sh` directly, without a shell. It adds `--region` and `--profile` of the session, and `--endpoint-url` when the app uses an endpoint. Each name is in the argument of its flag, so a name that starts with `-` is not read as a flag. The banner shows the names as plain text.
+
+Before the session, the app checks these, and shows a message when one fails:
+
+- The task is `RUNNING`, and the container is `RUNNING`.
+- Exec is on for the task. Exec cannot be turned on for a task that runs already: turn it on for the service, then start new tasks.
+- The `ExecuteCommandAgent` of the container is `RUNNING`, when the task reports its agents.
+- The AWS CLI and the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) are installed.
+
+Type `exit` or press Ctrl+D to end the session and go back to LazyCloud. In the session, Ctrl+C goes to the shell in the container. Ctrl+C before the session starts cancels it without an error. When the CLI fails, its error stays on the screen until you press Enter, and then a message shows the exit code. LocalStack does not support ECS Exec.
 
 ### Task Definition Families
 

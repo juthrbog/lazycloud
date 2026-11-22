@@ -651,9 +651,9 @@ var conformanceCases = []conformanceCase{
 			// x loads the stopped tasks.
 			svc.On("ListTasksPage", mock.MatchedBy(ok), "arn:c", "web", true, mock.Anything).Return(&aws.TaskPage{}, nil).Maybe()
 			svc.On("ListTasksPage", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
-			return NewECSTasks(svc, "arn:c", "web")
+			return NewECSTasks(svc, nil, "arn:c", "web")
 		},
-		buildNil: func() nav.View { return NewECSTasks(nil, "arn:c", "web") },
+		buildNil: func() nav.View { return NewECSTasks(nil, nil, "arn:c", "web") },
 		coreMsgs: func(v nav.View) []tea.Msg {
 			c := &v.(*ECSTasks).listCore
 			tok := "t2"
@@ -676,6 +676,7 @@ var conformanceCases = []conformanceCase{
 		},
 		wantIDs:  []string{"arn:t1", "arn:t2"},
 		rowKeys:  []string{"enter"},
+		rwKeys:   []string{"o"},
 		file:     "ecs_tasks.go",
 		typeName: "ECSTasks",
 		coreType: reflect.TypeFor[listCore[aws.Task]](),
@@ -691,9 +692,9 @@ var conformanceCases = []conformanceCase{
 			svc.On("DescribeTask", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
 			svc.On("DescribeTaskDefinition", mock.MatchedBy(ok), "arn:td").Return(&aws.TaskDefinition{}, nil)
 			svc.On("DescribeTaskDefinition", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
-			return NewECSContainers(svc, "arn:c", "arn:t1", "us-east-1")
+			return NewECSContainers(svc, nil, "arn:c", "arn:t1", "us-east-1")
 		},
-		buildNil: func() nav.View { return NewECSContainers(nil, "arn:c", "arn:t1", "us-east-1") },
+		buildNil: func() nav.View { return NewECSContainers(nil, nil, "arn:c", "arn:t1", "us-east-1") },
 		coreMsgs: func(v nav.View) []tea.Msg {
 			c := &v.(*ECSContainers).listCore
 			tok := "t2"
@@ -717,6 +718,7 @@ var conformanceCases = []conformanceCase{
 		},
 		wantIDs:  []string{"arn:c1", "arn:c2"},
 		rowKeys:  []string{"enter"},
+		rwKeys:   []string{"o"},
 		file:     "ecs_containers.go",
 		typeName: "ECSContainers",
 		coreType: reflect.TypeFor[listCore[ecsContainer]](),

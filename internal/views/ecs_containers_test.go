@@ -56,7 +56,7 @@ func newContainers(t *testing.T, task *aws.Task, def *aws.TaskDefinition, defErr
 	if task.TaskDefinition != "" {
 		svc.On("DescribeTaskDefinition", mock.Anything, task.TaskDefinition).Return(def, defErr)
 	}
-	v := NewECSContainers(svc, testClusterARN, testTaskARN, "us-east-1")
+	v := NewECSContainers(svc, nil, testClusterARN, testTaskARN, "us-east-1")
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	msgs := pump(v, v.Init(), 20)
 	return v, svc, msgs
@@ -137,7 +137,7 @@ func TestECSContainers_TaskIsGone(t *testing.T) {
 	svc := new(awstest.MockECSService)
 	svc.Test(t)
 	svc.On("DescribeTask", mock.Anything, testClusterARN, testTaskARN).Return(nil, fmt.Errorf("%w: x", aws.ErrTaskNotFound))
-	v := NewECSContainers(svc, testClusterARN, testTaskARN, "us-east-1")
+	v := NewECSContainers(svc, nil, testClusterARN, testTaskARN, "us-east-1")
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	pump(v, v.Init(), 20)
 	assert.Contains(t, ansi.Strip(v.View().Content), "The task is gone. AWS keeps stopped tasks for about an hour.")
@@ -148,7 +148,7 @@ func TestECSContainers_TaskIsGone(t *testing.T) {
 	// Another error stays as it is.
 	other := new(awstest.MockECSService)
 	other.On("DescribeTask", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("ThrottlingException"))
-	w := NewECSContainers(other, testClusterARN, testTaskARN, "us-east-1")
+	w := NewECSContainers(other, nil, testClusterARN, testTaskARN, "us-east-1")
 	w.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	pump(w, w.Init(), 20)
 	out := ansi.Strip(w.View().Content)
@@ -157,7 +157,7 @@ func TestECSContainers_TaskIsGone(t *testing.T) {
 }
 
 func TestECSContainers_LogsCell(t *testing.T) {
-	v := NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1")
+	v := NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1")
 	west := &aws.LogConfig{Driver: "awslogs", Options: map[string]string{"awslogs-group": "/ecs/x", "awslogs-region": "eu-west-1"}}
 	noRegion := &aws.LogConfig{Driver: "awslogs", Options: map[string]string{"awslogs-group": "/ecs/x"}}
 	for _, tc := range []struct {
@@ -174,7 +174,7 @@ func TestECSContainers_LogsCell(t *testing.T) {
 		assert.Equal(t, tc.want, v.logsCell(tc.c))
 	}
 	// Without a session Region, no Region shows.
-	assert.Equal(t, "/ecs/x", NewECSContainers(nil, "c", "t", "").logsCell(ecsContainer{Log: west}))
+	assert.Equal(t, "/ecs/x", NewECSContainers(nil, nil, "c", "t", "").logsCell(ecsContainer{Log: west}))
 }
 
 // jumpParams runs ecsLogJump and returns the route parameters and toasts.
@@ -342,7 +342,7 @@ func TestECSContainers_Keys(t *testing.T) {
 	require.NotEmpty(t, ts)
 	assert.Equal(t, "Copied: app", ts[0].Text, "testTask sends no container ARN, so the key is the name")
 
-	assert.Equal(t, []string{"enter", "d", "y", "s/S", "/", "r"}, hintKeys(v.KeyMap()))
+	assert.Equal(t, []string{"enter", "d", "o", "y", "s/S", "/", "r"}, hintKeys(v.KeyMap()))
 
 	v.Update(keyPress('/'))
 	_, cmd = v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
@@ -412,7 +412,7 @@ func TestECSContainers_LongValuesFit(t *testing.T) {
 		{Task: &task, Container: aws.Container{Name: "b", ARN: "arn:b", LastStatus: "PENDING", Health: "UNKNOWN"}},
 	}
 	for _, w := range []int{70, 100, 130} {
-		v := NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1")
+		v := NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1")
 		v.Update(tea.WindowSizeMsg{Width: w, Height: 30})
 		deliverItems(v, &v.listCore, cs)
 		out := ansi.Strip(v.View().Content)
@@ -427,7 +427,7 @@ func TestECSContainers_LongValuesFit(t *testing.T) {
 
 // The sort key of each column lines up with its cell, in each tier.
 func TestECSContainers_SortKeysLineUp(t *testing.T) {
-	v := NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1")
+	v := NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1")
 	c := testContainers()[1]
 	c.ExitCode = &exit137
 	for _, tier := range []ui.WidthTier{ui.TierNarrow, ui.TierMedium, ui.TierWide} {

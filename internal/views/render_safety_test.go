@@ -246,7 +246,7 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			return v
 		},
 		"ecs_tasks": func(*testing.T) tea.Model {
-			v := NewECSTasks(nil, testClusterARN, "web")
+			v := NewECSTasks(nil, nil, testClusterARN, "web")
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 			deliverItems(v, &v.listCore, []aws.Task{testTask})
 			return v
@@ -264,7 +264,7 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			return v
 		},
 		"ecs_containers": func(*testing.T) tea.Model {
-			v := NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1")
+			v := NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1")
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 			deliverItems(v, &v.listCore, testContainers())
 			return v
@@ -332,8 +332,8 @@ func TestViews_ShowListErrorSafely(t *testing.T) {
 		"lambda_triggers":      func() tea.Model { return NewLambdaTriggers(nil, "fn") },
 		"ecs_clusters":         func() tea.Model { return NewECSClusters(nil) },
 		"ecs_services":         func() tea.Model { return NewECSServices(nil, testClusterARN) },
-		"ecs_tasks":            func() tea.Model { return NewECSTasks(nil, testClusterARN, "web") },
-		"ecs_containers":       func() tea.Model { return NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1") },
+		"ecs_tasks":            func() tea.Model { return NewECSTasks(nil, nil, testClusterARN, "web") },
+		"ecs_containers":       func() tea.Model { return NewECSContainers(nil, nil, testClusterARN, testTaskARN, "us-east-1") },
 		"ecs_task_families":    func() tea.Model { return NewECSTaskFamilies(nil) },
 		"ecs_task_definitions": func() tea.Model { return NewECSTaskDefinitions(nil, "web") },
 		"lambda_invocations": func() tea.Model {

@@ -74,7 +74,7 @@ Press `o` on a running instance to start an SSM Session Manager shell. This susp
 
 An SSM session is an interactive shell on the instance, so ReadOnly mode blocks it. Press `W` to switch to ReadWrite mode first.
 
-LazyCloud runs the `aws` CLI directly, without a shell. The instance name is shown in a banner as plain text, so a Name tag cannot inject commands or terminal escape sequences.
+LazyCloud runs the `aws` CLI directly, without a shell. The instance name is shown in a banner as plain text, so a Name tag cannot inject commands or terminal escape sequences. The command gets `--region` and `--profile` of the session, and `--endpoint-url` when the app uses an endpoint, for example LocalStack.
 
 **Prerequisites:**
 - AWS CLI installed (`aws` command available)

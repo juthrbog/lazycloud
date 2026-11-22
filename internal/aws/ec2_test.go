@@ -16,8 +16,8 @@ func TestSSMSessionCmd(t *testing.T) {
 	s := c.SSMSessionCmd("i-abc123", "my-server (i-abc123)")
 
 	assert.Equal(t, []string{
-		"aws", "ssm", "start-session", "--target", "i-abc123",
-		"--region", "us-west-2", "--profile", "staging",
+		"aws", "ssm", "start-session", "--target=i-abc123",
+		"--region=us-west-2", "--profile=staging",
 	}, s.Args())
 	assert.Contains(t, s.Banner(), "SSM Session: my-server (i-abc123)")
 }
@@ -26,7 +26,7 @@ func TestSSMSessionCmdMinimal(t *testing.T) {
 	c := &Client{}
 	s := c.SSMSessionCmd("i-xyz789", "i-xyz789")
 
-	assert.Equal(t, []string{"aws", "ssm", "start-session", "--target", "i-xyz789"}, s.Args())
+	assert.Equal(t, []string{"aws", "ssm", "start-session", "--target=i-xyz789"}, s.Args())
 }
 
 // A Name tag is attacker-controlled. It must stay inert text in the banner and
@@ -37,7 +37,7 @@ func TestSSMSessionCmdHostileLabel(t *testing.T) {
 	osc52 := "\x1b]52;c;aGk=\x07" // clipboard write escape sequence
 	s := c.SSMSessionCmd("i-abc123", hostile+osc52)
 
-	assert.Equal(t, []string{"aws", "ssm", "start-session", "--target", "i-abc123"}, s.Args())
+	assert.Equal(t, []string{"aws", "ssm", "start-session", "--target=i-abc123"}, s.Args())
 	assert.Contains(t, s.Banner(), hostile, "label is printed verbatim")
 	assert.NotContains(t, s.Banner(), "\x1b]52", "control characters are stripped")
 	assert.NotContains(t, s.Banner(), "\x07")

@@ -54,14 +54,14 @@ var stoppedTask = aws.Task{
 	StartedAt: taskNow.Add(-50 * time.Minute), StoppedAt: taskNow.Add(-12 * time.Minute),
 }
 
-func newTasks(t *testing.T, service string) (*ECSTasks, *awstest.MockECSService) {
+func newTasks(t *testing.T) (*ECSTasks, *awstest.MockECSService) {
 	t.Helper()
 	useTaskClock(t)
 	svc := new(awstest.MockECSService)
 	svc.Test(t)
-	svc.On("ListTasksPage", mock.Anything, testClusterARN, service, false, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{testTask}}, nil)
-	svc.On("ListTasksPage", mock.Anything, testClusterARN, service, true, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{stoppedTask}}, nil)
-	v := NewECSTasks(svc, testClusterARN, service)
+	svc.On("ListTasksPage", mock.Anything, testClusterARN, "web", false, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{testTask}}, nil)
+	svc.On("ListTasksPage", mock.Anything, testClusterARN, "web", true, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{stoppedTask}}, nil)
+	v := NewECSTasks(svc, nil, testClusterARN, "web")
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	pump(v, v.Init(), 20)
 	return v, svc
@@ -138,7 +138,7 @@ func TestECSTasks_StoppedRows(t *testing.T) {
 // x switches to the stopped tasks, with their columns, title and footer,
 // and r stays in that mode. x again goes back.
 func TestECSTasks_StoppedToggle(t *testing.T) {
-	v, svc := newTasks(t, "web")
+	v, svc := newTasks(t)
 	assert.Equal(t, "ecs_tasks:"+testClusterARN+":web", v.ID())
 	assert.Equal(t, "web tasks", v.Title())
 	assert.Contains(t, hintKeys(v.KeyMap()), "x")
@@ -181,7 +181,7 @@ func TestECSTasks_ToggleOnTheErrorScreen(t *testing.T) {
 	svc := new(awstest.MockECSService)
 	svc.On("ListTasksPage", mock.Anything, testClusterARN, "", false, mock.Anything).Return(nil, errors.New("boom"))
 	svc.On("ListTasksPage", mock.Anything, testClusterARN, "", true, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{stoppedTask}}, nil)
-	v := NewECSTasks(svc, testClusterARN, "")
+	v := NewECSTasks(svc, nil, testClusterARN, "")
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	pump(v, v.Init(), 20)
 	require.Error(t, v.err)
@@ -200,7 +200,7 @@ func TestECSTasks_ToggleOnTheErrorScreen(t *testing.T) {
 }
 
 func TestECSTasks_Keys(t *testing.T) {
-	v, _ := newTasks(t, "web")
+	v, _ := newTasks(t)
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	require.NotNil(t, cmd)
 	assert.Equal(t, msg.NavigateMsg{ViewID: "ecs_containers",
@@ -216,7 +216,7 @@ func TestECSTasks_Keys(t *testing.T) {
 	require.NotEmpty(t, ts)
 	assert.Contains(t, ts[0].Text, testTaskARN)
 
-	assert.Equal(t, []string{"enter", "d", "x", "y", "l", "s/S", "/", "r"}, hintKeys(v.KeyMap()))
+	assert.Equal(t, []string{"enter", "d", "x", "o", "y", "l", "s/S", "/", "r"}, hintKeys(v.KeyMap()))
 	assert.Contains(t, v.View().Content, ui.HealthColor("HEALTHY"), "the Health column has its style")
 	assert.Contains(t, v.View().Content, ui.StateColor("RUNNING"), "the Status column has its style")
 	v.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
@@ -272,7 +272,7 @@ func TestECSTasks_UnreadableTaskToast(t *testing.T) {
 	svc := new(awstest.MockECSService)
 	bad := aws.Task{ARN: "arn:bad", ID: "bad", Err: "ACCESS_DENIED"}
 	svc.On("ListTasksPage", mock.Anything, testClusterARN, "web", false, mock.Anything).Return(&aws.TaskPage{Tasks: []aws.Task{testTask, bad}}, nil)
-	v := NewECSTasks(svc, testClusterARN, "web")
+	v := NewECSTasks(svc, nil, testClusterARN, "web")
 	v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
 	ts := toasts(pump(v, v.Init(), 20))
 	require.Len(t, ts, 1)
@@ -286,7 +286,7 @@ func TestECSTaskColumnsFitTheirTiers(t *testing.T) {
 		_, tier = ui.BestFitTier(120, cols)
 		assert.Equal(t, ui.TierWide, tier)
 	}
-	v := NewECSTasks(nil, testClusterARN, "web")
+	v := NewECSTasks(nil, nil, testClusterARN, "web")
 	assert.Equal(t, ecsTaskPageBudget, v.cfg.PageBudget)
 	assert.Equal(t, 10, ecsTaskPageBudget)
 	assert.True(t, v.cfg.MoreKey)
@@ -299,7 +299,7 @@ func TestECSTasks_LongValuesFit(t *testing.T) {
 	sched.StopCode = "ServiceSchedulerInitiated"
 	crash := stoppedTask
 	crash.ARN, crash.ID = "arn:crash", "crash"
-	v := NewECSTasks(nil, testClusterARN, "web")
+	v := NewECSTasks(nil, nil, testClusterARN, "web")
 	v.stopped = true
 	v.cfg.Columns, v.cfg.Row = ecsStoppedColumns, ecsStoppedRow
 	v.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -311,7 +311,7 @@ func TestECSTasks_LongValuesFit(t *testing.T) {
 	spot := testTask
 	spot.CapacityProvider, spot.LastStatus = "FARGATE_SPOT", "DEPROVISIONING"
 	for _, w := range []int{100, 120} {
-		r := NewECSTasks(nil, testClusterARN, "web")
+		r := NewECSTasks(nil, nil, testClusterARN, "web")
 		r.Update(tea.WindowSizeMsg{Width: w, Height: 30})
 		deliverItems(r, &r.listCore, []aws.Task{spot})
 		out := ansi.Strip(r.View().Content)
@@ -369,7 +369,7 @@ func TestECSTasks_DetailLeavesOutEmptyValues(t *testing.T) {
 
 // The stopped columns stay after a resize.
 func TestECSTasks_ColumnsStayAfterAResize(t *testing.T) {
-	v, _ := newTasks(t, "web")
+	v, _ := newTasks(t)
 	_, cmd := v.Update(keyPress('x'))
 	pump(v, cmd, 20)
 	v.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
