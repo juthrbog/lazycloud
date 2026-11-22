@@ -38,6 +38,15 @@ func TestRatioColor(t *testing.T) {
 	}
 }
 
+func TestHealthColor(t *testing.T) {
+	assert.Equal(t, FgRender(ActiveTheme.StateRunning, IconRunning.Icon()+" HEALTHY"), HealthColor("HEALTHY"))
+	assert.Equal(t, FgRender(ActiveTheme.StateStopped, IconStopped.Icon()+" UNHEALTHY"), HealthColor("UNHEALTHY"))
+	assert.Equal(t, FgRender(ActiveTheme.Muted, IconPending.Icon()+" UNKNOWN"), HealthColor("UNKNOWN"))
+	for _, s := range []string{"", "healthy", "?"} {
+		assert.Equal(t, s, HealthColor(s))
+	}
+}
+
 func TestRolloutColor(t *testing.T) {
 	assert.Equal(t, FgRender(ActiveTheme.StateRunning, IconRunning.Icon()+" COMPLETED"), RolloutColor("COMPLETED"))
 	assert.Equal(t, FgRender(ActiveTheme.StatePending, IconPending.Icon()+" IN_PROGRESS"), RolloutColor("IN_PROGRESS"))

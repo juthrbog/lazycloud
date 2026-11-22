@@ -166,9 +166,9 @@ Defined in `internal/ui/icons.go`. All icons have nerd font and plain fallback:
 | Logs | `\U000f0219` | `¶` | CloudWatch Logs |
 | Lambda | `\U000f0627` | `λ` | Lambda |
 | ECS | `\U000f0868` | `▣` | ECS |
-| Running | `\U000f012c` | `●` | State: running/available/active/enabled |
-| Stopped | `\U000f0156` | `○` | State: stopped/terminated/failed/disabled, and inactive in a muted color |
-| Pending | `\U000f0e4e` | `◌` | State: pending/starting/inprogress/updating, and the ECS states between two others (provisioning, activating, draining, deactivating, deprovisioning) |
+| Running | `\U000f012c` | `●` | State: running/available/active/enabled. Also the ECS health `HEALTHY` (`ui.HealthColor`) |
+| Stopped | `\U000f0156` | `○` | State: stopped/terminated/failed/disabled, and inactive in a muted color. Also the ECS health `UNHEALTHY` (`ui.HealthColor`) |
+| Pending | `\U000f0e4e` | `◌` | State: pending/starting/inprogress/updating, and the ECS states between two others (provisioning, activating, draining, deactivating, deprovisioning). Also the ECS health `UNKNOWN`, in a muted color |
 
 ### Rules
 

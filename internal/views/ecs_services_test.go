@@ -175,19 +175,22 @@ func TestECSServices_DetailWithoutTheDeploymentAPI(t *testing.T) {
 	assert.Contains(t, failed.Tabs[0].Content, "ACCESS_DENIED")
 }
 
-// enter opens the detail until the task list exists (PR 3), as d does.
-func TestECSServices_EnterOpensTheDetail(t *testing.T) {
+// enter opens the tasks of the service, with the cluster ARN and the bare
+// service name (not the ARN of the row). d opens the detail.
+func TestECSServices_EnterOpensTheTasks(t *testing.T) {
 	plain := testService
 	plain.CurrentDeployment = ""
 	v := newServices(t, plain)
-	for _, k := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, keyPress('d')} {
-		_, cmd := v.Update(k)
-		require.NotNil(t, cmd)
-		d, ok := cmd().(listDetailMsg)
-		require.True(t, ok)
-		require.NoError(t, d.err)
-		assert.Equal(t, "web", d.panel.PanelTitle)
-	}
+	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	require.NotNil(t, cmd)
+	assert.Equal(t, msg.NavigateMsg{ViewID: "ecs_tasks", Params: map[string]string{"cluster": testClusterARN, "service": "web"}}, cmd())
+
+	_, cmd = v.Update(keyPress('d'))
+	require.NotNil(t, cmd)
+	d, ok := cmd().(listDetailMsg)
+	require.True(t, ok)
+	require.NoError(t, d.err)
+	assert.Equal(t, "web", d.panel.PanelTitle)
 }
 
 func TestECSServices_UsesTheListTimeoutAndBudget(t *testing.T) {
@@ -272,8 +275,5 @@ func TestECSServices_FilterAndStatusStyle(t *testing.T) {
 
 	v.Update(keyPress('/'))
 	_, cmd := v.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	for _, m := range collectMsgs(cmd) {
-		_, isDetail := m.(listDetailMsg)
-		assert.False(t, isDetail, "enter closes the filter, it opens no detail")
-	}
+	assert.Empty(t, navigations(collectMsgs(cmd)), "enter closes the filter, it opens no tasks")
 }
