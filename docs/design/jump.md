@@ -1,6 +1,6 @@
 # Jump to a resource
 
-Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
+Status: Approved 2026-11-22 with all proposed answers (#332). PR 0 is this design and its pin tests. PR 1 adds the parser. PR 2 makes the focus changes. PR 3 adds `:go` and the lookups. PR 4 adds the switch to another Region. The facts below were checked at `685827c` with the SDK versions in `go.mod` and LocalStack 2026.10.4.
 
 ## Summary
 
@@ -187,7 +187,7 @@ A short ECS service or task ARN has no cluster. The lookup tries the `default` c
 
 The new `HeadBucket` read sends HeadBucket on the client of the bucket Region, also with an endpoint, with `ExpectedBucketOwner` set to the session account when STS knows it. A 404 gives "No bucket named NAME." A 403 gives "Bucket NAME is not in this account, or access is denied." (H11).
 
-In PR 3, the lookup uses the services of the session for the session Region. In PR 4, a target in another Region gets its lookup from clients for that Region, built from `Client.Config` as `S3ClientForRegion` does (`internal/aws/s3.go:73-79`). That lookup runs before the Region prompt.
+In PR 3, the lookup uses the services of the session for the session Region. In PR 4, a target in another Region gets its lookup from clients for that Region, built from `Client.Config` as `S3ClientForRegion` does (`internal/aws/s3.go:73-79`): `Services.ForRegion` copies the client with the other Region and refuses every write. That lookup runs before the Region prompt.
 
 ### Focus changes in the list core and the views
 

@@ -30,11 +30,16 @@ import (
 // jumpTimeout limits the read of a jump, as callTimeout does in the views.
 const jumpTimeout = 30 * time.Second
 
+// regionServices returns the services for a jump read in another Region.
+// Tests replace it with mocks.
+var regionServices = aws.Services.ForRegion
+
 // jumpResultMsg is the answer of a jump read: the navigation to the
 // resource, or the text of a toast. Both are empty when the user cancelled.
 type jumpResultMsg struct {
 	session string // the session that the read ran in, for the event log
 	gen     int    // the sessionGen of that session
+	region  string // the other Region that the resource is in, or ""
 	nav     *appmsg.NavigateMsg
 	text    string
 }
@@ -92,19 +97,23 @@ func (m Model) jumpCommand(text string) (Model, tea.Cmd) {
 		_, cmd := m.toasts.Add(refusal, ui.ToastError, 0)
 		return m, cmd
 	}
-	if region := jump.OtherRegion(t, s); region != "" {
-		_, cmd := m.toasts.Add(fmt.Sprintf("The resource is in %s. Press R to switch to %s, then jump again.", region, region), ui.ToastInfo, 0)
-		return m, cmd
-	}
 	if m.svcErr != nil {
 		_, cmd := m.toasts.Add(noSessionText(m.svcErr), ui.ToastError, 0)
 		return m, cmd
+	}
+	// A resource in another Region is read there first, so a miss gives
+	// its message and no switch. The read uses a copy of the client for
+	// that Region, and the messages name that Region.
+	svc := m.svc
+	region := jump.OtherRegion(t, s)
+	if region != "" {
+		svc = regionServices(svc, region)
+		s.Region = region
 	}
 	label := "Find " + t.Kind.Noun() + " " + targetName(t)
 	session, gen := m.sessionLabel(), m.sessionGen
 	op := m.ops.Begin(label, session)
 	eventlog.Infof(eventlog.CatNav, "Jump: %s", label)
-	svc := m.svc
 	run := func() tea.Msg {
 		defer op.Done()
 		ctx, cancel := context.WithTimeout(op.Ctx, jumpTimeout)
@@ -112,7 +121,7 @@ func (m Model) jumpCommand(text string) (Model, tea.Cmd) {
 		nav, err := lookup(ctx, svc, t, s)
 		switch {
 		case err == nil:
-			return jumpResultMsg{session: session, gen: gen, nav: &nav}
+			return jumpResultMsg{session: session, gen: gen, region: region, nav: &nav}
 		case op.Ctx.Err() != nil:
 			return jumpResultMsg{session: session, gen: gen} // cancelled with ctrl+x
 		default:
@@ -140,6 +149,8 @@ func (m Model) onJumpResult(r jumpResultMsg) (Model, tea.Cmd) {
 		return m, nil
 	}
 	switch {
+	case r.nav != nil && r.region != "":
+		return m.askRegionSwitch(r.region, *r.nav)
 	case r.nav != nil:
 		return m.navigate(*r.nav)
 	case r.text != "":
@@ -148,6 +159,34 @@ func (m Model) onJumpResult(r jumpResultMsg) (Model, tea.Cmd) {
 		return m, cmd
 	}
 	return m, nil
+}
+
+// askRegionSwitch asks to switch to region and open the resource there. On
+// yes, the switch opens nav in place of the root view (H6). When an
+// operation runs, the switch asks again, as R does, and nav waits for it.
+func (m Model) askRegionSwitch(region string, nav appmsg.NavigateMsg) (Model, tea.Cmd) {
+	c := sessionChange{profile: m.config.AWS.Profile, region: region, kind: "Region", value: region, then: &nav, gen: m.sessionGen}
+	cmd := m.askQuick(fmt.Sprintf("The resource is in %s. Switch to %s and open it?", region, region),
+		func(m Model) (Model, tea.Cmd) {
+			if c.gen != m.sessionGen {
+				return m.sessionChanged(c)
+			}
+			return m.requestSessionSwitch(c)
+		},
+		func(m Model) (Model, tea.Cmd) {
+			eventlog.Infof(eventlog.CatNav, "Jump to %s cancelled", region)
+			return m, nil
+		})
+	return m, cmd
+}
+
+// sessionChanged answers a yes that came after another switch: the change
+// was asked for a session that is gone, so it does nothing and says so. A
+// late yes must not undo a sign-in or a profile switch.
+func (m Model) sessionChanged(c sessionChange) (Model, tea.Cmd) {
+	eventlog.Infof(eventlog.CatConfig, "%s switch to %s dropped: the session changed", c.kind, c.value)
+	_, cmd := m.toasts.Add("The session changed, so the switch did not run. Try again.", ui.ToastInfo, 0)
+	return m, cmd
 }
 
 // targetName names the resource of t in a message: the ID or name, with the

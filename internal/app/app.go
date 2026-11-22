@@ -93,6 +93,13 @@ type sessionChange struct {
 	// signIn is true for the session after a sign-in. It starts in
 	// ReadOnly, also for the current profile.
 	signIn bool
+	// then opens a view after the switch, in place of the root view that
+	// was on top: the resource of a jump to another Region (H6).
+	then *appmsg.NavigateMsg
+	// gen, when not 0, is the sessionGen that the change was asked in. A
+	// yes that comes after another switch does nothing, because the change
+	// was made for the session that is gone.
+	gen int
 }
 
 // New creates the root model with the home view as the starting screen.
@@ -1199,7 +1206,12 @@ func (m Model) requestSessionSwitch(c sessionChange) (Model, tea.Cmd) {
 	cmd := m.askQuick(fmt.Sprintf(
 		"%s running on %s. %s in the background. Switch the %s to %s?",
 		countOps(n), m.opsSessions(), keepWord(n), strings.ToLower(c.kind), c.value),
-		func(m Model) (Model, tea.Cmd) { return m.switchSession(c) },
+		func(m Model) (Model, tea.Cmd) {
+			if c.gen != 0 && c.gen != m.sessionGen {
+				return m.sessionChanged(c)
+			}
+			return m.switchSession(c)
+		},
 		func(m Model) (Model, tea.Cmd) {
 			eventlog.Infof(eventlog.CatConfig, "%s switch to %s cancelled", c.kind, c.value)
 			return m, nil
@@ -1320,7 +1332,12 @@ func (m Model) switchSession(c sessionChange) (Model, tea.Cmd) {
 	cmds := []tea.Cmd{m.resetNav(), m.identityCmd()}
 	_, toastCmd := m.toasts.Add(toast, ui.ToastSuccess, 0)
 	cmds = append(cmds, toastCmd)
-	if returnTo != "" {
+	if c.then != nil {
+		// The follow-up replaces the root. Both in one batch would open in
+		// a random order.
+		then := *c.then
+		cmds = append(cmds, func() tea.Msg { return then })
+	} else if returnTo != "" {
 		cmds = append(cmds, func() tea.Msg {
 			return appmsg.NavigateMsg{ViewID: returnTo}
 		})
