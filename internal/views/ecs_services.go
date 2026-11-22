@@ -55,6 +55,19 @@ func NewECSServices(svc aws.ECSService, cluster string) *ECSServices {
 		FetchDetail: func(ctx context.Context, s aws.ClusterService) (msg.TabbedContentMsg, error) {
 			return ecsServiceDetail(ctx, svc, s)
 		},
+		// A service past the page budget still opens its detail (D5).
+		FocusMissing: func(id string) tea.Cmd {
+			return v.fetchMissing(id, func(ctx context.Context, id string) (aws.ClusterService, error) {
+				if svc == nil {
+					return aws.ClusterService{}, errNoClient
+				}
+				s, err := svc.DescribeService(ctx, cluster, id)
+				if err != nil {
+					return aws.ClusterService{}, err
+				}
+				return *s, nil
+			})
+		},
 		OnLoaded: func(items []aws.ClusterService, _ string) tea.Cmd {
 			return ecsUnreadable("service", items, func(s aws.ClusterService) (string, string) { return s.Name, s.Err })
 		},

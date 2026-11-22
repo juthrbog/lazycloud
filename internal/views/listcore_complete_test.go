@@ -312,8 +312,19 @@ func TestListCore_FocusKey(t *testing.T) {
 	assert.Equal(t, []tea.Msg{msg.TabbedContentMsg{PanelTitle: "b"}}, collectMsgs(cmd))
 	assert.Equal(t, "b", c.table.CursorKey(), "the cursor moves by Key")
 
+	// After FocusKey, a focus tries Key, so a list that focuses by name
+	// also takes the ARN or URL of a row (jump H2).
+	c.table.SetCursorByKey("a")
 	cmd, _ = c.handle(msg.FocusResourceMsg{ResourceID: "b"})
-	assert.Nil(t, cmd, "a Key is not a focus ID when FocusKey is set")
+	assert.Equal(t, []tea.Msg{msg.TabbedContentMsg{PanelTitle: "b"}}, collectMsgs(cmd))
+	assert.Equal(t, "b", c.table.CursorKey())
+
+	// FocusKey wins over Key: a name that is also the key of another row
+	// finds the row with that name.
+	c.setItems([]fakeItem{{ID: "beta", Name: "x"}, {ID: "z", Name: "beta"}})
+	cmd, _ = c.handle(msg.FocusResourceMsg{ResourceID: "beta"})
+	assert.Equal(t, "z", c.table.CursorKey())
+	assert.NotNil(t, cmd)
 }
 
 // --- refreshEach ---

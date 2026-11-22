@@ -44,7 +44,8 @@ type LogGroups struct {
 
 // NewLogGroups creates the log group list view.
 func NewLogGroups(logs aws.LogsService) *LogGroups {
-	return &LogGroups{listCore: newListCore(listConfig[aws.LogGroup]{
+	g := &LogGroups{}
+	g.listCore = newListCore(listConfig[aws.LogGroup]{
 		Noun:         "log groups",
 		LoadingLabel: "Loading log groups...",
 		ErrContext:   "listing log groups",
@@ -54,10 +55,24 @@ func NewLogGroups(logs aws.LogsService) *LogGroups {
 		Fetch:        fetchPages(logs, aws.LogsService.ListLogGroupsPage, splitLogGroupPage),
 		FetchTimeout: callTimeout,
 		FetchDetail:  logGroupDetail(logs),
-		PageBudget:   logGroupPageBudget,
-		MoreKey:      true,
-		Copy:         true,
-	})}
+		// A group past the page budget still opens its detail (D5).
+		FocusMissing: func(name string) tea.Cmd {
+			return g.fetchMissing(name, func(ctx context.Context, name string) (aws.LogGroup, error) {
+				if logs == nil {
+					return aws.LogGroup{}, errNoClient
+				}
+				lg, err := logs.GetLogGroup(ctx, name)
+				if err != nil {
+					return aws.LogGroup{}, err
+				}
+				return *lg, nil
+			})
+		},
+		PageBudget: logGroupPageBudget,
+		MoreKey:    true,
+		Copy:       true,
+	})
+	return g
 }
 
 func (g *LogGroups) ID() string     { return "logs_groups" }

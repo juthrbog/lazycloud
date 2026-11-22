@@ -30,6 +30,10 @@ type ECSService interface {
 	// DescribeTask reads one task. It returns ErrTaskNotFound when AWS no
 	// longer knows the task.
 	DescribeTask(ctx context.Context, cluster, taskARN string) (*Task, error)
+	// DescribeService reads one service of a cluster by its name or ARN,
+	// with its tags. It returns ErrServiceNotFound when the cluster has no
+	// such service.
+	DescribeService(ctx context.Context, cluster, service string) (*ClusterService, error)
 	// ListTaskFamiliesPage lists one page of the active task definition
 	// families.
 	ListTaskFamiliesPage(ctx context.Context, token *string) (*FamilyPage, error)
@@ -69,6 +73,10 @@ var _ ECSService = (*ECSServiceImpl)(nil)
 // ErrTaskNotFound is returned by DescribeTask when AWS no longer knows the
 // task. AWS keeps a stopped task for about an hour.
 var ErrTaskNotFound = errors.New("task not found")
+
+// ErrServiceNotFound is returned by DescribeService when the cluster has no
+// service of that name or ARN.
+var ErrServiceNotFound = errors.New("service not found")
 
 // The batch sizes of the describe calls.
 const (
@@ -595,6 +603,27 @@ func (svc *ECSServiceImpl) ListServicesPage(ctx context.Context, cluster string,
 		return ClusterService{Name: ARNName(arn), ARN: arn, ClusterARN: cluster, Err: reason}
 	})
 	return page, nil
+}
+
+// DescribeService reads one service with its tags. A missing service comes
+// back in Failures with the reason MISSING, not as an error.
+func (svc *ECSServiceImpl) DescribeService(ctx context.Context, cluster, service string) (*ClusterService, error) {
+	d, err := svc.client.ECSClient().DescribeServices(ctx, &ecs.DescribeServicesInput{
+		Cluster: aws.String(cluster), Services: []string{service},
+		Include: []ecstypes.ServiceField{ecstypes.ServiceFieldTags},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("DescribeServices: %w", err)
+	}
+	if len(d.Services) > 0 {
+		s := serviceFrom(&d.Services[0])
+		return &s, nil
+	}
+	// ecsFailures leaves out MISSING, so any reason left is another failure.
+	for _, reason := range ecsFailures(d.Failures) {
+		return nil, fmt.Errorf("DescribeServices: %s: %s", ARNName(service), reason)
+	}
+	return nil, fmt.Errorf("%w: %s", ErrServiceNotFound, ARNName(service))
 }
 
 func serviceFrom(s *ecstypes.Service) ClusterService {

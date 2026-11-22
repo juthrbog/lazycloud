@@ -171,7 +171,7 @@ mockSvc.AssertExpectations(t) // verify all expected calls were made
 
 ### When to Use Generated Mocks
 
-Use hand-written mocks. The EC2 interface has 21 methods, S3 has 18, SQS has 13, CloudWatch Logs has 7, Lambda has 6, and ECS has 11. Each mock method is a few lines that call `m.Called`. If a mock becomes hard to keep in step with its interface, consider [mockery](https://github.com/vektra/mockery).
+Use hand-written mocks. The EC2 interface has 21 methods, S3 has 18, SQS has 13, CloudWatch Logs has 7, Lambda has 6, and ECS has 12. Each mock method is a few lines that call `m.Called`. If a mock becomes hard to keep in step with its interface, consider [mockery](https://github.com/vektra/mockery).
 
 ## Test Helper Conventions
 

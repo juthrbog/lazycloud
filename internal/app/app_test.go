@@ -726,7 +726,7 @@ func TestCrossNavBackRestoresPanel(t *testing.T) {
 	// Open panel and cross-nav
 	openTabbedPanel(&m, "test-resource")
 	result, _ = m.Update(ui.ContentLinkActivatedMsg{
-		ViewID: "eventlog",
+		ViewID: "sg_list",
 		Params: map[string]string{},
 	})
 	m = result.(Model)
@@ -772,7 +772,7 @@ func TestCrossNavHistoryInvalidatedOnManualBack(t *testing.T) {
 
 	// Push two views
 	m.Update(msg.NavigateMsg{ViewID: "eventlog"})
-	result, _ := m.Update(msg.NavigateMsg{ViewID: "eventlog"})
+	result, _ := m.Update(msg.NavigateMsg{ViewID: "sg_list"})
 	m = result.(Model)
 	assert.Equal(t, 3, m.nav.Depth())
 

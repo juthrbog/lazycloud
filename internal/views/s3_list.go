@@ -102,6 +102,7 @@ func NewS3List(s3 aws.S3Service, defaultRegion string) *S3List {
 		LoadingLabel: "Loading S3 buckets...",
 		ErrContext:   "listing S3 buckets",
 		Key:          func(b aws.Bucket) string { return b.Name },
+		FocusMissing: missingToast("bucket"),
 		Columns:      s3BucketColumns,
 		Row:          s3BucketRow,
 		Fetch:        fetchAll(s3, aws.S3Service.ListBuckets),

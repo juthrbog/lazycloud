@@ -30,6 +30,7 @@ func NewSGList(ec2 aws.EC2Service) *SGList {
 		Fetch:        fetchAll(ec2, aws.EC2Service.ListSecurityGroups),
 		FetchTimeout: listTimeout,
 		OpenDetail:   sgDetail,
+		FocusMissing: missingToast("security group"),
 		Copy:         true,
 	})}
 }

@@ -64,6 +64,20 @@ func NewECSTasks(svc aws.ECSService, client *aws.Client, cluster, service string
 		FetchDetail: func(_ context.Context, t aws.Task) (msg.TabbedContentMsg, error) {
 			return ecsTaskDetail(t), nil
 		},
+		// A task past the page budget, or a stopped task while the list
+		// shows the running ones, still opens its detail (D5).
+		FocusMissing: func(id string) tea.Cmd {
+			return v.fetchMissing(id, func(ctx context.Context, id string) (aws.Task, error) {
+				if svc == nil {
+					return aws.Task{}, errNoClient
+				}
+				t, err := svc.DescribeTask(ctx, v.cluster, id)
+				if err != nil {
+					return aws.Task{}, err
+				}
+				return *t, nil
+			})
+		},
 		OnLoaded: func(items []aws.Task, _ string) tea.Cmd {
 			return ecsUnreadable("task", items, func(t aws.Task) (string, string) { return t.ID, t.Err })
 		},

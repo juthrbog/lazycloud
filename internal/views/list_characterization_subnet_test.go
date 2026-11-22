@@ -512,7 +512,7 @@ func TestCharSubnet_Focus(t *testing.T) {
 	assert.Equal(t, "public-1a (subnet-aaa111)", tm.PanelTitle)
 
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "subnet-missing"})
-	assert.Nil(t, cmd, "focus on a missing ID does nothing")
+	assert.Equal(t, []tea.Msg{msg.ToastInfo("No subnet subnet-missing in the list")}, collectMsgs(cmd), "jump H3")
 	assert.Equal(t, []string{"Copied: subnet-aaa111"}, netCopied(v), "the cursor stays")
 
 	v.Update(ui.FilterChangedMsg{Text: "private"})

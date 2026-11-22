@@ -755,13 +755,14 @@ func TestCharSQS_FocusLoaded(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "qc", panel.PanelTitle)
 
-	// A name that is not in the list does nothing.
+	// A name that is not in the list gives a toast (jump H3).
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "missing"})
-	assert.Nil(t, cmd)
+	assert.Equal(t, []tea.Msg{msg.ToastInfo("No queue missing in the list")}, collectMsgs(cmd))
 	assert.Equal(t, charSQSURL("qc"), charSQSCursorURL(t, v))
-	// A URL is not a name.
+	// A URL finds its row too, by the row key (jump H2).
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: charSQSURL("qa")})
-	assert.Nil(t, cmd)
+	assert.NotNil(t, cmd)
+	assert.Equal(t, charSQSURL("qa"), charSQSCursorURL(t, v))
 }
 
 // Divergence #22 (kept): a focus on a row that the filter hides opens the

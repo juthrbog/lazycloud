@@ -525,7 +525,7 @@ func TestCharVPC_FocusAfterLoad(t *testing.T) {
 	assert.Equal(t, "dev-vpc (vpc-bbb222)", tm.PanelTitle)
 
 	_, cmd = v.Update(msg.FocusResourceMsg{ResourceID: "vpc-missing"})
-	assert.Nil(t, cmd, "focus on a missing ID does nothing")
+	assert.Equal(t, []tea.Msg{msg.ToastInfo("No VPC vpc-missing in the list")}, collectMsgs(cmd), "jump H3")
 	assert.Equal(t, []string{"Copied: vpc-bbb222"}, netCopied(v))
 }
 

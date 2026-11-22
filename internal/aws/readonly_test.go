@@ -106,7 +106,7 @@ var guardCases = []guardCase{
 		name:  "ECS",
 		iface: reflect.TypeFor[aws.ECSService](),
 		reads: []string{
-			"ListClustersPage", "ListServicesPage", "ListTasksPage", "DescribeTask",
+			"ListClustersPage", "ListServicesPage", "ListTasksPage", "DescribeTask", "DescribeService",
 			"ListTaskFamiliesPage", "ListTaskDefinitionsPage", "DescribeTaskDefinition",
 			"DescribeServiceDeployment",
 		},

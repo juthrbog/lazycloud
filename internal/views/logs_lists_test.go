@@ -32,7 +32,16 @@ type fakeLogs struct {
 	group  string   // the group of the last stream call
 	tags   map[string]string
 	tagErr error
-	tagARN string // the ARN of the last tags call
+	tagARN string                  // the ARN of the last tags call
+	groups map[string]aws.LogGroup // the groups that GetLogGroup finds
+}
+
+func (f *fakeLogs) GetLogGroup(_ context.Context, name string) (*aws.LogGroup, error) {
+	g, ok := f.groups[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", aws.ErrLogGroupNotFound, name)
+	}
+	return &g, nil
 }
 
 // page returns the index of tok and records it. A token in fail fails once.
