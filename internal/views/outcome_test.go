@@ -50,6 +50,8 @@ func TestOutcomes(t *testing.T) {
 		}}, 2, "Delete cancelled: deleted 3 of 5 object(s). Failed: x (AccessDenied)"},
 		{"bucket create failed", s3BucketCreatedMsg{name: "n", err: errors.New("BucketAlreadyExists")}, 2, "Bucket n not created: BucketAlreadyExists"},
 		{"ec2", ec2InstanceMutatedMsg{action: "stopped", instanceID: "i-1"}, 1, "Instance stopped: i-1"},
+		{"ecs done", ecsActionDoneMsg{text: "Started a new deployment of web", ok: true}, 1, "Started a new deployment of web"},
+		{"ecs failed", ecsActionDoneMsg{text: "Stopped 2 of 3 task(s). Failed: bbb (AccessDenied)"}, 2, "Stopped 2 of 3 task(s). Failed: bbb (AccessDenied)"},
 		{"send", sqsMessageSentMsg{}, 1, "Message sent"},
 		{"sqs delete standard", sqsMessageDeletedMsg{ids: []string{"m1"}}, 1, "SQS accepted the delete of 1 message(s)"},
 		{"sqs delete fifo", sqsMessageDeletedMsg{ids: []string{"m1"}, isFIFO: true}, 1, "Deleted 1 message(s)"},

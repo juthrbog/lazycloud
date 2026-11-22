@@ -241,9 +241,8 @@ type guardedLambda struct {
 	readOnly func() bool
 }
 
-// GuardECS returns svc with a ReadOnly guard on every mutating method.
-// Every method of ECSService reads, so it passes each call through. The
-// write actions of ECS PR 7 must get a guard here.
+// GuardECS returns svc with a ReadOnly guard on every mutating method:
+// ForceDeployment, SetDesiredCount and StopTask.
 func GuardECS(svc ECSService, readOnly func() bool) ECSService {
 	return guardedECS{ECSService: svc, readOnly: readOnly}
 }
@@ -251,4 +250,25 @@ func GuardECS(svc ECSService, readOnly func() bool) ECSService {
 type guardedECS struct {
 	ECSService
 	readOnly func() bool
+}
+
+func (g guardedECS) ForceDeployment(ctx context.Context, cluster, service string) error {
+	if g.readOnly() {
+		return readOnlyErr("ForceDeployment")
+	}
+	return g.ECSService.ForceDeployment(ctx, cluster, service)
+}
+
+func (g guardedECS) SetDesiredCount(ctx context.Context, cluster, service string, count int32) error {
+	if g.readOnly() {
+		return readOnlyErr("SetDesiredCount")
+	}
+	return g.ECSService.SetDesiredCount(ctx, cluster, service, count)
+}
+
+func (g guardedECS) StopTask(ctx context.Context, cluster, taskARN, reason string) error {
+	if g.readOnly() {
+		return readOnlyErr("StopTask")
+	}
+	return g.ECSService.StopTask(ctx, cluster, taskARN, reason)
 }

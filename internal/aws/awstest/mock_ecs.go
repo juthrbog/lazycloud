@@ -62,3 +62,15 @@ func (m *MockECSService) DescribeServiceDeployment(ctx context.Context, arn stri
 	val, _ := args.Get(0).(*aws.ServiceDeployment)
 	return val, args.Error(1)
 }
+
+func (m *MockECSService) ForceDeployment(ctx context.Context, cluster, service string) error {
+	return m.Called(ctx, cluster, service).Error(0)
+}
+
+func (m *MockECSService) SetDesiredCount(ctx context.Context, cluster, service string, count int32) error {
+	return m.Called(ctx, cluster, service, count).Error(0)
+}
+
+func (m *MockECSService) StopTask(ctx context.Context, cluster, taskARN, reason string) error {
+	return m.Called(ctx, cluster, taskARN, reason).Error(0)
+}

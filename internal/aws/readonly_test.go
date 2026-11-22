@@ -110,6 +110,7 @@ var guardCases = []guardCase{
 			"ListTaskFamiliesPage", "ListTaskDefinitionsPage", "DescribeTaskDefinition",
 			"DescribeServiceDeployment",
 		},
+		mutations: []string{"ForceDeployment", "SetDesiredCount", "StopTask"},
 		guard: func(readOnly func() bool) (any, *mock.Mock) {
 			m := new(awstest.MockECSService)
 			return aws.GuardECS(m, readOnly), &m.Mock

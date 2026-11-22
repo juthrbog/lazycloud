@@ -257,9 +257,10 @@ func TestECSServices_CopyARNAndKeyMap(t *testing.T) {
 	require.NotEmpty(t, ts)
 	assert.Contains(t, ts[0].Text, testServiceARN)
 
-	assert.Equal(t, []string{"enter", "d", "y", "l", "s/S", "/", "r"}, hintKeys(NewECSServices(nil, testClusterARN).KeyMap()))
+	assert.Equal(t, []string{"enter", "d", "f", "c", "y", "l", "s/S", "/", "r"}, hintKeys(NewECSServices(nil, testClusterARN).KeyMap()))
 	for _, h := range NewECSServices(nil, testClusterARN).KeyMap() {
-		assert.NotEqual(t, ui.ModeReadWrite, h.Mode, h.Binding.Help().Key)
+		rw := h.Binding.Help().Key == "f" || h.Binding.Help().Key == "c"
+		assert.Equal(t, rw, h.Mode == ui.ModeReadWrite, h.Binding.Help().Key)
 	}
 }
 

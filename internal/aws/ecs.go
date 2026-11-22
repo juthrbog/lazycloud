@@ -41,6 +41,17 @@ type ECSService interface {
 	DescribeTaskDefinition(ctx context.Context, name string) (*TaskDefinition, error)
 	// DescribeServiceDeployment reads one service deployment by its ARN.
 	DescribeServiceDeployment(ctx context.Context, arn string) (*ServiceDeployment, error)
+
+	// The writes. GuardECS refuses them in ReadOnly mode.
+
+	// ForceDeployment starts a new deployment of a service with its task
+	// definition, so every task is replaced.
+	ForceDeployment(ctx context.Context, cluster, service string) error
+	// SetDesiredCount sets the desired task count of a service. 0 is a
+	// valid count. It starts no deployment.
+	SetDesiredCount(ctx context.Context, cluster, service string, count int32) error
+	// StopTask stops a task, by its full ARN, with a reason.
+	StopTask(ctx context.Context, cluster, taskARN, reason string) error
 }
 
 // ECSServiceImpl is the real AWS-backed implementation of ECSService.
@@ -994,4 +1005,43 @@ func ecsTags(tags []ecstypes.Tag) map[string]string {
 		out[aws.ToString(t.Key)] = aws.ToString(t.Value)
 	}
 	return out
+}
+
+// ─── Writes ─────────────────────────────────────────────────────────────────
+
+// ForceDeployment calls UpdateService with ForceNewDeployment only. A
+// CODE_DEPLOY or EXTERNAL service rejects it (H9), so the view refuses it
+// first.
+func (svc *ECSServiceImpl) ForceDeployment(ctx context.Context, cluster, service string) error {
+	_, err := svc.client.ECSClient().UpdateService(ctx, &ecs.UpdateServiceInput{
+		Cluster: aws.String(cluster), Service: aws.String(service), ForceNewDeployment: true,
+	})
+	if err != nil {
+		return fmt.Errorf("UpdateService: %w", err)
+	}
+	return nil
+}
+
+// SetDesiredCount calls UpdateService with DesiredCount only. The count
+// is a pointer, so 0 is sent.
+func (svc *ECSServiceImpl) SetDesiredCount(ctx context.Context, cluster, service string, count int32) error {
+	_, err := svc.client.ECSClient().UpdateService(ctx, &ecs.UpdateServiceInput{
+		Cluster: aws.String(cluster), Service: aws.String(service), DesiredCount: aws.Int32(count),
+	})
+	if err != nil {
+		return fmt.Errorf("UpdateService: %w", err)
+	}
+	return nil
+}
+
+// StopTask stops a task. The task gets the stop code UserInitiated.
+func (svc *ECSServiceImpl) StopTask(ctx context.Context, cluster, taskARN, reason string) error {
+	in := &ecs.StopTaskInput{Cluster: aws.String(cluster), Task: aws.String(taskARN)}
+	if reason != "" {
+		in.Reason = aws.String(reason)
+	}
+	if _, err := svc.client.ECSClient().StopTask(ctx, in); err != nil {
+		return fmt.Errorf("StopTask: %w", err)
+	}
+	return nil
 }
