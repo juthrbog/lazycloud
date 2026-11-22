@@ -89,6 +89,12 @@ var routes = map[string]route{
 	"ecs_tasks": {root: "ecs_clusters", build: func(m Model, p map[string]string) nav.View {
 		return views.NewECSTasks(m.svc.ECS, p["cluster"], p["service"])
 	}},
+	"ecs_task_families": {root: "ecs_task_families", build: func(m Model, _ map[string]string) nav.View {
+		return views.NewECSTaskFamilies(m.svc.ECS)
+	}},
+	"ecs_task_definitions": {root: "ecs_task_families", build: func(m Model, p map[string]string) nav.View {
+		return views.NewECSTaskDefinitions(m.svc.ECS, p["family"])
+	}},
 	"ecs_containers": {root: "ecs_clusters", build: func(m Model, p map[string]string) nav.View {
 		return views.NewECSContainers(m.svc.ECS, p["cluster"], p["task"], m.activeRegion())
 	}},

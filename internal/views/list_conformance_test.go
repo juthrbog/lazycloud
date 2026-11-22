@@ -722,6 +722,76 @@ var conformanceCases = []conformanceCase{
 		coreType: reflect.TypeFor[listCore[ecsContainer]](),
 	},
 	{
+		name: "ecs_task_families",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockECSService)
+			svc.Test(t)
+			svc.On("ListTaskFamiliesPage", mock.MatchedBy(ok), mock.Anything).Return(&aws.FamilyPage{Families: []string{"f1"}}, nil)
+			svc.On("ListTaskFamiliesPage", mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewECSTaskFamilies(svc)
+		},
+		buildNil: func() nav.View { return NewECSTaskFamilies(nil) },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*ECSTaskFamilies).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[string]{gen: c.loadGen, items: []string{"f1"}, next: &tok, page: 1},
+				listPageMsg[string]{gen: c.loadGen, items: []string{"f2"}, page: 2},
+				listPageMsg[string]{gen: c.loadGen - 1, items: []string{"old"}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			return append([]string(nil), v.(*ECSTaskFamilies).items...)
+		},
+		wantIDs:  []string{"f1", "f2"},
+		rowKeys:  []string{"enter", "$"},
+		file:     "ecs_taskdefs.go",
+		typeName: "ECSTaskFamilies",
+		coreType: reflect.TypeFor[listCore[string]](),
+	},
+	{
+		name: "ecs_task_definitions",
+		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
+			t.Helper()
+			svc := new(awstest.MockECSService)
+			svc.Test(t)
+			svc.On("ListTaskDefinitionsPage", mock.MatchedBy(ok), "web", mock.Anything).Return(&aws.TaskDefinitionPage{Revisions: []aws.TaskDefinitionRef{{ARN: "arn:r1", Revision: 1}}}, nil)
+			svc.On("ListTaskDefinitionsPage", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("wrong context"))
+			return NewECSTaskDefinitions(svc, "web")
+		},
+		buildNil: func() nav.View { return NewECSTaskDefinitions(nil, "web") },
+		coreMsgs: func(v nav.View) []tea.Msg {
+			c := &v.(*ECSTaskDefinitions).listCore
+			tok := "t2"
+			return []tea.Msg{
+				listPageMsg[aws.TaskDefinitionRef]{gen: c.loadGen, items: []aws.TaskDefinitionRef{{ARN: "arn:r1"}}, next: &tok, page: 1},
+				listPageMsg[aws.TaskDefinitionRef]{gen: c.loadGen, items: []aws.TaskDefinitionRef{{ARN: "arn:r2"}}, page: 2},
+				listPageMsg[aws.TaskDefinitionRef]{gen: c.loadGen - 1, items: []aws.TaskDefinitionRef{{ARN: "arn:old"}}, page: 3},
+				listFailedMsg{gen: c.loadGen - 1, err: errors.New("old")},
+				msg.ErrorMsg{Err: &loadError{err: errors.New("echo")}},
+				listDetailMsg{err: context.Canceled},
+				keyPress('l'),
+			}
+		},
+		itemIDs: func(v nav.View) []string {
+			var ids []string
+			for _, it := range v.(*ECSTaskDefinitions).items {
+				ids = append(ids, it.ARN)
+			}
+			return ids
+		},
+		wantIDs:  []string{"arn:r1", "arn:r2"},
+		rowKeys:  []string{"enter", "$"},
+		file:     "ecs_taskdefs.go",
+		typeName: "ECSTaskDefinitions",
+		coreType: reflect.TypeFor[listCore[aws.TaskDefinitionRef]](),
+	},
+	{
 		name: "logs_streams",
 		build: func(t *testing.T, ok func(context.Context) bool) nav.View {
 			t.Helper()
@@ -1006,24 +1076,26 @@ func TestListConformance_FitsTheWindow(t *testing.T) {
 // loadContexts are the msg.ErrorMsg contexts of the default loads. A nil
 // service fails like any load, with the context of the load (PR 4 to 9).
 var loadContexts = map[string]string{
-	"sg_list":            "listing security groups",
-	"vpc_list":           "listing VPCs",
-	"subnet_list":        "listing subnets",
-	"ami_list":           "listing owned AMIs",
-	"ec2_list":           "listing EC2 instances",
-	"sqs_queues":         "listing SQS queues",
-	"s3_list":            "listing S3 buckets",
-	"logs_groups":        "listing log groups",
-	"lambda_functions":   "listing functions",
-	"logs_streams":       "listing log streams",
-	"lambda_aliases":     "listing aliases",
-	"lambda_versions":    "listing versions",
-	"lambda_triggers":    "listing triggers",
-	"lambda_invocations": "listing invocations",
-	"ecs_clusters":       "listing clusters",
-	"ecs_services":       "listing services",
-	"ecs_tasks":          "listing tasks",
-	"ecs_containers":     "listing containers",
+	"sg_list":              "listing security groups",
+	"vpc_list":             "listing VPCs",
+	"subnet_list":          "listing subnets",
+	"ami_list":             "listing owned AMIs",
+	"ec2_list":             "listing EC2 instances",
+	"sqs_queues":           "listing SQS queues",
+	"s3_list":              "listing S3 buckets",
+	"logs_groups":          "listing log groups",
+	"lambda_functions":     "listing functions",
+	"logs_streams":         "listing log streams",
+	"lambda_aliases":       "listing aliases",
+	"lambda_versions":      "listing versions",
+	"lambda_triggers":      "listing triggers",
+	"lambda_invocations":   "listing invocations",
+	"ecs_clusters":         "listing clusters",
+	"ecs_services":         "listing services",
+	"ecs_tasks":            "listing tasks",
+	"ecs_containers":       "listing containers",
+	"ecs_task_families":    "listing task definition families",
+	"ecs_task_definitions": "listing task definitions",
 }
 
 // Every list of the registry runs the conformance cases.

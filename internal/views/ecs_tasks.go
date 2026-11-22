@@ -319,14 +319,14 @@ func ecsTaskDetail(t aws.Task) msg.TabbedContentMsg {
 		ephemeral = fmt.Sprintf("%d GiB", t.EphemeralGiB)
 	}
 	platform := strings.TrimSpace(t.PlatformFamily + " " + t.PlatformVersion)
-	info, _ := buildInfo([]infoField{
+	info, infoLinks := buildInfo([]infoField{
 		{K: "Task", V: t.ID},
 		{K: "ARN", V: t.ARN},
 		{K: "Status", V: status},
 		{K: "Health", V: t.Health},
 		{K: "Stop code", V: t.StopCode},
 		{K: "Stop reason", V: t.StoppedReason},
-		{K: "Task def", V: aws.TaskDefinitionLabel(t.TaskDefinition)},
+		ecsTaskDefLink(t.TaskDefinition),
 		{K: "Launch", V: ecsTaskLaunch(t)},
 		{K: "Platform", V: platform},
 		{K: "CPU", V: t.CPU},
@@ -345,7 +345,7 @@ func ecsTaskDetail(t aws.Task) msg.TabbedContentMsg {
 	})
 	network, netLinks := buildInfo(ecsTaskNetwork(t))
 	tabs := []msg.TabContent{
-		{Title: "Info", Content: info, Format: "text"},
+		{Title: "Info", Content: info, Format: "text", Links: infoLinks},
 		{Title: "Containers", Content: ecsContainersText(t.Containers), Format: "text"},
 		{Title: "Network", Content: network, Format: "text", Links: netLinks},
 	}

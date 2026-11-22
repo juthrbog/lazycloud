@@ -56,6 +56,16 @@ func TestECSFocusOpensTheDetailAndEnterTheServices(t *testing.T) {
 	assert.Contains(t, rendered(m), "prod-cluster services")
 }
 
+// :taskdefs and its alias td open the task definition families
+// (docs/design/ecs.md, PR 5).
+func TestTaskDefsCommand(t *testing.T) {
+	m := newTestModel(140, 40)
+	for _, c := range []string{"taskdefs", "td"} {
+		_, cmd := m.executeCommand(c)
+		assert.Equal(t, []any{msg.NavigateMsg{ViewID: "ecs_task_families"}}, toAny(collectMsgs(cmd)), c)
+	}
+}
+
 // The container route passes the Region of the session, so a log group in
 // another Region shows its Region, and enter says so in place of opening
 // the viewer (docs/design/ecs.md, PR 4).

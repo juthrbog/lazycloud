@@ -90,6 +90,35 @@ func TestECSContainerLogs(t *testing.T) {
 	h.waitFor(stream, "docker-entrypoint")
 }
 
+// :taskdefs lists the families. enter on worker opens its two revisions,
+// newest first, and d opens the detail of one. $ on web shows the values
+// of its environment, which d hides (docs/design/ecs.md, PR 5).
+func TestECSTaskDefinitions(t *testing.T) {
+	h := start(t, "")
+	h.open("taskdefs", "ECS Task Definitions")
+	h.filter("worker")
+	h.enter()
+	h.waitFor("worker revisions", "2/2 revisions", "task-definition/worker:2", "task-definition/worker:1")
+	h.keys("d")
+	h.waitFor("worker:2", "Network mode", "awsvpc")
+
+	h = start(t, "")
+	h.open("taskdefs", "ECS Task Definitions")
+	h.filter("web")
+	// A family from an older research run can also match, and LocalStack
+	// lists it first. j moves to web then; with one row it does nothing.
+	if strings.Contains(h.screenText(), "zz-research-web") {
+		h.keys("j")
+	}
+	h.keys("d")
+	h.waitFor("Environment")
+	h.keys("3")
+	h.waitFor("DB_HOST", "••••", "Press $ in the list")
+	h.esc()
+	h.keys("$")
+	h.waitFor("web.db.internal")
+}
+
 // runOwnTask runs a task of web in prod-cluster and returns its ARN. The
 // task stops at the end of the test.
 func runOwnTask(t *testing.T) string {

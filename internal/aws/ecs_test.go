@@ -476,7 +476,7 @@ func TestDescribeTaskDefinition(t *testing.T) {
 "taskRoleArn":"arn:task","executionRoleArn":"arn:exec","runtimePlatform":{"cpuArchitecture":"X86_64","operatingSystemFamily":"LINUX"},
 "ephemeralStorage":{"sizeInGiB":21},"volumes":[{"name":"data"}],
 "containerDefinitions":[{"name":"app","image":"nginx:alpine","cpu":128,"memory":256,"memoryReservation":128,
-  "command":["nginx","-g","daemon off;"],"portMappings":[{"name":"http","containerPort":80,"hostPort":80,"protocol":"tcp"}],
+  "command":["nginx","-g","daemon off;"],"portMappings":[{"name":"http","containerPort":80,"hostPort":80,"protocol":"tcp"},{"containerPortRange":"8000-8010","protocol":"udp"}],
   "environment":[{"name":"LOG_LEVEL","value":"debug"}],"environmentFiles":[{"value":"arn:s3:env","type":"s3"}],
   "secrets":[{"name":"API_KEY","valueFrom":"arn:aws:secretsmanager:us-east-1:1:secret:key"}],
   "logConfiguration":{"logDriver":"awslogs","options":{"awslogs-group":"/ecs/web-app","awslogs-region":"us-east-1","awslogs-stream-prefix":"ecs"}}},
@@ -500,7 +500,8 @@ func TestDescribeTaskDefinition(t *testing.T) {
 	require.NotNil(t, app)
 	assert.True(t, app.Essential, "a container is essential unless it says otherwise")
 	assert.Equal(t, [3]int32{128, 256, 128}, [3]int32{app.CPU, app.Memory, app.MemoryReservation})
-	assert.Equal(t, []PortMapping{{Name: "http", ContainerPort: 80, HostPort: 80, Protocol: "tcp"}}, app.Ports)
+	assert.Equal(t, []PortMapping{{Name: "http", ContainerPort: 80, HostPort: 80, Protocol: "tcp"},
+		{ContainerPortRange: "8000-8010", Protocol: "udp"}}, app.Ports)
 	assert.Equal(t, map[string]string{"LOG_LEVEL": "debug"}, app.Env)
 	assert.Equal(t, []string{"arn:s3:env"}, app.EnvFiles)
 	assert.Equal(t, []SecretRef{{Name: "API_KEY", From: "arn:aws:secretsmanager:us-east-1:1:secret:key"}}, app.Secrets)

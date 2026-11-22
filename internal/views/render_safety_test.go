@@ -251,6 +251,18 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 			deliverItems(v, &v.listCore, []aws.Task{testTask})
 			return v
 		},
+		"ecs_task_families": func(*testing.T) tea.Model {
+			v := NewECSTaskFamilies(nil)
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []string{"web"})
+			return v
+		},
+		"ecs_task_definitions": func(*testing.T) tea.Model {
+			v := NewECSTaskDefinitions(nil, "web")
+			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+			deliverItems(v, &v.listCore, []aws.TaskDefinitionRef{{ARN: "arn:aws:ecs:us-east-1:1:task-definition/web:7", Family: "web", Revision: 7}})
+			return v
+		},
 		"ecs_containers": func(*testing.T) tea.Model {
 			v := NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1")
 			v.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
@@ -306,22 +318,24 @@ func TestViews_CleanDataShowsNoControlPictures(t *testing.T) {
 
 func TestViews_ShowListErrorSafely(t *testing.T) {
 	views := map[string]func() tea.Model{
-		"ami_list":         func() tea.Model { v := newTestAMIList(); return v },
-		"ec2_list":         func() tea.Model { v, _ := newTestEC2List(); return v },
-		"s3_list":          func() tea.Model { v, _ := newTestS3List(); return v },
-		"s3_objects":       func() tea.Model { v, _ := newTestS3Objects(); return v },
-		"s3_versions":      func() tea.Model { v := newTestS3Versions(); return v },
-		"sg_list":          func() tea.Model { v := newTestSGList(); return v },
-		"logs_groups":      func() tea.Model { return NewLogGroups(nil) },
-		"lambda_functions": func() tea.Model { return NewLambdaFunctions(nil) },
-		"logs_streams":     func() tea.Model { return NewLogStreams(nil, "g") },
-		"lambda_aliases":   func() tea.Model { return NewLambdaAliases(nil, "fn", "g") },
-		"lambda_versions":  func() tea.Model { return NewLambdaVersions(nil, "fn", "g") },
-		"lambda_triggers":  func() tea.Model { return NewLambdaTriggers(nil, "fn") },
-		"ecs_clusters":     func() tea.Model { return NewECSClusters(nil) },
-		"ecs_services":     func() tea.Model { return NewECSServices(nil, testClusterARN) },
-		"ecs_tasks":        func() tea.Model { return NewECSTasks(nil, testClusterARN, "web") },
-		"ecs_containers":   func() tea.Model { return NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1") },
+		"ami_list":             func() tea.Model { v := newTestAMIList(); return v },
+		"ec2_list":             func() tea.Model { v, _ := newTestEC2List(); return v },
+		"s3_list":              func() tea.Model { v, _ := newTestS3List(); return v },
+		"s3_objects":           func() tea.Model { v, _ := newTestS3Objects(); return v },
+		"s3_versions":          func() tea.Model { v := newTestS3Versions(); return v },
+		"sg_list":              func() tea.Model { v := newTestSGList(); return v },
+		"logs_groups":          func() tea.Model { return NewLogGroups(nil) },
+		"lambda_functions":     func() tea.Model { return NewLambdaFunctions(nil) },
+		"logs_streams":         func() tea.Model { return NewLogStreams(nil, "g") },
+		"lambda_aliases":       func() tea.Model { return NewLambdaAliases(nil, "fn", "g") },
+		"lambda_versions":      func() tea.Model { return NewLambdaVersions(nil, "fn", "g") },
+		"lambda_triggers":      func() tea.Model { return NewLambdaTriggers(nil, "fn") },
+		"ecs_clusters":         func() tea.Model { return NewECSClusters(nil) },
+		"ecs_services":         func() tea.Model { return NewECSServices(nil, testClusterARN) },
+		"ecs_tasks":            func() tea.Model { return NewECSTasks(nil, testClusterARN, "web") },
+		"ecs_containers":       func() tea.Model { return NewECSContainers(nil, testClusterARN, testTaskARN, "us-east-1") },
+		"ecs_task_families":    func() tea.Model { return NewECSTaskFamilies(nil) },
+		"ecs_task_definitions": func() tea.Model { return NewECSTaskDefinitions(nil, "web") },
 		"lambda_invocations": func() tea.Model {
 			v := NewLambdaInvocations(nil, map[string]string{"function": "fn", "log_group": "g"})
 			v.Update(lambdaGroupMsg{group: &aws.LogGroup{}})

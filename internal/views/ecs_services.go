@@ -193,10 +193,10 @@ func ecsServiceDetail(ctx context.Context, svc aws.ECSService, s aws.ClusterServ
 		}
 		current, currentErr = svc.DescribeServiceDeployment(ctx, s.CurrentDeployment)
 	}
-	info, _ := buildInfo(ecsServiceInfo(s))
+	info, infoLinks := buildInfo(ecsServiceInfo(s))
 	network, netLinks := buildInfo(ecsServiceNetwork(s))
 	tabs := []msg.TabContent{
-		{Title: "Info", Content: info, Format: "text"},
+		{Title: "Info", Content: info, Format: "text", Links: infoLinks},
 		//nolint:contextcheck // ErrorText reads only the local AWS config files.
 		{Title: "Deployments", Content: ecsDeploymentsText(s, current, currentErr), Format: "text"},
 		{Title: "Events", Content: ecsEventsText(s.Events), Format: "text"},
@@ -235,7 +235,7 @@ func ecsServiceInfo(s aws.ClusterService) []infoField {
 		{K: "Tasks", V: fmt.Sprintf("%d running, %d desired, %d pending", s.Running, s.Desired, s.Pending)},
 		{K: "Launch", V: launch},
 		{K: "Platform", V: s.PlatformVersion},
-		{K: "Task def", V: aws.TaskDefinitionLabel(s.TaskDefinition)},
+		ecsTaskDefLink(s.TaskDefinition),
 		{K: "Scheduling", V: s.SchedulingStrategy},
 		{K: "Controller", V: s.Controller},
 		{K: "Strategy", V: strings.TrimSpace(strategy)},
