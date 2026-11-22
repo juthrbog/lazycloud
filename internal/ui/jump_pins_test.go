@@ -12,14 +12,14 @@ import (
 // pinned in internal/app, H2, H3 and H5 in internal/views, and H11 in
 // internal/aws.
 
-// H7, fixed in PR 1: the input keeps at most 256 runes and drops the rest of
-// a paste with no sign, so a long S3 object ARN is cut.
-func TestJumpHazard_InputStopsAt256Runes(t *testing.T) {
-	long := "arn:aws:s3:::logs-bucket/" + strings.Repeat("a", 300)
+// H7, fixed in PR 1: the input kept at most 256 runes, so a long S3 object
+// ARN was cut. It now keeps 2,048, which holds an ARN with a key of 1,024
+// bytes, the most that S3 allows.
+func TestQueryInputKeepsALongObjectARN(t *testing.T) {
+	long := "arn:aws:s3:::logs-bucket/" + strings.Repeat("a", 1024)
 	var q queryInput
 	q.add(long)
-	assert.Len(t, []rune(q.String()), 256, "the rest of the paste is gone")
-	assert.Equal(t, long[:256], q.String())
+	assert.Equal(t, long, q.String())
 }
 
 // The input keeps format characters such as U+200B and U+00A0 on purpose,
