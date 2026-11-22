@@ -2,6 +2,7 @@ package aws
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,17 +10,19 @@ import (
 )
 
 // Pin test for the jump design (docs/design/jump.md). The other hazards are
-// pinned in internal/app, internal/views and internal/ui.
+// pinned in internal/app, internal/views and internal/ui. PR 3 flips H11.
 
 // H11, fixed in PR 3: GetBucketRegion does not confirm that a bucket
-// exists. With an endpoint (LocalStack) it makes no call at all, so a
-// missing bucket gives the session Region and no error. On AWS it also takes
-// the Region from a denied HeadBucket (s3_region.go:55-56). PR 3 adds a read
-// that confirms one bucket, and this test then asserts its not-found error.
-func TestJumpHazard_BucketRegionDoesNotConfirmABucket(t *testing.T) {
-	// Port 1 refuses every connection, so a call would fail.
-	c := &Client{Region: "eu-west-1", Endpoint: "http://127.0.0.1:1"}
-	region, err := NewS3Service(c).GetBucketRegion(context.Background(), "no-such-bucket-at-all")
+// exists. With an endpoint (LocalStack) it makes no call, so a missing
+// bucket gives the session Region and no error. HeadBucket makes the call
+// and says that the bucket is missing.
+func TestJumpHeadBucketConfirmsABucket(t *testing.T) {
+	_, svc := newS3Head(t, map[string]int{"logs": http.StatusOK})
+	region, err := svc.GetBucketRegion(context.Background(), "no-such-bucket-at-all")
 	require.NoError(t, err)
-	assert.Equal(t, "eu-west-1", region)
+	assert.Equal(t, "us-east-1", region, "GetBucketRegion still answers with the session Region")
+
+	err = svc.HeadBucket(context.Background(), "no-such-bucket-at-all", "")
+	require.ErrorIs(t, err, ErrBucketNotFound)
+	require.NoError(t, svc.HeadBucket(context.Background(), "logs", ""))
 }

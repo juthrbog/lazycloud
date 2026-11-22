@@ -30,8 +30,8 @@ const lambdaVersionBudget = 4
 const lambdaNoTriggers = "This list shows only poll-based triggers (SQS, Kinesis, DynamoDB, Kafka, MQ, DocumentDB). " +
 	"API Gateway, S3, SNS and EventBridge call the function directly and are set up on their side."
 
-// lambdaChildParams are the route parameters of a child list of f.
-func lambdaChildParams(f aws.Function) map[string]string {
+// LambdaChildParams are the route parameters of a child list of f.
+func LambdaChildParams(f aws.Function) map[string]string {
 	return map[string]string{"function": f.Name, "log_group": f.LogGroupName()}
 }
 

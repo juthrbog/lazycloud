@@ -94,7 +94,7 @@ func (g *LogGroups) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		switch it := g.cursorItem(); {
 		case it == nil:
 		case key.Matches(k, logsKeys.Events.Binding):
-			return g, navigate("logs_events", logGroupParams(*it))
+			return g, navigate("logs_events", LogGroupParams(*it))
 		case key.Matches(k, logsKeys.Streams.Binding):
 			return g, navigate("logs_streams", map[string]string{"log_group": it.Name})
 		}

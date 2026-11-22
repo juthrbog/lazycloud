@@ -69,6 +69,10 @@ func (m *MockS3Service) GetBucketRegion(ctx context.Context, bucket string) (str
 	return args.String(0), args.Error(1)
 }
 
+func (m *MockS3Service) HeadBucket(ctx context.Context, bucket, owner string) error {
+	return m.Called(ctx, bucket, owner).Error(0)
+}
+
 func (m *MockS3Service) DeleteObject(ctx context.Context, bucket, key string) error {
 	args := m.Called(ctx, bucket, key)
 	return args.Error(0)

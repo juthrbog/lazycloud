@@ -32,7 +32,7 @@ var guardCases = []guardCase{
 		reads: []string{
 			"ListBuckets", "ListObjectsPage", "HeadObject", "GetObjectContent",
 			"PresignGetObject", "ListAllKeys", "DownloadObject", "ListObjectVersions",
-			"GetBucketProperties", "GetBucketRegion",
+			"GetBucketProperties", "GetBucketRegion", "HeadBucket",
 		},
 		mutations: []string{
 			"DeleteObject", "DeleteObjects", "DeleteObjectVersions", "DeleteBucket",
@@ -66,7 +66,7 @@ var guardCases = []guardCase{
 		// ReceiveMessages changes the receive count, but the messages view
 		// owns the ReadOnly rule for a peek.
 		reads: []string{
-			"ListQueuesPage", "GetQueueAttributes", "FetchAllQueueAttributes",
+			"ListQueuesPage", "GetQueueAttributes", "GetQueueURL", "FetchAllQueueAttributes",
 			"ReceiveMessages", "ListDeadLetterSourceQueues", "ListMessageMoveTasks",
 		},
 		mutations: []string{
@@ -106,7 +106,7 @@ var guardCases = []guardCase{
 		name:  "ECS",
 		iface: reflect.TypeFor[aws.ECSService](),
 		reads: []string{
-			"ListClustersPage", "ListServicesPage", "ListTasksPage", "DescribeTask", "DescribeService",
+			"ListClustersPage", "DescribeCluster", "ListServicesPage", "ListTasksPage", "DescribeTask", "DescribeService",
 			"ListTaskFamiliesPage", "ListTaskDefinitionsPage", "DescribeTaskDefinition",
 			"DescribeServiceDeployment",
 		},

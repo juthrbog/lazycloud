@@ -292,7 +292,7 @@ func TestLogEvents_TailNeedsAStandardGroup(t *testing.T) {
 	f := newTailFake()
 	g := evGroup
 	g.Class = "INFREQUENT_ACCESS"
-	v := newTailView(t, f, logGroupParams(g))
+	v := newTailView(t, f, LogGroupParams(g))
 	msgs := pressEv(v, keyPress('F'))
 	assert.Empty(t, f.queries)
 	require.Len(t, toasts(msgs), 1)

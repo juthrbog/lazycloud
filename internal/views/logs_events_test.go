@@ -150,7 +150,7 @@ func newEvents(t *testing.T, f *fakeEvents, p map[string]string) *LogEvents {
 
 var evGroup = aws.LogGroup{Name: "/app", ARN: "arn:aws:logs:r:1:log-group:/app", Class: "STANDARD"}
 
-func groupParams() map[string]string { return logGroupParams(evGroup) }
+func groupParams() map[string]string { return LogGroupParams(evGroup) }
 
 func streamParams() map[string]string {
 	return map[string]string{"log_group": "/app", "log_group_arn": evGroup.ARN, "log_stream": "s1"}
@@ -243,7 +243,7 @@ func TestLogEvents_WalkStopsBeforeCreation(t *testing.T) {
 	g.Created = evNow // made just now, with events from the last 14 days
 	floor := evNow.Add(-logsBackfill)
 	f := &fakeEvents{events: []aws.LogEvent{evAt(logsBackfill-10*time.Minute, "msg-a", "s1", "e1")}}
-	v := newEvents(t, f, logGroupParams(g))
+	v := newEvents(t, f, LogGroupParams(g))
 	_, cmd := v.Update(msg.PickerResultMsg{Value: "7d", Tag: &logsRangeTag{}})
 	pump(v, cmd, 20)
 	pressEv(v, keyPress('l'))
@@ -262,7 +262,7 @@ func TestLogEvents_WalkStopsAtRetention(t *testing.T) {
 	g := evGroup
 	g.RetentionDays = 1
 	f := &fakeEvents{}
-	v := newEvents(t, f, logGroupParams(g))
+	v := newEvents(t, f, LogGroupParams(g))
 	pressEv(v, keyPress('t'))
 	v.Update(msg.PickerResultMsg{Value: "1d", Tag: &logsRangeTag{}})
 	pump(v, nil, 1)
@@ -302,7 +302,7 @@ func TestLogEvents_CustomRangeBeforeTheFloor(t *testing.T) {
 	g := evGroup
 	g.Created = evNow.Add(-time.Hour + logsBackfill)
 	f := &fakeEvents{}
-	v := newEvents(t, f, logGroupParams(g))
+	v := newEvents(t, f, LogGroupParams(g))
 	n := len(f.calls)
 	v.Update(msg.PickerResultMsg{Value: logRangeCustom, Tag: &logsRangeTag{}})
 	typeInto(v, "2026-11-19 10:00")
@@ -1003,7 +1003,7 @@ func TestLogEvents_WalkBackStopsAtTheFloorInAWindow(t *testing.T) {
 	g := evGroup
 	g.Created = evNow.Add(-4*time.Hour + logsBackfill) // the floor is 4 hours ago
 	f := &fakeEvents{}
-	v := newEvents(t, f, logGroupParams(g))
+	v := newEvents(t, f, LogGroupParams(g))
 	_, cmd := v.Update(msg.PickerResultMsg{Value: "3h", Tag: &logsRangeTag{}})
 	pump(v, cmd, 20)
 	pressEv(v, keyPress('l'))

@@ -102,13 +102,13 @@ func (v *LambdaFunctions) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(k, lambdaKeys.Env.Binding):
 			return v, v.revealDetail(*it)
 		case key.Matches(k, lambdaKeys.Aliases.Binding):
-			return v, navigate("lambda_aliases", lambdaChildParams(*it))
+			return v, navigate("lambda_aliases", LambdaChildParams(*it))
 		case key.Matches(k, lambdaKeys.Versions.Binding):
-			return v, navigate("lambda_versions", lambdaChildParams(*it))
+			return v, navigate("lambda_versions", LambdaChildParams(*it))
 		case key.Matches(k, lambdaKeys.Triggers.Binding):
-			return v, navigate("lambda_triggers", lambdaChildParams(*it))
+			return v, navigate("lambda_triggers", LambdaChildParams(*it))
 		case key.Matches(k, lambdaKeys.Invocations.Binding):
-			p := lambdaChildParams(*it)
+			p := LambdaChildParams(*it)
 			p["log_format"], p["system_log_level"] = it.LogFormat, it.SystemLogLevel
 			return v, navigate("lambda_invocations", p)
 		}

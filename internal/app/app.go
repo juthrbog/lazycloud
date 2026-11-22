@@ -16,6 +16,7 @@ import (
 	"github.com/juthrbog/lazycloud/internal/aws"
 	"github.com/juthrbog/lazycloud/internal/config"
 	"github.com/juthrbog/lazycloud/internal/eventlog"
+	"github.com/juthrbog/lazycloud/internal/jump"
 	appmsg "github.com/juthrbog/lazycloud/internal/msg"
 	"github.com/juthrbog/lazycloud/internal/nav"
 	"github.com/juthrbog/lazycloud/internal/ops"
@@ -597,6 +598,9 @@ func (m Model) update(teaMsg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.nav.UpdateCurrent(teaMsg)
 		return m, cmd
 
+	case jumpResultMsg:
+		return m.onJumpResult(msg)
+
 	case ui.ContentLinkActivatedMsg:
 		// Save the panel for back traversal. A link to the view on top
 		// pushes nothing, so it leaves no entry (decision D3, jump H10).
@@ -854,11 +858,19 @@ func readWriteKey(hints []ui.HintBinding, k tea.KeyPressMsg) bool {
 }
 
 func (m Model) executeCommand(input string) (Model, tea.Cmd) {
+	// A bare ARN, ID or URL is a jump. The check runs on the whole input,
+	// because an S3 key can hold spaces (docs/design/jump.md).
+	if jump.Looks(input) {
+		return m.jumpCommand(input)
+	}
 	// :login takes the profile to sign in, :logs a log group name, :lambda
-	// a function name and :ecs a cluster name.
+	// a function name, :ecs a cluster name and :go what to jump to.
 	name, arg, _ := strings.Cut(strings.TrimSpace(input), " ")
 	arg = strings.TrimSpace(arg)
 	cmd := registry.LookupCommand(name)
+	if cmd != nil && cmd.Name == "go" {
+		return m.jumpCommand(arg)
+	}
 	if cmd == nil || (arg != "" && cmd.Name != "login" && cmd.Name != "logs" && cmd.Name != "lambda" && cmd.Name != "ecs") {
 		_, toastCmd := m.toasts.Add("Unknown command: "+input, ui.ToastError, 0)
 		return m, toastCmd
