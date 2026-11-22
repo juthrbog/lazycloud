@@ -119,6 +119,50 @@ func TestECSTaskDefinitions(t *testing.T) {
 	h.waitFor("web.db.internal")
 }
 
+// c sets the desired count of scheduler, f forces a new deployment of it,
+// and X stops a task after the typed phrase (docs/design/ecs.md, PR 7).
+// scheduler has a desired count of 0, so the count stays 0 and the
+// deployment starts no container. The test stops a task of its own.
+func TestECSWriteActions(t *testing.T) {
+	arn := runOwnTask(t)
+	id := arn[strings.LastIndex(arn, "/")+1:]
+
+	h := start(t, "")
+	h.open("ecs", "ECS Clusters")
+	h.filter("prod-cluster")
+	h.enter()
+	h.waitFor("prod-cluster services", "3/3 services")
+	h.filter("scheduler")
+	h.keys("c")
+	h.waitFor("Desired count of scheduler", "Running 0, desired 0.")
+	h.submitForm()
+	h.waitFor("Set the desired count of scheduler to 0")
+	h.keys("f")
+	h.confirm("scheduler")
+	h.waitFor("Started a new deployment of scheduler")
+
+	h.esc()
+	h.waitGone("prod-cluster services")
+	h.keys("t")
+	h.waitFor("prod-cluster tasks", id)
+	h.filter(id)
+	h.keys("X")
+	h.confirm("stop 1 task")
+	h.waitFor("Stopped 1 task(s)")
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	out, err := services(t).Client.ECSClient().DescribeTasks(ctx, &ecs.DescribeTasksInput{
+		Cluster: sdkaws.String("prod-cluster"), Tasks: []string{arn},
+	})
+	if err != nil || len(out.Tasks) != 1 {
+		t.Fatalf("reading the task: %v", err)
+	}
+	if got := sdkaws.ToString(out.Tasks[0].StoppedReason); got != "Stopped by lazycloud" {
+		t.Errorf("the stop reason is %q", got)
+	}
+}
+
 // runOwnTask runs a task of web in prod-cluster and returns its ARN. The
 // task stops at the end of the test.
 func runOwnTask(t *testing.T) string {

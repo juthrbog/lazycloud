@@ -1,6 +1,6 @@
 # ECS
 
-Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Browse the task definitions by family and revision. Open a shell in a container with ECS Exec. Every call reads, so ReadOnly mode allows all of them. Exec is not a call of the app, and ReadOnly mode blocks it. The design is in `docs/design/ecs.md`. The write actions come in a later PR of that design.
+Browse ECS clusters, their services, their tasks and the containers of each task, with the stopped tasks and their stop reasons. enter on a container opens its log stream. Browse the task definitions by family and revision. Open a shell in a container with ECS Exec. Force a new deployment of a service, set its desired count, and stop tasks. ReadOnly mode allows the reads, and blocks exec and the write actions. The design is in `docs/design/ecs.md`.
 
 ## Views
 
@@ -63,6 +63,8 @@ Each page is one `ListServices` call of up to 100 services and up to 10 `Describ
 |-----|--------|
 | `enter` | Open the tasks of the service |
 | `d` | Open the detail of the service |
+| `f` | Force a new deployment of the service (see [Write actions](#write-actions)). ReadWrite mode only |
+| `c` | Set the desired count of the service (see [Write actions](#write-actions)). ReadWrite mode only |
 | `y` | Copy the ARN of the service |
 | `l` | Load more services |
 | `/` | Filter the loaded services |
@@ -121,7 +123,9 @@ A terminal of 80 to 119 columns leaves out Started. A narrow terminal shows only
 | `d` | Open the detail of the task |
 | `x` | Switch between the running and the stopped tasks |
 | `o` | Open a shell in a container of the task (see [Exec](#exec)). ReadWrite mode only |
-| `y` | Copy the ARN of the task |
+| `X` | Stop the selected tasks, or the task under the cursor (see [Write actions](#write-actions)). ReadWrite mode only |
+| `space` | Select the task, for `X` and `y` |
+| `y` | Copy the ARN of the task, or the ARNs of the selected tasks |
 | `l` | Load more tasks |
 | `/` | Filter the loaded tasks |
 | `s`, `S` | Sort |
@@ -207,6 +211,14 @@ Before the session, the app checks these, and shows a message when one fails:
 - The AWS CLI and the [Session Manager plugin](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-working-with-install-plugin.html) are installed.
 
 Type `exit` or press Ctrl+D to end the session and go back to LazyCloud. In the session, Ctrl+C goes to the shell in the container. Ctrl+C before the session starts cancels it without an error. When the CLI fails, its error stays on the screen until you press Enter, and then a message shows the exit code. LocalStack does not support ECS Exec.
+
+### Write actions
+
+Each action needs ReadWrite mode. Press `W` to switch. When ReadOnly mode is on at the time you confirm, the action does not run. After an action, the list loads again.
+
+- `f` on a service forces a new deployment after a y/n prompt. ECS replaces every task of the service with a new one, from the same task definition. A service with the `CODE_DEPLOY` or `EXTERNAL` deployment controller does not take a forced deployment from ECS, so the app refuses it with a message.
+- `c` on a service opens a form for the desired count. The form shows the running and the desired counts. The value must be a whole number from 0 up. A new desired count starts no deployment. For a service that Express Mode manages, the form says that Express Mode can change the count.
+- `X` on a task, or on the selected tasks, stops them after you type `stop N tasks` (`stop 1 task` for one). The stop reason is always "Stopped by lazycloud". A service starts new tasks in place of the stopped ones. When some tasks fail, the message says how many stopped and names the failed ones, for example "Stopped 2 of 3 task(s). Failed: bbb (AccessDeniedException)". The stopped list has no `X`.
 
 ### Task Definition Families
 

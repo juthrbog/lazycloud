@@ -40,7 +40,7 @@ Built with Go and the [Charm](https://charm.sh) ecosystem. Inspired by amazing T
 | [SQS](services/aws/sqs.md) | Queues, message peek, send, purge, delete, DLQ redrive |
 | [CloudWatch Logs](services/aws/logs.md) | Log groups, log streams, and an event viewer with filter patterns, time ranges and live tail (read only) |
 | [Lambda](services/aws/lambda.md) | Functions with their aliases, versions, triggers and recent invocations (duration, memory, cold starts), their detail with hidden environment values, and a jump to their logs (read only) |
-| [ECS](services/aws/ecs.md) | Clusters, services, tasks and containers, with the deployments and events of each service, the stopped tasks with their stop reasons, the log stream of each container, the task definitions, and a shell in a container with ECS Exec |
+| [ECS](services/aws/ecs.md) | Clusters, services, tasks and containers, with the deployments and events of each service, the stopped tasks with their stop reasons, the log stream of each container, the task definitions, a shell in a container with ECS Exec, force deploy, desired count and stop tasks |
 
 ## Getting Started
 

@@ -214,9 +214,9 @@ func TestECSTasks_Keys(t *testing.T) {
 	_, cmd = v.Update(keyPress('y'))
 	ts := toasts(collectMsgs(cmd))
 	require.NotEmpty(t, ts)
-	assert.Contains(t, ts[0].Text, testTaskARN)
+	assert.Equal(t, "Copied 1 task ARN(s)", ts[0].Text, "the list has a selection, so y copies the targets")
 
-	assert.Equal(t, []string{"enter", "d", "x", "o", "y", "l", "s/S", "/", "r"}, hintKeys(v.KeyMap()))
+	assert.Equal(t, []string{"enter", "d", "x", "o", "X", "space", "y", "l", "s/S", "/", "r"}, hintKeys(v.KeyMap()))
 	assert.Contains(t, v.View().Content, ui.HealthColor("HEALTHY"), "the Health column has its style")
 	assert.Contains(t, v.View().Content, ui.StateColor("RUNNING"), "the Status column has its style")
 	v.Update(tea.WindowSizeMsg{Width: 100, Height: 30})

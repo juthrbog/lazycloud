@@ -636,7 +636,8 @@ var conformanceCases = []conformanceCase{
 			return ids
 		},
 		wantIDs:  []string{"arn:s1", "arn:s2"},
-		rowKeys:  []string{"enter"},
+		rowKeys:  []string{"enter", "f", "c"},
+		rwKeys:   []string{"f", "c"},
 		file:     "ecs_services.go",
 		typeName: "ECSServices",
 		coreType: reflect.TypeFor[listCore[aws.ClusterService]](),
@@ -675,8 +676,8 @@ var conformanceCases = []conformanceCase{
 			return ids
 		},
 		wantIDs:  []string{"arn:t1", "arn:t2"},
-		rowKeys:  []string{"enter"},
-		rwKeys:   []string{"o"},
+		rowKeys:  []string{"enter", "o", "X"},
+		rwKeys:   []string{"o", "X"},
 		file:     "ecs_tasks.go",
 		typeName: "ECSTasks",
 		coreType: reflect.TypeFor[listCore[aws.Task]](),

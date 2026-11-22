@@ -31,13 +31,14 @@ var ecsServiceOpen = ui.NewHintBinding([]string{"enter"}, "enter", "tasks")
 // ECSServices lists the services of one cluster.
 type ECSServices struct {
 	listCore[aws.ClusterService]
+	ecs     aws.ECSService
 	cluster string // ARN
 }
 
 // NewECSServices creates the service list of a cluster. The row key is the
 // ARN, so y copies it.
 func NewECSServices(svc aws.ECSService, cluster string) *ECSServices {
-	v := &ECSServices{cluster: cluster}
+	v := &ECSServices{ecs: svc, cluster: cluster}
 	v.listCore = newListCore(listConfig[aws.ClusterService]{
 		Noun:         "services",
 		LoadingLabel: "Loading services...",
@@ -71,16 +72,32 @@ func (v *ECSServices) Footer() string { return v.footer() }
 func (v *ECSServices) View() tea.View { return tea.NewView(v.render("", "")) }
 
 func (v *ECSServices) KeyMap() []ui.HintBinding {
-	return v.hints(ecsServiceOpen, ecsKeys.Details, ecsKeys.CopyARN, listKeys.More,
-		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+	return v.hints(ecsServiceOpen, ecsKeys.Details, ecsActionKeys.Force, ecsActionKeys.Count, ecsKeys.CopyARN,
+		listKeys.More, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
-// Update returns the view itself. enter opens the tasks of the service.
+// Update returns the view itself. enter opens the tasks of the service, f
+// forces a new deployment, and c sets the desired count.
 func (v *ECSServices) Update(m tea.Msg) (tea.Model, tea.Cmd) {
-	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil &&
-		key.Matches(k, ecsServiceOpen.Binding) {
-		if it := v.cursorItem(); it != nil {
+	switch m := m.(type) {
+	case msg.ConfirmResultMsg:
+		if _, ok := m.Tag.(*ecsForceTag); ok {
+			return v, v.onForceConfirm(m)
+		}
+	case msg.FormResultMsg:
+		return v, v.onCountForm(m)
+	case ecsActionDoneMsg:
+		return v, ecsActionResult(m, v.endTask, v.reload, "Refreshing services...")
+	}
+	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() && v.err == nil {
+		switch it := v.cursorItem(); {
+		case it == nil:
+		case key.Matches(k, ecsServiceOpen.Binding):
 			return v, navigate("ecs_tasks", map[string]string{"cluster": v.cluster, "service": it.Name})
+		case key.Matches(k, ecsActionKeys.Force.Binding):
+			return v, v.forceDeploy(*it)
+		case key.Matches(k, ecsActionKeys.Count.Binding):
+			return v, v.desiredCount(*it)
 		}
 	}
 	return v, v.update(m)

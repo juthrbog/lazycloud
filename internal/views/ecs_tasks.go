@@ -67,9 +67,11 @@ func NewECSTasks(svc aws.ECSService, client *aws.Client, cluster, service string
 		OnLoaded: func(items []aws.Task, _ string) tea.Cmd {
 			return ecsUnreadable("task", items, func(t aws.Task) (string, string) { return t.ID, t.Err })
 		},
-		PageBudget: ecsTaskPageBudget,
-		MoreKey:    true,
-		Copy:       true,
+		PageBudget:  ecsTaskPageBudget,
+		MoreKey:     true,
+		MultiSelect: true, // X stops the selected tasks
+		Copy:        true,
+		CopyNoun:    "task ARN",
 	})
 	return v
 }
@@ -106,12 +108,12 @@ func (v *ECSTasks) Footer() string {
 func (v *ECSTasks) View() tea.View { return tea.NewView(v.render("", "")) }
 
 func (v *ECSTasks) KeyMap() []ui.HintBinding {
-	toggle := ecsTaskKeys.Stopped
 	if v.stopped {
-		toggle = ecsTaskKeys.Running
+		return v.hints(ecsTaskKeys.Open, ecsKeys.Details, ecsTaskKeys.Running, listKeys.Select, ecsKeys.CopyARN,
+			listKeys.More, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 	}
-	return v.hints(ecsTaskKeys.Open, ecsKeys.Details, toggle, ecsExecKey, ecsKeys.CopyARN, listKeys.More,
-		listKeys.Sort, listKeys.Filter, listKeys.Refresh)
+	return v.hints(ecsTaskKeys.Open, ecsKeys.Details, ecsTaskKeys.Stopped, ecsExecKey, ecsActionKeys.Stop,
+		listKeys.Select, ecsKeys.CopyARN, listKeys.More, listKeys.Sort, listKeys.Filter, listKeys.Refresh)
 }
 
 // Update returns the view itself. enter opens the containers. x
@@ -125,10 +127,21 @@ func (v *ECSTasks) Update(m tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case ecsExecFinishedMsg:
 		return v, onExecFinished(m)
+	case msg.ConfirmResultMsg:
+		if _, ok := m.Tag.(*ecsStopTag); ok {
+			return v, v.onStopConfirm(m)
+		}
+	case ecsActionDoneMsg:
+		v.table.DeselectAll()
+		return v, ecsActionResult(m, v.endTask, v.reload, "Refreshing tasks...")
 	}
 	if k, ok := m.(tea.KeyPressMsg); ok && !v.filter.Active() {
 		switch {
-		case v.err == nil && key.Matches(k, ecsExecKey.Binding):
+		case v.err == nil && key.Matches(k, ecsActionKeys.Stop.Binding):
+			return v, v.stopTasks()
+		case !v.stopped && v.err == nil && key.Matches(k, ecsExecKey.Binding):
+			// The stopped list has no o in its hints, so the app does not
+			// block it in ReadOnly: it must do nothing there.
 			if it := v.cursorItem(); it != nil {
 				return v, ecsExecTask(v.client, v.cluster, *it)
 			}
